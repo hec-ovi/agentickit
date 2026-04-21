@@ -1,4 +1,3 @@
-import { createRequire } from "node:module";
 import {
   type LanguageModel,
   type ToolSet,
@@ -435,29 +434,29 @@ type ResolvedModel = { kind: "instance"; model: LanguageModel } | { kind: "gatew
 type StringModelResolver = (model: string) => ResolvedModel;
 
 /**
- * Sync existence check for an optional peer-dep package.
+ * True when `err` looks like a module-resolution failure.
  *
- * Dynamic `await import()` is what actually runs the adapter at request time,
- * but we want to surface a "missing peer dep" failure at handler-creation
- * time — not on the first chat message. `createRequire().resolve()` is the
- * cheapest synchronous signal: if the package resolves, `import()` will load
- * it; if it throws `MODULE_NOT_FOUND`, we know the consumer forgot to run
- * `npm install`.
+ * We distinguish these from generic adapter failures so the caller can surface
+ * a clear "run: npm install <pkg>" message instead of an opaque import error.
  */
-function canResolveModule(pkg: string): boolean {
-  try {
-    const require = createRequire(import.meta.url);
-    require.resolve(pkg);
-    return true;
-  } catch {
-    return false;
-  }
+function isModuleNotFound(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const code = (err as { code?: unknown }).code;
+  return code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND";
 }
 
 /**
  * Lazy-loads the adapter package for a given prefix and returns a function
  * that accepts the remaining model ID (everything after the first `/`) and
  * produces a `LanguageModel`.
+ *
+ * Resolution happens entirely through `await import(variable)` so the handler
+ * works under bundlers that chunk the server route and rewrite
+ * `import.meta.url` to a location where `createRequire` can't find the
+ * consumer's node_modules (Next.js 16 + Turbopack is the canonical case).
+ * A `MODULE_NOT_FOUND` here becomes a clear "install the peer" message;
+ * other errors re-throw untouched so a broken adapter version surfaces
+ * its real cause.
  */
 async function loadAdapter(
   prefix: SupportedProviderPrefix,
@@ -467,8 +466,21 @@ async function loadAdapter(
   // resolve the optional peer dependency at build time.
   const pkg = descriptor.pkg;
 
+  const importPackage = async <T>(): Promise<T> => {
+    try {
+      return (await import(pkg)) as T;
+    } catch (err) {
+      if (isModuleNotFound(err)) {
+        throw new Error(
+          `agentickit: the adapter package "${pkg}" is not installed. Run: npm install ${pkg}`,
+        );
+      }
+      throw err;
+    }
+  };
+
   if (descriptor.kind === "openrouter") {
-    const mod = (await import(pkg)) as OpenRouterAdapterModule;
+    const mod = await importPackage<OpenRouterAdapterModule>();
     if (typeof mod.createOpenRouter !== "function") {
       throw new Error(
         `agentickit: "${descriptor.pkg}" was imported but does not export \`createOpenRouter\`. Please upgrade to a version compatible with AI SDK v6.`,
@@ -482,7 +494,7 @@ async function loadAdapter(
   // into the first-party factory shape.
   type FirstPartyPrefix = Exclude<SupportedProviderPrefix, "openrouter">;
   const firstPartyPrefix = prefix as FirstPartyPrefix;
-  const mod = (await import(pkg)) as FirstPartyAdapterModule;
+  const mod = await importPackage<FirstPartyAdapterModule>();
   const factory = mod[firstPartyPrefix];
   if (typeof factory !== "function") {
     throw new Error(
@@ -540,14 +552,13 @@ function buildStringModelResolver(
     const descriptor = PROVIDER_ADAPTERS[prefix];
     const modelId = model.slice(prefix.length + 1);
 
-    // 1. Direct provider key present → require the adapter package to be
-    //    installed and hand off to it. Unambiguous choice — fail fast.
+    // 1. Direct provider key present → hand off to the matching adapter.
+    //    We previously did a synchronous `createRequire().resolve()` probe
+    //    here; it fails under bundlers that rewrite `import.meta.url` (Next
+    //    16 Turbopack), so we now rely on the dynamic `await import()` in
+    //    `loadAdapter` to surface a clear "install the peer" error if the
+    //    adapter is missing. For direct-dep adapters this is a non-issue.
     if (process.env[descriptor.envKey]) {
-      if (!canResolveModule(descriptor.pkg)) {
-        throw new Error(
-          `agentickit: model "${model}" requires either AI_GATEWAY_API_KEY (Vercel gateway) or ${descriptor.envKey} + the ${descriptor.pkg} package installed.\nRun: npm install ${descriptor.pkg}`,
-        );
-      }
       // Kick off the import eagerly so subsequent requests are hot.
       void ensureAdapter(prefix);
       return async () => {
@@ -567,11 +578,9 @@ function buildStringModelResolver(
     //    secrets, etc.) after module load. We re-probe on the first call.
     return async () => {
       if (process.env[descriptor.envKey]) {
-        if (!canResolveModule(descriptor.pkg)) {
-          throw new Error(
-            `agentickit: model "${model}" requires either AI_GATEWAY_API_KEY (Vercel gateway) or ${descriptor.envKey} + the ${descriptor.pkg} package installed.\nRun: npm install ${descriptor.pkg}`,
-          );
-        }
+        // Adapter resolution is deferred to `ensureAdapter` below; its
+        // `import()` path surfaces a clean "install the peer" message on
+        // MODULE_NOT_FOUND. We no longer pre-probe here (see above).
         const adapter = await ensureAdapter(prefix);
         return { kind: "instance", model: adapter(modelId) };
       }
