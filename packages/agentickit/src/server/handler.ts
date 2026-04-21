@@ -899,6 +899,26 @@ export function createPilotHandler(
     // --- Dispatch to streamText ----------------------------------------------
     try {
       const modelMessages = await convertToModelMessages(body.messages as UIMessage[]);
+      // Defensive patch for an AI-SDK-v6 edge case where an empty-parameter
+      // tool call (e.g. `hide_chart()`, `submit_form()`) serializes with no
+      // `arguments` field. OpenAI-compatible providers (including Groq,
+      // which validates strictly) reject such messages with
+      //   "messages.N.tool_calls.0.function.arguments : property missing"
+      // on the next turn once the tool_call is in the history. We walk the
+      // converted messages and normalise any missing/empty `arguments` to
+      // the string "{}" so the next provider call round-trips cleanly.
+      for (const msg of modelMessages as Array<Record<string, unknown>>) {
+        const toolCalls = (msg as { toolCalls?: unknown }).toolCalls;
+        if (!Array.isArray(toolCalls)) continue;
+        for (const tc of toolCalls as Array<Record<string, unknown>>) {
+          const input = (tc as { input?: unknown }).input;
+          if (input === undefined || input === null) {
+            (tc as Record<string, unknown>).input = "{}";
+          } else if (typeof input === "string" && input.trim() === "") {
+            (tc as Record<string, unknown>).input = "{}";
+          }
+        }
+      }
       const clientTools = buildClientToolSet(body.tools);
       // The public option type is intentionally loose (`Record<string, unknown>`)
       // to avoid leaking AI SDK internal types through agentickit's API. We
