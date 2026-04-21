@@ -27,6 +27,7 @@
  */
 
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { PilotMarkdown } from "./pilot-markdown.js";
 
 /**
  * Narrow structural shape of an AI SDK 6 `UIMessage`. We deliberately keep
@@ -232,6 +233,7 @@ function PilotMessageItem(props: PilotMessageItemProps): ReactNode {
             // but their ordering within a message is stable so index is safe.
             key={partKey(part, index)}
             part={part}
+            index={index}
           />
         ))}
         {showStreamingIndicator ? <StreamingDots /> : null}
@@ -257,20 +259,33 @@ function extractText(parts: ReadonlyArray<RenderablePart>): string {
   return out;
 }
 
-function PilotPart(props: { part: RenderablePart }): ReactNode {
-  const { part } = props;
+function PilotPart(props: { part: RenderablePart; index: number }): ReactNode {
+  const { part, index } = props;
+
+  // Per-part staggered fade — 50ms offset, capped at 250ms so a long
+  // tool-heavy turn doesn't delay the final text noticeably. The stagger is
+  // applied via inline style so the shared keyframe can stay in CSS.
+  const stagger = Math.min(index * 50, 250);
+  const partStyle = stagger > 0 ? { animationDelay: `${stagger}ms` } : undefined;
 
   if (part.type === "text") {
     const text = (part as { text?: string }).text ?? "";
     if (!text) return null;
-    return <div className="pilot-part-text">{text}</div>;
+    // Assistant text is parsed as markdown — user messages render as plain
+    // text inside `pilot-user-bubble` a few lines up, so this branch only
+    // fires for assistant/system output where markdown is intended.
+    return (
+      <div className="pilot-part-text pilot-part-enter" style={partStyle}>
+        <PilotMarkdown text={text} />
+      </div>
+    );
   }
 
   if (part.type === "reasoning") {
     const text = (part as { text?: string }).text ?? "";
     const state = (part as { state?: string }).state;
     return (
-      <details className="pilot-reasoning">
+      <details className="pilot-reasoning pilot-part-enter" style={partStyle}>
         <summary>{state === "streaming" ? "Thinking..." : "Thought"}</summary>
         <div className="pilot-reasoning-body">{text}</div>
       </details>
@@ -278,7 +293,7 @@ function PilotPart(props: { part: RenderablePart }): ReactNode {
   }
 
   if (part.type.startsWith("tool-") || part.type === "dynamic-tool") {
-    return <PilotToolPart part={part as ToolPart} />;
+    return <PilotToolPart part={part as ToolPart} stagger={stagger} />;
   }
 
   // step-start, file, source-*, data-* — unrendered in v0.1. We return null
@@ -303,14 +318,20 @@ interface ToolPart {
   errorText?: string;
 }
 
-function PilotToolPart(props: { part: ToolPart }): ReactNode {
-  const { part } = props;
+function PilotToolPart(props: { part: ToolPart; stagger: number }): ReactNode {
+  const { part, stagger } = props;
   const name =
     part.toolName ?? (part.type.startsWith("tool-") ? part.type.slice("tool-".length) : "tool");
   const label = describeToolState(part.state);
+  const style = stagger > 0 ? { animationDelay: `${stagger}ms` } : undefined;
 
   return (
-    <details className="pilot-tool" data-tool-name={name} data-tool-state={part.state}>
+    <details
+      className="pilot-tool pilot-part-enter"
+      data-tool-name={name}
+      data-tool-state={part.state}
+      style={style}
+    >
       <summary>
         <span className="pilot-tool-name">{name}</span>
         <span className="pilot-tool-status" data-state={label.category}>

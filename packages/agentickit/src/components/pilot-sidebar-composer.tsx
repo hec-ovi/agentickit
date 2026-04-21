@@ -4,6 +4,25 @@
  * Kept headless and local-state-only — the parent passes down the callbacks
  * it wants to wire to `sendMessage` / `stop`, so the component is trivial
  * to test in isolation and carries no hidden dependency on the chat context.
+ *
+ * Stop-to-abort flow (verified 2026-04):
+ *
+ *   1. User clicks the stop button while `isLoading` is true.
+ *   2. `onStop` (wired in `<PilotSidebar>`) fires `chat.stop()` — this is the
+ *      AI SDK's `AbstractChat.stop`, which aborts the in-flight
+ *      `AbortController` attached to the fetch request.
+ *   3. The fetch aborts client-side; the browser propagates `AbortError` to
+ *      the server and Next.js / the web runtime closes the incoming Request,
+ *      which ends `streamText` on the server side. No zombie LLM billing.
+ *   4. `chat.status` flips to `"ready"`; `isLoading` goes false; this
+ *      component re-renders and swaps the stop button back to send.
+ *   5. The next turn sees a fresh AbortController via the SDK's internal
+ *      `setAbortController(null)` reset.
+ *
+ * If the button ever feels unresponsive, the usual culprit is that stop is
+ * called but the UI hasn't received the `"ready"` status update yet — check
+ * that the server route returns a stream the AI SDK recognizes, not a plain
+ * Response buffered to the end.
  */
 
 import {
@@ -41,6 +60,12 @@ export interface PilotComposerProps {
 /** Imperative handle consumers can use to programmatically focus the input. */
 export interface PilotComposerHandle {
   focus: () => void;
+  /**
+   * Replace the current draft with `text` and focus the input. Used by the
+   * skills menu to drop a starter prompt into the composer. We intentionally
+   * do NOT auto-submit — the user finishes the thought and hits Enter.
+   */
+  prefill: (text: string) => void;
 }
 
 /**
@@ -57,12 +82,38 @@ export const PilotComposer = forwardRef<PilotComposerHandle, PilotComposerProps>
     const { onSubmit, onStop, isLoading, placeholder, sendLabel, autoFocus } = props;
 
     const [draft, setDraft] = useState("");
+    // Latches on click and releases when `isLoading` transitions to false.
+    // Without this, the stop button stays green-ticking until the server
+    // acks the abort, which on slow networks can read as "nothing happened".
+    const [stopPending, setStopPending] = useState(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    // Release the "pending stop" latch whenever the parent reports a loading
+    // transition. If `isLoading` flipped off, the server has acknowledged the
+    // abort (or finished naturally) and we can re-arm. If it flipped back on
+    // because the user sent a new message, we also reset.
+    useEffect(() => {
+      if (!isLoading && stopPending) {
+        setStopPending(false);
+      }
+    }, [isLoading, stopPending]);
 
     useImperativeHandle(
       ref,
       () => ({
         focus: () => textareaRef.current?.focus(),
+        prefill: (text: string) => {
+          setDraft(text);
+          // Defer focus + caret placement to the next frame so the textarea
+          // has resized to the new content before we place the caret.
+          requestAnimationFrame(() => {
+            const el = textareaRef.current;
+            if (!el) return;
+            el.focus();
+            const len = text.length;
+            el.setSelectionRange(len, len);
+          });
+        },
       }),
       [],
     );
@@ -130,8 +181,14 @@ export const PilotComposer = forwardRef<PilotComposerHandle, PilotComposerProps>
               type="button"
               className="pilot-send"
               data-variant="stop"
-              onClick={onStop}
+              data-pending={stopPending ? "true" : undefined}
+              onClick={() => {
+                if (stopPending) return;
+                setStopPending(true);
+                onStop();
+              }}
               aria-label="Stop generating"
+              disabled={stopPending}
             >
               <StopIcon />
             </button>

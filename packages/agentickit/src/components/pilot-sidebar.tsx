@@ -38,6 +38,7 @@ import { PilotChatContext, type PilotChatContextValue } from "../context.js";
 import { PilotComposer, type PilotComposerHandle } from "./pilot-sidebar-composer.js";
 import { PilotMessageList } from "./pilot-sidebar-messages.js";
 import { injectSidebarStyles } from "./pilot-sidebar-styles.js";
+import { PilotSkillsPanel } from "./pilot-skills-panel.js";
 
 export interface PilotSidebarProps {
   /** Open by default. Defaults to `false` (toggle button only). */
@@ -194,6 +195,10 @@ export function PilotSidebar(props: PilotSidebarProps = {}): ReactNode {
     [handleSend],
   );
 
+  const handlePrefill = useCallback((text: string): void => {
+    composerRef.current?.prefill(text);
+  }, []);
+
   const handleStop = useCallback((): void => {
     if (!chat) return;
     void chat.stop();
@@ -279,11 +284,14 @@ export function PilotSidebar(props: PilotSidebarProps = {}): ReactNode {
 
       {suggestions && suggestions.length > 0 && messages.length === 0 ? (
         <div className="pilot-suggestions" aria-label="Suggested prompts">
-          {suggestions.map((text) => (
+          {suggestions.map((text, index) => (
             <button
               key={text}
               type="button"
               className="pilot-suggestion"
+              // 60ms stagger, capped so a long suggestion list doesn't drag
+              // the UI; the suggestions only render on first-message state.
+              style={{ animationDelay: `${Math.min(index * 60, 360)}ms` }}
               onClick={() => handleSuggestion(text)}
               disabled={isLoading}
             >
@@ -292,6 +300,8 @@ export function PilotSidebar(props: PilotSidebarProps = {}): ReactNode {
           ))}
         </div>
       ) : null}
+
+      <PilotSkillsPanel onPickPrompt={handlePrefill} />
 
       <PilotComposer
         ref={composerRef}

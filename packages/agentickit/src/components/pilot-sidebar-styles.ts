@@ -232,7 +232,97 @@ export const PILOT_SIDEBAR_CSS = `
   overflow-wrap: anywhere;
 }
 
-.pilot-part-text { white-space: pre-wrap; }
+.pilot-part-text { }
+
+/* ---------------------------------------------------------------------------
+ * Markdown output. Conservative sizes so assistant prose reads as one
+ * continuous beat — not an article with section breaks. Headings are only
+ * moderately larger than body text; lists are tight-spaced.
+ * ------------------------------------------------------------------------- */
+.pilot-md-p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.pilot-md-p + .pilot-md-p { margin-top: 8px; }
+.pilot-md-h1,
+.pilot-md-h2,
+.pilot-md-h3 {
+  margin: 6px 0 2px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--pilot-fg);
+}
+.pilot-md-h1 { font-size: 15px; }
+.pilot-md-h2 { font-size: 14px; }
+.pilot-md-h3 { font-size: 13px; color: var(--pilot-fg-muted); }
+.pilot-md-ul,
+.pilot-md-ol {
+  margin: 2px 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pilot-md-ul li::marker { color: var(--pilot-fg-subtle); }
+.pilot-md-ol li::marker { color: var(--pilot-fg-subtle); }
+.pilot-md-link {
+  color: var(--pilot-fg);
+  text-decoration: underline;
+  text-decoration-color: var(--pilot-border-strong);
+  text-underline-offset: 2px;
+  transition: text-decoration-color 120ms ease;
+}
+.pilot-md-link:hover { text-decoration-color: var(--pilot-accent); }
+.pilot-md-inline-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.92em;
+  padding: 1px 5px;
+  background: var(--pilot-tool-bg);
+  border: 1px solid var(--pilot-tool-border);
+  border-radius: 4px;
+}
+.pilot-md-pre {
+  position: relative;
+  margin: 4px 0;
+  padding: 10px 12px;
+  background: var(--pilot-bg-elevated);
+  border: 1px solid var(--pilot-tool-border);
+  border-radius: var(--pilot-radius-sm);
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--pilot-fg);
+}
+.pilot-md-pre code { background: none; border: none; padding: 0; font-size: inherit; }
+.pilot-md-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 8px;
+  font: 500 11px/1.4 var(--pilot-font);
+  color: var(--pilot-fg-muted);
+  background: var(--pilot-bg);
+  border: 1px solid var(--pilot-border-strong);
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.pilot-md-pre:hover .pilot-md-copy,
+.pilot-md-copy:focus-visible {
+  opacity: 1;
+}
+.pilot-md-copy:hover {
+  color: var(--pilot-fg);
+  border-color: var(--pilot-accent);
+}
+.pilot-md-hr {
+  margin: 8px 0;
+  border: none;
+  border-top: 1px solid var(--pilot-border);
+}
 
 .pilot-reasoning {
   margin: 0;
@@ -318,10 +408,16 @@ export const PILOT_SIDEBAR_CSS = `
   max-height: 200px;
 }
 
+/*
+ * Typing indicator — a slow opacity breathe instead of the old bounce.
+ * 1.5s loop, staggered by 150ms per dot, opacity-only so the baseline never
+ * shifts. Lives inside the sidebar only; page-level work is surfaced through
+ * ring pulses and tool-call chips, never through this indicator.
+ */
 .pilot-streaming-dots {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   height: 14px;
   padding: 0 2px;
 }
@@ -330,14 +426,14 @@ export const PILOT_SIDEBAR_CSS = `
   width: 4px; height: 4px;
   border-radius: 999px;
   background: var(--pilot-fg-muted);
-  opacity: 0.5;
-  animation: pilot-dot 1.1s infinite ease-in-out;
+  opacity: 0.35;
+  animation: pilot-breathe 1.5s infinite ease-in-out;
 }
-.pilot-streaming-dots span:nth-child(2) { animation-delay: 0.18s; }
-.pilot-streaming-dots span:nth-child(3) { animation-delay: 0.36s; }
-@keyframes pilot-dot {
-  0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
-  40% { opacity: 1; transform: translateY(-2px); }
+.pilot-streaming-dots span:nth-child(2) { animation-delay: 0.15s; }
+.pilot-streaming-dots span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes pilot-breathe {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 0.9; }
 }
 
 .pilot-error {
@@ -473,11 +569,134 @@ export const PILOT_SIDEBAR_CSS = `
   to { opacity: 1; transform: translateY(0); }
 }
 
+/*
+ * Per-part enter. Runs once when a part first mounts; the stagger delay is
+ * set inline by the renderer so each part slides in just after the one before
+ * it. The transform is small (3px) on purpose — this is a "catch the eye"
+ * hint, not a reveal animation.
+ */
+.pilot-part-enter {
+  animation: pilot-part-in 200ms ease-out both;
+}
+@keyframes pilot-part-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/*
+ * Tool-call expansion: when the user opens the <details>, the body fades in.
+ * Height is driven by CSS; we keep the motion to opacity so browsers that
+ * refuse to animate auto-height (all of them, correctly) still feel smooth.
+ */
+.pilot-tool[open] .pilot-tool-body,
+.pilot-reasoning[open] .pilot-reasoning-body {
+  animation: pilot-details-in 180ms ease-out both;
+}
+@keyframes pilot-details-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/*
+ * Suggestion chips: staggered entrance on first render. The delay is set
+ * inline by the parent so adding/removing chips doesn't re-run the animation
+ * on existing chips.
+ */
+.pilot-suggestion {
+  animation: pilot-part-in 220ms ease-out both;
+}
+
+/* ---------------------------------------------------------------------------
+ * Skills panel — a dense, Raycast-style capability list. Closed by default,
+ * opens inline between the message area and composer.
+ * ------------------------------------------------------------------------- */
+.pilot-skills {
+  border-top: 1px solid var(--pilot-border);
+  background: var(--pilot-bg);
+  flex: 0 0 auto;
+}
+.pilot-skills-trigger {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  color: var(--pilot-fg-muted);
+  font: 500 12px/1.4 var(--pilot-font);
+  cursor: pointer;
+  text-align: left;
+  transition: color 120ms ease, background 120ms ease;
+}
+.pilot-skills-trigger:hover { color: var(--pilot-fg); background: var(--pilot-tool-bg); }
+.pilot-skills-trigger:focus-visible {
+  outline: 2px solid var(--pilot-accent);
+  outline-offset: -2px;
+}
+.pilot-skills-caret {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--pilot-fg-subtle);
+  font-size: 14px;
+  line-height: 1;
+}
+.pilot-skills-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  animation: pilot-details-in 180ms ease-out both;
+}
+.pilot-skills-list li + li { border-top: 1px solid var(--pilot-border); }
+.pilot-skills-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto;
+  grid-auto-flow: row;
+  gap: 2px 12px;
+  width: 100%;
+  padding: 8px 16px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+.pilot-skills-row:hover { background: var(--pilot-tool-bg); }
+.pilot-skills-row:focus-visible {
+  outline: 2px solid var(--pilot-accent);
+  outline-offset: -2px;
+}
+.pilot-skills-name {
+  grid-column: 1 / -1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--pilot-fg);
+}
+.pilot-skills-desc {
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+  color: var(--pilot-fg-muted);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pilot-sidebar,
   .pilot-message,
   .pilot-empty,
-  .pilot-error { animation: none; }
+  .pilot-error,
+  .pilot-part-enter,
+  .pilot-suggestion,
+  .pilot-skills-list,
+  .pilot-tool[open] .pilot-tool-body,
+  .pilot-reasoning[open] .pilot-reasoning-body { animation: none; }
+  .pilot-streaming-dots span { animation: none; opacity: 0.6; }
 }
 `;
 
