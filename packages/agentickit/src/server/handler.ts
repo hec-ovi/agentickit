@@ -899,26 +899,49 @@ export function createPilotHandler(
     // --- Dispatch to streamText ----------------------------------------------
     try {
       const modelMessages = await convertToModelMessages(body.messages as UIMessage[]);
-      // Defensive patch for an AI-SDK-v6 edge case where an empty-parameter
-      // tool call (e.g. `hide_chart()`, `submit_form()`) serializes with no
-      // `arguments` field. OpenAI-compatible providers (including Groq,
-      // which validates strictly) reject such messages with
-      //   "messages.N.tool_calls.0.function.arguments : property missing"
-      // on the next turn once the tool_call is in the history. We walk the
-      // converted messages and normalise any missing/empty `arguments` to
-      // the string "{}" so the next provider call round-trips cleanly.
-      for (const msg of modelMessages as Array<Record<string, unknown>>) {
-        const toolCalls = (msg as { toolCalls?: unknown }).toolCalls;
-        if (!Array.isArray(toolCalls)) continue;
-        for (const tc of toolCalls as Array<Record<string, unknown>>) {
-          const input = (tc as { input?: unknown }).input;
-          if (input === undefined || input === null) {
-            (tc as Record<string, unknown>).input = "{}";
-          } else if (typeof input === "string" && input.trim() === "") {
-            (tc as Record<string, unknown>).input = "{}";
+
+      // Defensive patch for an AI-SDK-v6 edge case. Two failure modes feed
+      // into the same downstream symptom:
+      //
+      //   1. A tool with a `.strict()` empty Zod schema (e.g. `hide_chart()`,
+      //      `submit_form()`) produces a ModelMessage tool-call part with
+      //      `input` as an empty object. When AI SDK converts to OpenAI
+      //      provider format, the empty `{}` can in some paths be dropped
+      //      entirely — the `function.arguments` string goes missing.
+      //
+      //   2. A streamed tool call interrupted by the user's stop button
+      //      lands in history with `input` set to `undefined` (the stream
+      //      never finished producing the JSON). `convertToModelMessages`
+      //      keeps the partial tool-call part with a missing `input`.
+      //
+      // OpenAI-compatible providers that strict-validate (Groq in
+      // particular) reject such messages on the next turn with:
+      //   "messages.N.tool_calls.K.function.arguments : property missing"
+      //
+      // AI SDK v6's `ModelMessage` keeps tool calls inside `content[]`
+      // (not at a top-level `toolCalls` field — that's the OpenAI provider
+      // format, a layer deeper in the conversion). So we walk each
+      // assistant message's content parts and normalize any `tool-call`
+      // whose `input` is missing, null, or an empty string to the empty
+      // object `{}`. That serializes to `"{}"` downstream, which passes
+      // strict validation and matches the `.strict()` empty-schema
+      // declaration at the hook site.
+      for (const msg of modelMessages as Array<{ role?: unknown; content?: unknown }>) {
+        if (msg.role !== "assistant") continue;
+        if (!Array.isArray(msg.content)) continue;
+        for (const part of msg.content as Array<Record<string, unknown>>) {
+          if (part.type !== "tool-call") continue;
+          const input = part.input;
+          if (
+            input === undefined ||
+            input === null ||
+            (typeof input === "string" && input.trim() === "")
+          ) {
+            part.input = {};
           }
         }
       }
+
       const clientTools = buildClientToolSet(body.tools);
       // The public option type is intentionally loose (`Record<string, unknown>`)
       // to avoid leaking AI SDK internal types through agentickit's API. We
