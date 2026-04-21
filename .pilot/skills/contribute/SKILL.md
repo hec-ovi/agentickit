@@ -2,7 +2,7 @@
 name: contribute
 version: 1.0.0
 description: |
-  Extend agentickit as a contributor — add a hook, a component, a
+  Extend agentickit as a contributor. Add a hook, a component, a
   provider prefix, a new protocol field, or an example. Covers the
   expected shape of a patch (src + test + docs), the size budget
   (<1,500 LoC total), and how to validate a change before sending a PR.
@@ -112,13 +112,13 @@ Match the existing style:
 When you change the public surface, update in this order:
 
 1. `README.md` at the repo root (the narrative).
-2. `packages/agentickit/README.md` (the npm description — often shorter).
+2. `packages/agentickit/README.md` (the npm description, often shorter).
 3. `.pilot/skills/*/SKILL.md` for every skill whose procedure drifts.
 4. Type exports in `packages/agentickit/src/index.ts` (and
    `server/index.ts`, `protocol/index.ts`).
 
 Skip steps 1-2 for internal refactors that don't change the surface.
-Always do (3) — the skills are the agent-facing contract.
+Always do (3); the skills are the agent-facing contract.
 
 ### Phase 6: validate
 
@@ -128,7 +128,7 @@ pnpm --filter agentickit test
 pnpm --filter @agentickit-examples/todo dev   # smoke test in the example
 ```
 
-All three green. Then — and only then — stage and commit.
+All three green. Then, and only then, stage and commit.
 
 ### Phase 7: commit and push
 
@@ -144,7 +144,7 @@ git add packages/agentickit/src/hooks/use-pilot-action.ts \
 git commit -m "feat(hooks): <one-line summary>"
 ```
 
-Do NOT use `git add -A` — a stray `.env`, screenshot, or `node_modules`
+Do NOT use `git add -A`. A stray `.env`, screenshot, or `node_modules`
 slipping in is a headache.
 
 ### Phase 8: size check

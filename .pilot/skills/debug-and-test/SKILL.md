@@ -81,7 +81,7 @@ three entry points under `dist/`: `index`, `server`, `protocol`. Each
 ships ESM + CJS + `.d.ts`.
 
 If the build fails with a TypeScript error, the `src/` tree has a real
-type bug — fix the source, not the build config.
+type bug. Fix the source, not the build config.
 
 ### Phase 3: run the tests
 
@@ -115,7 +115,7 @@ OPENROUTER_API_KEY=sk-or-v1-...
 (See `skills/choose-provider/SKILL.md` for the supported keys.)
 
 The example's route at `examples/todo/app/api/pilot/route.ts` omits
-`model` — it relies on auto-detection. See
+`model`; it relies on auto-detection. See
 `skills/install-and-setup/SKILL.md` for the auto-detect priority list.
 
 ### Phase 5: rebuild-and-retry after source edits
@@ -150,10 +150,10 @@ pnpm --filter @agentickit-examples/todo dev   # next dev in another
 
 Priority order, always:
 
-1. `packages/agentickit/src/` — the source.
-2. Tests under the same tree (if present) — executable contract.
-3. `README.md` and `packages/agentickit/README.md` — consumer-facing narrative.
-4. `.pilot/skills/*` — agent procedures.
+1. `packages/agentickit/src/`: the source.
+2. Tests under the same tree (if present): executable contract.
+3. `README.md` and `packages/agentickit/README.md`: consumer-facing narrative.
+4. `.pilot/skills/*`: agent procedures.
 
 If a `.pilot/skill` disagrees with (1) or (2), the skill is out of date.
 Fix the skill. Report the drift in your final message.
@@ -161,7 +161,7 @@ Fix the skill. Report the drift in your final message.
 ## Anti-Patterns
 
 - Editing `dist/` directly. It's regenerated on every build.
-- Using `npm install` at the workspace root. Use `pnpm install` — this
+- Using `npm install` at the workspace root. Use `pnpm install`; this
   is a pnpm workspace and `npm install` will fight the lockfile.
 - Bypassing the workspace link by installing `agentickit` from npm into
   the example. The local source becomes invisible to the running example;
@@ -176,7 +176,7 @@ After a debugging session, report:
 
 - The exact command sequence that reproduced the failure.
 - The file and line number of the root cause.
-- The fix (as a diff summary, not a full patch — the caller can read
+- The fix (as a diff summary, not a full patch; the caller can read
   the file).
 - Any drift between docs and code you noticed along the way.
 
