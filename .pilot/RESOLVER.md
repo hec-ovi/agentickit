@@ -9,6 +9,7 @@ read the referenced skill file before acting.
 | Trigger | Skill |
 |---------|-------|
 | Every task that edits code in this repo | `conventions/quality.md` |
+| Every task that edits UI / styles / visual components | `conventions/ui-aesthetic.md` |
 | Every commit | `conventions/commit-style.md` |
 
 ## Consumer-facing: using the package in a React app
