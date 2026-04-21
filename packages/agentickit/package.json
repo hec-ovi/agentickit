@@ -1,0 +1,84 @@
+{
+  "name": "agentickit",
+  "version": "0.0.0",
+  "description": "Three hooks that wire an AI copilot into your React app's state, actions, and forms. AI SDK 6 native. Ships with an optional .pilot/ skills folder. Under 1,500 lines. MIT.",
+  "keywords": [
+    "ai",
+    "copilot",
+    "react",
+    "hooks",
+    "ai-sdk",
+    "openai",
+    "anthropic",
+    "llm",
+    "agentic",
+    "chat",
+    "sidebar",
+    "form",
+    "react-hook-form",
+    "skills"
+  ],
+  "license": "MIT",
+  "author": "Hector Oviedo",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hectoroviedo/agentickit"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "import": "./dist/server/index.js",
+      "require": "./dist/server/index.cjs"
+    },
+    "./protocol": {
+      "types": "./dist/protocol/index.d.ts",
+      "import": "./dist/protocol/index.js",
+      "require": "./dist/protocol/index.cjs"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0",
+    "react-hook-form": "^7.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react-hook-form": { "optional": true }
+  },
+  "dependencies": {
+    "ai": "^6.0.0",
+    "nanoid": "^5.0.9",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.1.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "happy-dom": "^15.11.7",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-hook-form": "^7.53.2",
+    "tsup": "^8.3.5",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
