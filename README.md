@@ -36,7 +36,7 @@ function Checkout() {
 
 export default function App() {
   return (
-    <Pilot model="openai/gpt-4o" apiUrl="/api/pilot">
+    <Pilot model="openrouter/qwen/qwen3-coder:free" apiUrl="/api/pilot">
       <Checkout />
       <PilotSidebar />
     </Pilot>
@@ -109,7 +109,7 @@ import { Pilot, PilotSidebar } from "agentickit";
 
 export default function Root({ children }: { children: React.ReactNode }) {
   return (
-    <Pilot model="openai/gpt-4o" apiUrl="/api/pilot">
+    <Pilot model="openrouter/qwen/qwen3-coder:free" apiUrl="/api/pilot">
       {children}
       <PilotSidebar />
     </Pilot>

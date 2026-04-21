@@ -99,7 +99,7 @@ function TodoBoard() {
 
 export default function App() {
   return (
-    <Pilot model="openai/gpt-4o" apiUrl="/api/pilot">
+    <Pilot model="openrouter/qwen/qwen3-coder:free" apiUrl="/api/pilot">
       <TodoBoard />
       <PilotSidebar />
     </Pilot>

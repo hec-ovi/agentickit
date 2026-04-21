@@ -1,7 +1,8 @@
 # `@agentickit/example-todo`
 
 A minimal todo-list app demonstrating [`agentickit`](../../packages/agentickit):
-three hooks, one sidebar, working end-to-end against the Vercel AI Gateway.
+three hooks, one sidebar, working end-to-end against the OpenRouter free tier
+(no credit card required — any supported provider also works).
 
 It's built with Next.js 14 (App Router), TypeScript strict mode, and zero UI
 dependencies beyond React + `agentickit`.
@@ -30,7 +31,8 @@ From the monorepo root (so the workspace resolves `agentickit`):
 pnpm install
 pnpm --filter @agentickit/example-todo build   # sanity check
 cp examples/todo/.env.local.example examples/todo/.env.local
-# Add AI_GATEWAY_API_KEY to examples/todo/.env.local
+# Add OPENROUTER_API_KEY to examples/todo/.env.local
+# (grab a free key at https://openrouter.ai/keys — no credit card needed)
 pnpm --filter @agentickit/example-todo dev
 ```
 
@@ -45,12 +47,22 @@ Open <http://localhost:3001>, click the copilot button, and try:
 
 ## Environment
 
-The only required variable is `AI_GATEWAY_API_KEY`. Get one at
-<https://vercel.com/ai-gateway>. When deploying to Vercel with OIDC linked, no
-key is needed — the platform injects `VERCEL_OIDC_TOKEN` automatically.
+The recommended variable is `OPENROUTER_API_KEY` (free tier, no credit card;
+grab one at <https://openrouter.ai/keys>). The route's default model is
+`openrouter/qwen/qwen3-coder:free`, which supports tool calling.
 
-Want a different model? Edit `app/api/pilot/route.ts`. Any
-`openai/*`, `anthropic/*`, or `groq/*` gateway string works.
+Alternatives — pick one and uncomment it in `.env.local`:
+
+- Direct provider keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GROQ_API_KEY`,
+  `GOOGLE_GENERATIVE_AI_API_KEY`, or `MISTRAL_API_KEY` (swap the model string
+  in `app/api/pilot/route.ts` to the matching `<provider>/<model>`).
+- `AI_GATEWAY_API_KEY` — routes the default string through the Vercel AI
+  Gateway. On Vercel deployments, `VERCEL_OIDC_TOKEN` is injected
+  automatically.
+
+Want a different model? Edit `app/api/pilot/route.ts`. Any `openai/*`,
+`anthropic/*`, `groq/*`, `openrouter/*`, `google/*`, or `mistral/*` string
+works — or pass a `LanguageModel` instance (Ollama, Azure, Bedrock, …).
 
 ---
 
