@@ -20,6 +20,26 @@ import type {
   PilotStateRegistration,
   ResolverEntry,
 } from "../types.js";
+import {
+  PilotConfirmModal,
+  type PilotConfirmRender,
+  type PilotConfirmRenderArgs,
+} from "./pilot-confirm-modal.js";
+
+/** Approval outcome from the themed modal or consumer override. */
+type ConfirmOutcome = "approved" | "cancelled";
+
+/**
+ * Internal state for the currently-pending confirm dialog. A single slot —
+ * mutating tool calls arrive serialized (the model emits them one by one via
+ * `onToolCall`), so we never need to queue more than one card at a time.
+ */
+interface PendingConfirm {
+  name: string;
+  description: string;
+  input: unknown;
+  resolve: (outcome: ConfirmOutcome) => void;
+}
 
 /**
  * Props accepted by `<Pilot>`. All configuration is optional; a bare
@@ -27,6 +47,18 @@ import type {
  */
 export interface PilotProps extends PilotConfig {
   children: ReactNode;
+  /**
+   * Render-prop override for the confirm modal shown before every
+   * `mutating: true` action. Receives the action metadata plus `approve`
+   * and `cancel` callbacks. When omitted, the package's default themed
+   * modal is used.
+   *
+   * Callers must invoke `approve` or `cancel` exactly once per render — the
+   * provider's `onToolCall` is suspended on a promise that only settles when
+   * one of the two fires. Returning `null` is legal (the modal becomes
+   * invisible) but will leave the tool call hanging forever.
+   */
+  renderConfirm?: PilotConfirmRender;
 }
 
 /**
@@ -57,7 +89,25 @@ export function Pilot(props: PilotProps): ReactNode {
   // `model` is intentionally undefined by default: when omitted the server
   // handler's own model (or its auto-detection) picks the provider. Pass a
   // string to override per-request from the client.
-  const { children, apiUrl = "/api/pilot", model } = props;
+  const { children, apiUrl = "/api/pilot", model, renderConfirm } = props;
+
+  // ------------------------------------------------------------------
+  // Confirm-modal state.
+  // ------------------------------------------------------------------
+  //
+  // A single pending-confirm slot. The `onToolCall` handler below pushes a
+  // PendingConfirm here and awaits the resolver; the themed `<PilotConfirmModal>`
+  // at the bottom of this component (or the caller's override) invokes
+  // `approve` / `cancel` which calls the stored `resolve`. Putting the state
+  // on the provider means the modal sits inside the Pilot tree and inherits
+  // its theme variables naturally.
+  //
+  // We track recent approvals keyed by `actionName` so repeated same-action
+  // confirms within 5 seconds skip the modal. A micro-UX win that matches
+  // Arc/Raycast flows where "yes, yes, yes" is clearly the user's state.
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
+  const recentApprovalsRef = useRef<Map<string, number>>(new Map());
+  const AUTO_CONFIRM_WINDOW_MS = 5000;
 
   // ------------------------------------------------------------------
   // Registry — mutable Map + subscription set.
@@ -370,27 +420,45 @@ export function Pilot(props: PilotProps): ReactNode {
         return;
       }
 
-      // Mutating actions require explicit confirmation. v0.1 uses window.confirm;
-      // TODO: expose a `renderConfirm` prop on <Pilot> so consumers can drop in a
-      //   styled modal instead of the browser's native dialog.
+      // Mutating actions require explicit confirmation. The themed modal at
+      // the bottom of this component renders above the page; `onToolCall` is
+      // suspended on the promise until the user clicks Confirm or Cancel
+      // (or hits Enter/Escape, or clicks the backdrop). An optional
+      // `renderConfirm` prop lets consumers drop in a fully custom modal —
+      // the default implementation matches the sidebar's aesthetic.
+      //
+      // Auto-confirm window: if the user approved the same action within
+      // AUTO_CONFIRM_WINDOW_MS, skip the modal. This is the "yes, yes, yes"
+      // UX polish for tight multi-step loops (e.g., several submit_detail
+      // calls in a row during a form fill). The window is intentionally
+      // short — long enough to feel responsive on a tight sequence, short
+      // enough that a stale approval doesn't leak into a new context.
       if (action.mutating) {
-        const ok =
-          typeof window !== "undefined" && typeof window.confirm === "function"
-            ? window.confirm(
-                `The assistant wants to run "${action.name}". Allow?\n\n` +
-                  `Description: ${action.description}\n` +
-                  `Arguments: ${JSON.stringify(toolCall.input, null, 2)}`,
-              )
-            : true;
-        if (!ok) {
-          chatRef.current?.addToolOutput({
-            tool: toolCall.toolName,
-            toolCallId: toolCall.toolCallId,
-            state: "output-error",
-            errorText: "User declined the action.",
+        const now = Date.now();
+        const lastApproval = recentApprovalsRef.current.get(action.name) ?? 0;
+        const withinGrace = now - lastApproval <= AUTO_CONFIRM_WINDOW_MS;
+        if (!withinGrace) {
+          const outcome = await new Promise<ConfirmOutcome>((resolve) => {
+            setPendingConfirm({
+              name: action.name,
+              description: action.description,
+              input: toolCall.input,
+              resolve,
+            });
           });
-          return;
+          if (outcome === "cancelled") {
+            // Loop-friendly decline: `ok: false` returned as a normal output,
+            // not an error, so the model can react conversationally rather
+            // than surfacing a red error banner in the sidebar.
+            chatRef.current?.addToolOutput({
+              tool: toolCall.toolName,
+              toolCallId: toolCall.toolCallId,
+              output: { ok: false, reason: "User declined." } as never,
+            });
+            return;
+          }
         }
+        recentApprovalsRef.current.set(action.name, Date.now());
       }
 
       try {
@@ -443,9 +511,58 @@ export function Pilot(props: PilotProps): ReactNode {
     [chat.messages, chat.status, chat.error, sendMessage, chat.stop],
   );
 
+  // Stable approve / cancel callbacks bound to the currently pending confirm.
+  // Whichever fires first settles the suspended promise inside `onToolCall`
+  // and clears the slot so the modal unmounts. We reset to `null` synchronously
+  // with the resolve so React unmounts the portal before the next
+  // tool-call arrives (which would otherwise get stacked on top).
+  const handleApprove = useCallback(() => {
+    setPendingConfirm((current) => {
+      if (current) current.resolve("approved");
+      return null;
+    });
+  }, []);
+  const handleCancel = useCallback(() => {
+    setPendingConfirm((current) => {
+      if (current) current.resolve("cancelled");
+      return null;
+    });
+  }, []);
+
+  // Render either the custom override (via renderConfirm) or the default
+  // themed modal. Both paths share the same approve/cancel callbacks so the
+  // provider's resolver logic doesn't care which UI is in play.
+  const confirmArgs: PilotConfirmRenderArgs | null = pendingConfirm
+    ? {
+        name: pendingConfirm.name,
+        description: pendingConfirm.description,
+        input: pendingConfirm.input,
+        approve: handleApprove,
+        cancel: handleCancel,
+      }
+    : null;
+
+  const confirmNode: ReactNode = renderConfirm ? (
+    confirmArgs ? (
+      renderConfirm(confirmArgs)
+    ) : null
+  ) : (
+    <PilotConfirmModal
+      open={Boolean(confirmArgs)}
+      name={confirmArgs?.name ?? ""}
+      description={confirmArgs?.description ?? ""}
+      input={confirmArgs?.input}
+      approve={handleApprove}
+      cancel={handleCancel}
+    />
+  );
+
   return (
     <PilotRegistryContext.Provider value={registryValue}>
-      <PilotChatContext.Provider value={chatValue}>{children}</PilotChatContext.Provider>
+      <PilotChatContext.Provider value={chatValue}>
+        {children}
+        {confirmNode}
+      </PilotChatContext.Provider>
     </PilotRegistryContext.Provider>
   );
 }
