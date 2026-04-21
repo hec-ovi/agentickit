@@ -86,6 +86,22 @@ Requires **Node 20+** and a framework that supports the Web Fetch API on the ser
 
 ---
 
+## For AI agents
+
+This repo ships with a root-level [`llms.txt`](./llms.txt) and a [`.pilot/`](./.pilot/) folder so any LLM agent — including a fresh Claude Code or Cursor session with no prior memory — can onboard cold.
+
+The path: read `llms.txt` first for the map, follow it to [`.pilot/AGENTS.md`](./.pilot/AGENTS.md) for the house rules and read order, then use [`.pilot/RESOLVER.md`](./.pilot/RESOLVER.md) to match the user's task to one of ten `SKILL.md` files. Read the matching skill before writing code. Every snippet in `.pilot/` compiles against the current tree; the source under `packages/agentickit/src/` is the ground truth.
+
+This `.pilot/` folder is also the canonical example of what an `agentickit`-using app's own `.pilot/` looks like when shipped. To author skills for your own app, follow [`skills/write-a-consumer-skill/SKILL.md`](./.pilot/skills/write-a-consumer-skill/SKILL.md).
+
+```bash
+cat llms.txt
+cat .pilot/AGENTS.md
+cat .pilot/RESOLVER.md
+```
+
+---
+
 ## Try it in 60 seconds
 
 ### 1. Server route
