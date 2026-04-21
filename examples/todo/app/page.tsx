@@ -247,7 +247,7 @@ function TodoBoard() {
 
 export default function Page() {
   return (
-    <Pilot apiUrl="/api/pilot" model="openai/gpt-4o-mini">
+    <Pilot apiUrl="/api/pilot">
       <TodoBoard />
       <PilotSidebar
         defaultOpen={false}
