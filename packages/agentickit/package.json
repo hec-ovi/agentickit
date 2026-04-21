@@ -45,7 +45,11 @@
       "require": "./dist/protocol/index.cjs"
     }
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -59,9 +63,12 @@
     "react-hook-form": "^7.0.0"
   },
   "peerDependenciesMeta": {
-    "react-hook-form": { "optional": true }
+    "react-hook-form": {
+      "optional": true
+    }
   },
   "dependencies": {
+    "@ai-sdk/react": "^3.0.170",
     "ai": "^6.0.0",
     "nanoid": "^5.0.9",
     "zod": "^3.23.8"

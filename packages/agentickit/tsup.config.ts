@@ -12,5 +12,5 @@ export default defineConfig({
   clean: true,
   splitting: false,
   treeshake: true,
-  external: ["react", "react-dom", "react-hook-form", "ai"],
+  external: ["react", "react-dom", "react-hook-form", "ai", "@ai-sdk/react"],
 });

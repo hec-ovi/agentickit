@@ -25,7 +25,10 @@ export interface PilotManifest {
  * Fetch and validate a manifest from a URL (typically `/pilot/manifest.json`
  * served from the consumer app's public directory).
  */
-export async function loadManifest(url: string, fetchFn: typeof fetch = fetch): Promise<PilotManifest> {
+export async function loadManifest(
+  url: string,
+  fetchFn: typeof fetch = fetch,
+): Promise<PilotManifest> {
   const response = await fetchFn(url);
   if (!response.ok) {
     throw new Error(
@@ -59,11 +62,7 @@ function validateManifest(input: unknown): PilotManifest {
  * Build a LoadedSkill from a skill's markdown contents and a binding-presence check.
  * Used by the runtime after fetching each SKILL.md referenced in the manifest.
  */
-export function buildLoadedSkill(
-  markdown: string,
-  path: string,
-  hasBinding: boolean,
-): LoadedSkill {
+export function buildLoadedSkill(markdown: string, path: string, hasBinding: boolean): LoadedSkill {
   const { frontmatter, body } = parseSkill(markdown);
   return { frontmatter, body, path, hasBinding };
 }
@@ -71,7 +70,10 @@ export function buildLoadedSkill(
 /**
  * Convenience: fetch + parse RESOLVER.md from a URL.
  */
-export async function loadResolver(url: string, fetchFn: typeof fetch = fetch): Promise<ReturnType<typeof parseResolver>> {
+export async function loadResolver(
+  url: string,
+  fetchFn: typeof fetch = fetch,
+): Promise<ReturnType<typeof parseResolver>> {
   const response = await fetchFn(url);
   if (!response.ok) {
     throw new Error(`Failed to load RESOLVER.md from ${url}: ${response.status}`);

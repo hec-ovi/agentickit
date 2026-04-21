@@ -55,7 +55,13 @@ export interface PilotMessage {
 
 export type PilotMessagePart =
   | { type: "text"; text: string }
-  | { type: "tool-call"; toolName: string; args: unknown; status: "generating" | "done"; result?: unknown };
+  | {
+      type: "tool-call";
+      toolName: string;
+      args: unknown;
+      status: "generating" | "done";
+      result?: unknown;
+    };
 
 /**
  * Provider configuration for the <Pilot> component.
