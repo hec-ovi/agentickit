@@ -60,6 +60,16 @@ export interface CreatePilotHandlerOptions {
    * never be returned here — they live in environment variables.
    */
   getProviderOptions?: () => Record<string, unknown>;
+  /**
+   * Maximum number of steps the model is allowed to take per request
+   * (a "step" is one model call plus any tool calls it emits). Defaults
+   * to 5 — enough for call → result → follow-up → polish loops without
+   * letting a runaway agent burn the entire request budget.
+   *
+   * Raise this if your app has chained tools that legitimately need more
+   * round-trips; lower it to cap cost.
+   */
+  maxSteps?: number;
 }
 
 /**
@@ -125,6 +135,23 @@ const requestBodySchema = z
      * Optional map of client-declared tools. Keys are tool names.
      */
     tools: z.record(clientToolSchema).optional(),
+    /**
+     * Optional client-derived system prompt fragment. Typically composed from
+     * the consumer app's `.pilot/` manifest and the currently registered
+     * skills. It is *appended* to the server-side `options.system` (never
+     * replaces it) so server-owned instructions always take precedence.
+     *
+     * We cap the length so a compromised client can't balloon every request
+     * with a megabyte of instructions.
+     */
+    system: z.string().max(16_000).optional(),
+    /**
+     * Optional map of registered-state snapshots. Each key is the state slice's
+     * `name`; values carry a description and the current value. Serialized as
+     * JSON and appended to the system prompt so the model can read live UI
+     * state verbatim.
+     */
+    context: z.record(z.unknown()).optional(),
   })
   .passthrough();
 
@@ -147,6 +174,30 @@ const CORS_HEADERS: Readonly<Record<string, string>> = {
  */
 function isSupportedModel(model: string): model is `${SupportedProviderPrefix}${string}` {
   return SUPPORTED_PROVIDER_PREFIXES.some((prefix) => model.startsWith(prefix));
+}
+
+/**
+ * Merge the server-owned system prompt with any client-derived sections.
+ *
+ * Order is intentional: server instructions come first (they can't be
+ * overridden or shadowed by a tampered client), then the client's derived
+ * skills / conventions block, then a serialized snapshot of registered state.
+ * Returns `undefined` when nothing is set so we don't pass an empty string
+ * to `streamText`.
+ */
+function composeSystemPrompt(
+  serverSystem: string | undefined,
+  clientSystem: string | undefined,
+  clientContext: Record<string, unknown> | undefined,
+): string | undefined {
+  const parts: string[] = [];
+  if (serverSystem) parts.push(serverSystem);
+  if (clientSystem) parts.push(clientSystem);
+  if (clientContext && Object.keys(clientContext).length > 0) {
+    // JSON-stringify with a label so the LLM can pattern-match on the block.
+    parts.push(`## Current UI state\n\`\`\`json\n${JSON.stringify(clientContext, null, 2)}\n\`\`\``);
+  }
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
 }
 
 /**
@@ -289,15 +340,21 @@ export function createPilotHandler(
         | StreamTextProviderOptions
         | undefined;
 
+      // Compose the final system prompt. Server-owned `options.system`
+      // always comes first so it can't be overridden by a compromised
+      // client; client-derived sections (.pilot/ skills, registered state)
+      // are appended.
+      const system = composeSystemPrompt(options.system, body.system, body.context);
+
       const result = streamText({
         model: model as LanguageModel,
-        system: options.system,
+        ...(system ? { system } : {}),
         messages: modelMessages,
         ...(clientTools ? { tools: clientTools } : {}),
         ...(providerOptions ? { providerOptions } : {}),
-        // Permit the model to iterate up to 5 times so tool-calling loops
-        // (call → result → follow-up) can complete in a single request.
-        stopWhen: stepCountIs(5),
+        // Permit the model to iterate up to `maxSteps` times so tool-calling
+        // loops (call → result → follow-up) can complete in a single request.
+        stopWhen: stepCountIs(options.maxSteps ?? 5),
       });
 
       const response = result.toUIMessageStreamResponse();

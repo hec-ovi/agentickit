@@ -43,11 +43,20 @@ export interface UsePilotStateOptions<T> {
 export function usePilotState<T>(options: UsePilotStateOptions<T>): void {
   const ctx = useContext(PilotRegistryContext);
 
+  // Volatile bits live in refs so inline callers (who typically pass a fresh
+  // `z.number()` every render) don't churn the registry id on every keystroke.
+  // The provider reads these lazily at tool-execution time.
   const setValueRef = useRef(options.setValue);
   setValueRef.current = options.setValue;
+  const schemaRef = useRef(options.schema);
+  schemaRef.current = options.schema;
 
-  // Register the readable state entry. Re-runs when value changes so the
-  // provider always sees the latest snapshot.
+  // Stable id-holder across renders. We register exactly once per
+  // name/description pair and then push fresh values through
+  // `updateStateValue` — deregister/register on every keystroke would cause
+  // subscriber flicker and churn the id the consumer already dereferenced.
+  const stateIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!ctx) {
       if (isDev()) {
@@ -62,18 +71,31 @@ export function usePilotState<T>(options: UsePilotStateOptions<T>): void {
       name: options.name,
       description: options.description,
       value: options.value,
-      schema: options.schema,
+      schema: schemaRef.current,
       ...(setValueRef.current ? { setValue: (next: T) => setValueRef.current?.(next) } : {}),
     });
+    stateIdRef.current = id;
 
     return () => {
+      stateIdRef.current = null;
       ctx.deregisterState(id);
     };
-  }, [ctx, options.name, options.description, options.value, options.schema]);
+    // Intentionally excludes `options.value` (pushed via `updateStateValue`
+    // below) and `options.schema` (lives in a ref so inline `z.number()`
+    // instances don't force a full re-register on every render).
+  }, [ctx, options.name, options.description]);
+
+  // Push the latest `value` on every render without touching the registry
+  // entry's id. The provider's `updateStateValue` no-ops when the reference
+  // hasn't changed, so this is safe to call unconditionally.
+  useEffect(() => {
+    if (!ctx || stateIdRef.current === null) return;
+    ctx.updateStateValue(stateIdRef.current, options.value);
+  }, [ctx, options.value]);
 
   // Auto-generate an `update_<name>` action when the consumer supplied a
   // setter. Registered separately so its lifecycle doesn't couple to `value`
-  // churn.
+  // churn. Schema is read from a ref for the same inline-construction reason.
   const hasSetValue = options.setValue !== undefined;
   useEffect(() => {
     if (!ctx || !hasSetValue) return;
@@ -82,7 +104,7 @@ export function usePilotState<T>(options: UsePilotStateOptions<T>): void {
     const id = ctx.registerAction({
       name: actionName,
       description: `Replace the current value of "${options.name}" with a new value. ${options.description}`,
-      parameters: options.schema,
+      parameters: schemaRef.current,
       handler: (next) => {
         setValueRef.current?.(next as T);
         return { ok: true };
@@ -93,7 +115,7 @@ export function usePilotState<T>(options: UsePilotStateOptions<T>): void {
     return () => {
       ctx.deregisterAction(id);
     };
-  }, [ctx, hasSetValue, options.name, options.description, options.schema]);
+  }, [ctx, hasSetValue, options.name, options.description]);
 }
 
 export type { PilotStateRegistration };

@@ -268,6 +268,79 @@ describe("createPilotHandler", () => {
     spy.mockRestore();
   });
 
+  it("appends the client-derived system prompt after the server-owned one", async () => {
+    const { createPilotHandler, mocks } = await loadHandlerWithMocks();
+    const handler = createPilotHandler({
+      model: "openai/gpt-4o",
+      system: "SERVER INSTRUCTIONS.",
+    });
+
+    await handler(
+      makeRequest({
+        ...validBody,
+        system: "CLIENT-DERIVED SKILLS.",
+      }),
+    );
+
+    const call = mocks.streamText.mock.calls[0]?.[0] as { system?: string };
+    expect(call?.system).toBeDefined();
+    // Server-owned block must come first so a tampered client can't shadow it.
+    expect(call?.system?.indexOf("SERVER INSTRUCTIONS.")).toBeLessThan(
+      call?.system?.indexOf("CLIENT-DERIVED SKILLS.") ?? -1,
+    );
+  });
+
+  it("rejects an absurdly large client system field without calling streamText", async () => {
+    const { createPilotHandler, mocks } = await loadHandlerWithMocks();
+    const handler = createPilotHandler({ model: "openai/gpt-4o" });
+
+    const response = await handler(
+      makeRequest({
+        ...validBody,
+        system: "x".repeat(100_000),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.streamText).not.toHaveBeenCalled();
+  });
+
+  it("serializes registered state context into the system prompt", async () => {
+    const { createPilotHandler, mocks } = await loadHandlerWithMocks();
+    const handler = createPilotHandler({ model: "openai/gpt-4o" });
+
+    await handler(
+      makeRequest({
+        ...validBody,
+        context: { count: { description: "current count", value: 42 } },
+      }),
+    );
+
+    const call = mocks.streamText.mock.calls[0]?.[0] as { system?: string };
+    expect(call?.system).toBeDefined();
+    expect(call?.system).toContain("Current UI state");
+    expect(call?.system).toContain('"count"');
+    expect(call?.system).toContain("42");
+  });
+
+  it("honours a custom maxSteps and forwards it as stopWhen", async () => {
+    const { createPilotHandler, mocks } = await loadHandlerWithMocks();
+    const handler = createPilotHandler({ model: "openai/gpt-4o", maxSteps: 12 });
+
+    await handler(makeRequest(validBody));
+
+    expect(mocks.stepCountIs).toHaveBeenCalledWith(12);
+  });
+
+  it("defaults to 5 steps when maxSteps is omitted", async () => {
+    const { createPilotHandler, mocks } = await loadHandlerWithMocks();
+    const handler = createPilotHandler({ model: "openai/gpt-4o" });
+
+    await handler(makeRequest(validBody));
+
+    expect(mocks.stepCountIs).toHaveBeenCalledWith(5);
+  });
+
   it("calls getProviderOptions once per request and forwards the value", async () => {
     const { createPilotHandler, mocks } = await loadHandlerWithMocks();
     const getProviderOptions = vi.fn(() => ({

@@ -145,6 +145,13 @@ export function usePilotForm<TFieldValues extends FieldValues>(
  * Best-effort lookup of the `<form>` element backing a given react-hook-form
  * instance. Walks any registered field's DOM ref upward until it finds a
  * parent form, then returns it.
+ *
+ * We deliberately do NOT fall back to a global `document.forms` lookup: even
+ * if there's exactly one `<form>` in the document, it may not be the one the
+ * AI expects to submit. Acting on a form outside the consumer's component
+ * tree would let the assistant submit arbitrary third-party forms — e.g. a
+ * search bar baked into a host page. Returning `null` so the caller surfaces
+ * a clear "couldn't locate the form" error is strictly safer.
  */
 function findFormElement<T extends FieldValues>(form: UseFormReturn<T>): HTMLFormElement | null {
   // `_fields` is RHF's internal registry. Accessing it through `control` is
@@ -157,14 +164,9 @@ function findFormElement<T extends FieldValues>(form: UseFormReturn<T>): HTMLFor
   for (const key of Object.keys(fields)) {
     const ref = fields[key]?._f?.ref;
     if (ref && ref instanceof HTMLElement) {
-      const form = ref.closest("form");
-      if (form) return form;
+      const parentForm = ref.closest("form");
+      if (parentForm) return parentForm;
     }
-  }
-  // Fallback: if there's exactly one <form> in the document, use it.
-  if (typeof document !== "undefined") {
-    const forms = document.getElementsByTagName("form");
-    if (forms.length === 1) return forms[0] ?? null;
   }
   return null;
 }

@@ -45,6 +45,13 @@ export interface PilotRegistryContextValue {
 
   /** Register (or update) a readable state entry. Returns an `id`. */
   registerState: <T>(registration: Omit<PilotStateRegistration<T>, "id">) => string;
+  /**
+   * Update the live `value` of an already-registered state entry without
+   * churning its id. Called by `usePilotState` on every render so the model
+   * always sees the latest snapshot without forcing a deregister/register
+   * cycle on every keystroke.
+   */
+  updateStateValue: <T>(id: string, nextValue: T) => void;
   deregisterState: (id: string) => void;
 
   /** Register a form integration (three tools: set_field / submit / reset). */

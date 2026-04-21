@@ -143,6 +143,24 @@ export function Pilot(props: PilotProps): ReactNode {
     [notify],
   );
 
+  const updateStateValue = useCallback(
+    <T,>(id: string, nextValue: T) => {
+      const existing = statesRef.current.get(id);
+      // No-op if the entry was removed between renders (e.g., the component
+      // unmounted while a stale effect was still queued).
+      if (!existing) return;
+      // Cheap identity guard avoids a notify storm when the value reference is
+      // already current (common when parent re-renders pass through unchanged).
+      if (existing.value === nextValue) return;
+      statesRef.current.set(id, {
+        ...existing,
+        value: nextValue as unknown,
+      } as PilotStateRegistration);
+      notify();
+    },
+    [notify],
+  );
+
   const registerForm = useCallback(
     (registration: Omit<PilotFormRegistration, "id">): string => {
       const id = generateId();
@@ -185,6 +203,7 @@ export function Pilot(props: PilotProps): ReactNode {
       registerAction,
       deregisterAction,
       registerState,
+      updateStateValue,
       deregisterState,
       registerForm,
       deregisterForm,
@@ -195,6 +214,7 @@ export function Pilot(props: PilotProps): ReactNode {
       registerAction,
       deregisterAction,
       registerState,
+      updateStateValue,
       deregisterState,
       registerForm,
       deregisterForm,
@@ -324,7 +344,15 @@ export function Pilot(props: PilotProps): ReactNode {
     // SDK to resubmit so the model can observe the tool result.
     onToolCall: async ({ toolCall }) => {
       const snapshot = liveSnapshotRef.current();
-      const action = snapshot.actions.find((a) => a.name === toolCall.toolName);
+      // Match the last-wins semantics of `buildToolsPayload`: when two
+      // components register an action with the same name, the most-recent
+      // registration is the one the model's tool list advertised, so it must
+      // also be the one we execute. Using `find` (first match) would execute
+      // the older handler — potentially against the newer handler's schema.
+      let action: PilotActionRegistration | undefined;
+      for (const candidate of snapshot.actions) {
+        if (candidate.name === toolCall.toolName) action = candidate;
+      }
       if (!action) {
         // Unknown tool. Report an error result so the loop doesn't stall.
         chatRef.current?.addToolOutput({

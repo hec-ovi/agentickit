@@ -167,6 +167,49 @@ describe("usePilotForm", () => {
     expect(onSubmit).toHaveBeenCalled();
   });
 
+  it("does not submit an unrelated <form> that happens to be in the document", async () => {
+    let registry: React.ContextType<typeof PilotRegistryContext> = null;
+    const unrelatedSubmit = vi.fn((e: Event) => {
+      e.preventDefault();
+    });
+
+    function Spy() {
+      registry = useContext(PilotRegistryContext);
+      return null;
+    }
+
+    // A standalone unrelated form (e.g. a host-page search bar) sits in the
+    // same document. usePilotForm has no <form> of its own rendered.
+    function UnrelatedForm() {
+      return (
+        <form aria-label="unrelated" onSubmit={unrelatedSubmit as unknown as () => void}>
+          <input name="q" />
+        </form>
+      );
+    }
+
+    function PilotFormHost() {
+      const form = useForm<{ email: string }>({ defaultValues: { email: "" } });
+      usePilotForm(form);
+      // Intentionally no <form> around this input — the hook should not fall
+      // back to the unrelated form elsewhere on the page.
+      return <input {...form.register("email")} />;
+    }
+
+    render(
+      <Pilot apiUrl="/api/test">
+        <Spy />
+        <UnrelatedForm />
+        <PilotFormHost />
+      </Pilot>,
+    );
+
+    const submit = registry?.getSnapshot().actions.find((a) => a.name === "submit_form");
+    const result = (await submit?.handler({})) as { success: boolean };
+    expect(result.success).toBe(false);
+    expect(unrelatedSubmit).not.toHaveBeenCalled();
+  });
+
   it("does not crash outside a <Pilot> provider", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 

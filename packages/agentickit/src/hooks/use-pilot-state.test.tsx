@@ -95,6 +95,51 @@ describe("usePilotState", () => {
     expect(updates).toEqual([7]);
   });
 
+  it("updates the registered value in place when value changes (id is stable)", async () => {
+    let registry: React.ContextType<typeof PilotRegistryContext> = null;
+
+    function Spy() {
+      registry = useContext(PilotRegistryContext);
+      return null;
+    }
+
+    function TestState({ v }: { v: number }) {
+      usePilotState({
+        name: "count",
+        description: "a counter",
+        value: v,
+        schema: z.number(),
+      });
+      return null;
+    }
+
+    const { rerender } = render(
+      <Pilot apiUrl="/api/test">
+        <Spy />
+        <TestState v={1} />
+      </Pilot>,
+    );
+
+    const first = registry?.getSnapshot().states[0];
+    expect(first?.value).toBe(1);
+    const firstId = first?.id;
+
+    await act(async () => {
+      rerender(
+        <Pilot apiUrl="/api/test">
+          <Spy />
+          <TestState v={2} />
+        </Pilot>,
+      );
+    });
+
+    const second = registry?.getSnapshot().states[0];
+    expect(second?.value).toBe(2);
+    // id must not churn — deregister/register on every keystroke would cause
+    // subscriber flicker and defeat the whole point of a stable registry entry.
+    expect(second?.id).toBe(firstId);
+  });
+
   it("does not crash when used outside a <Pilot> provider", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
