@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import {
   type LanguageModel,
   type ToolSet,
@@ -18,16 +19,98 @@ import { z } from "zod";
 type StreamTextProviderOptions = NonNullable<Parameters<typeof streamText>[0]["providerOptions"]>;
 
 /**
- * Supported provider prefixes for v0.1.
+ * Supported provider prefixes for string `model` values.
  *
- * We intentionally allow-list these rather than forwarding arbitrary strings
- * to the Vercel AI Gateway so consumers get a clear error at handler-creation
- * time when they mistype a provider (`opnai/gpt-4o`) rather than a cryptic
- * 401 from the gateway on the first chat message.
+ * We allow-list these rather than forwarding arbitrary strings to an external
+ * gateway so consumers get a clear error at handler-creation time when they
+ * mistype a provider (`opnai/gpt-4o`) rather than a cryptic 401 from the
+ * gateway on the first chat message.
  */
-const SUPPORTED_PROVIDER_PREFIXES = ["openai/", "anthropic/", "groq/"] as const;
+const SUPPORTED_PROVIDER_PREFIXES = [
+  "openai",
+  "anthropic",
+  "groq",
+  "openrouter",
+  "google",
+  "mistral",
+] as const;
 
 type SupportedProviderPrefix = (typeof SUPPORTED_PROVIDER_PREFIXES)[number];
+
+/**
+ * Static descriptor for how each prefix resolves to a provider adapter.
+ *
+ * `envKey` is the conventional environment variable the adapter reads to pick
+ * up credentials (and, in our case, the signal that the consumer wants to use
+ * direct keys rather than the Vercel AI Gateway). `pkg` is the adapter package
+ * name. `export` identifies whether the package's default function export is
+ * the provider factory (`openai`, `anthropic`, `groq`, `google`, `mistral`)
+ * or we must call a factory constructor (`createOpenRouter`).
+ */
+interface ProviderAdapterDescriptor {
+  readonly envKey: string;
+  readonly pkg: string;
+  readonly kind: "default" | "openrouter";
+}
+
+const PROVIDER_ADAPTERS: Readonly<Record<SupportedProviderPrefix, ProviderAdapterDescriptor>> = {
+  openai: { envKey: "OPENAI_API_KEY", pkg: "@ai-sdk/openai", kind: "default" },
+  anthropic: { envKey: "ANTHROPIC_API_KEY", pkg: "@ai-sdk/anthropic", kind: "default" },
+  groq: { envKey: "GROQ_API_KEY", pkg: "@ai-sdk/groq", kind: "default" },
+  openrouter: {
+    envKey: "OPENROUTER_API_KEY",
+    pkg: "@openrouter/ai-sdk-provider",
+    kind: "openrouter",
+  },
+  google: {
+    envKey: "GOOGLE_GENERATIVE_AI_API_KEY",
+    pkg: "@ai-sdk/google",
+    kind: "default",
+  },
+  mistral: { envKey: "MISTRAL_API_KEY", pkg: "@ai-sdk/mistral", kind: "default" },
+};
+
+/**
+ * Shape of a first-party AI-SDK provider-adapter module once imported. Each
+ * exposes a lowercase factory matching the provider name (`openai`,
+ * `anthropic`, `groq`, `google`, `mistral`) that returns a `LanguageModel`
+ * when called with a model ID and automatically reads its API key from the
+ * conventional environment variable.
+ */
+interface FirstPartyAdapterModule {
+  readonly openai?: (id: string) => LanguageModel;
+  readonly anthropic?: (id: string) => LanguageModel;
+  readonly groq?: (id: string) => LanguageModel;
+  readonly google?: (id: string) => LanguageModel;
+  readonly mistral?: (id: string) => LanguageModel;
+}
+
+/**
+ * Shape of the community OpenRouter provider module. The adapter is
+ * namespaced — we must call `createOpenRouter` with an explicit `{ apiKey }`
+ * argument before it can produce models.
+ */
+interface OpenRouterAdapterModule {
+  readonly createOpenRouter?: (config: { apiKey: string | undefined }) => (
+    id: string,
+  ) => LanguageModel;
+}
+
+/**
+ * A spec describing the model to use for a handler.
+ *
+ * Accepts three shapes so consumers can pick their favorite level of control:
+ *
+ * 1. A `"provider/model"` string resolved via the internal provider registry
+ *    (see {@link PROVIDER_ADAPTERS}) or, as a fallback, by the Vercel AI
+ *    Gateway when `AI_GATEWAY_API_KEY` is set.
+ * 2. A pre-built `LanguageModel` instance — used verbatim. This is the
+ *    "bring your own provider" escape hatch for Ollama, Azure, Bedrock,
+ *    or any other custom adapter.
+ * 3. A thunk returning a `LanguageModel` (or a promise of one). Called once
+ *    at handler creation so consumers can do async setup lazily.
+ */
+export type ModelSpec = string | LanguageModel | (() => LanguageModel | Promise<LanguageModel>);
 
 /**
  * Options accepted by {@link createPilotHandler}.
@@ -43,16 +126,21 @@ export interface CreatePilotHandlerOptions {
    */
   system?: string;
   /**
-   * Default model ID in the Vercel AI SDK v6 gateway format
-   * (`"openai/gpt-4o"`, `"anthropic/claude-sonnet-4-5"`, `"groq/llama-3.3-70b"`).
+   * Default model for this handler. See {@link ModelSpec} for the three
+   * accepted shapes.
    *
-   * Must start with one of the supported provider prefixes.
-   *
-   * When requests are routed through `streamText`, the AI SDK resolves the
-   * string via the Vercel AI Gateway provider (authenticated with the
-   * `AI_GATEWAY_API_KEY` environment variable or an OIDC token on Vercel).
+   * - **String** (`"openai/gpt-4o"`, `"openrouter/qwen/qwen3-coder:free"`): resolved
+   *   via the internal provider registry. If a direct provider key such as
+   *   `OPENAI_API_KEY` is present along with the matching `@ai-sdk/*` peer
+   *   package, the direct adapter is used. Otherwise, if `AI_GATEWAY_API_KEY`
+   *   is set, the raw string is handed to `streamText` and routed through the
+   *   Vercel AI Gateway. If neither is available, the factory throws a clear
+   *   error listing the environment variables that would unblock the call.
+   * - **`LanguageModel` instance**: used as-is. No prefix validation is run.
+   * - **Thunk**: called exactly once at handler creation; the resolved value
+   *   must be a `LanguageModel` instance.
    */
-  model: string;
+  model: ModelSpec;
   /**
    * Called for every incoming request. Returns provider-specific options that
    * are forwarded verbatim to `streamText({ providerOptions })`. Useful for
@@ -127,8 +215,9 @@ const requestBodySchema = z
     trigger: z.enum(["submit-message", "regenerate-message"]).optional(),
     messageId: z.string().optional(),
     /**
-     * Optional per-request model override. When provided, must still match a
-     * supported provider prefix.
+     * Optional per-request model override. When provided as a string, must
+     * still match a supported provider prefix — a compromised client cannot
+     * bypass the server's allow-list by injecting arbitrary strings.
      */
     model: z.string().optional(),
     /**
@@ -169,11 +258,233 @@ const CORS_HEADERS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Returns `true` when `model` starts with one of the supported provider
- * prefixes.
+ * Returns `true` when `value` structurally looks like an AI-SDK `LanguageModel`
+ * *instance* (v2 or v3) rather than a string ID. We check the stable triad
+ * `specificationVersion` + `provider` + `modelId` that every first-party and
+ * community adapter exposes.
  */
-function isSupportedModel(model: string): model is `${SupportedProviderPrefix}${string}` {
-  return SUPPORTED_PROVIDER_PREFIXES.some((prefix) => model.startsWith(prefix));
+function isLanguageModelInstance(value: unknown): value is LanguageModel {
+  if (value === null || typeof value !== "object") return false;
+  const candidate = value as {
+    specificationVersion?: unknown;
+    provider?: unknown;
+    modelId?: unknown;
+  };
+  return (
+    typeof candidate.specificationVersion === "string" &&
+    typeof candidate.provider === "string" &&
+    typeof candidate.modelId === "string"
+  );
+}
+
+/**
+ * Extracts the prefix (the part before the first `/`) of a model string.
+ * Returns `undefined` when the string has no slash.
+ */
+function modelPrefix(model: string): string | undefined {
+  const slash = model.indexOf("/");
+  return slash > 0 ? model.slice(0, slash) : undefined;
+}
+
+/**
+ * Returns `true` when `prefix` is one of the allow-listed provider prefixes.
+ */
+function isSupportedPrefix(prefix: string | undefined): prefix is SupportedProviderPrefix {
+  if (prefix === undefined) return false;
+  return (SUPPORTED_PROVIDER_PREFIXES as ReadonlyArray<string>).includes(prefix);
+}
+
+/**
+ * Returns `true` when the `AI_GATEWAY_API_KEY` (or a Vercel OIDC token) is
+ * present in the environment. In either case the Vercel AI Gateway can
+ * resolve a raw provider-prefix string passed to `streamText`.
+ */
+function hasGatewayCredentials(): boolean {
+  return Boolean(process.env.AI_GATEWAY_API_KEY ?? process.env.VERCEL_OIDC_TOKEN);
+}
+
+/**
+ * Result of a successful string-model resolution.
+ *
+ * Either `{ kind: "instance", model }` when a direct adapter produced an
+ * instance, or `{ kind: "gateway", id }` when the raw string should be
+ * handed to `streamText` so the Vercel AI Gateway resolves it at call time.
+ */
+type ResolvedModel = { kind: "instance"; model: LanguageModel } | { kind: "gateway"; id: string };
+
+/**
+ * A resolver closure created at factory time. Returns the concrete model to
+ * hand to `streamText` for a given request's model string. The closure owns
+ * any adapter instances that were eagerly imported at handler creation so we
+ * never pay the `import()` cost on the request path.
+ */
+type StringModelResolver = (model: string) => ResolvedModel;
+
+/**
+ * Sync existence check for an optional peer-dep package.
+ *
+ * Dynamic `await import()` is what actually runs the adapter at request time,
+ * but we want to surface a "missing peer dep" failure at handler-creation
+ * time — not on the first chat message. `createRequire().resolve()` is the
+ * cheapest synchronous signal: if the package resolves, `import()` will load
+ * it; if it throws `MODULE_NOT_FOUND`, we know the consumer forgot to run
+ * `npm install`.
+ */
+function canResolveModule(pkg: string): boolean {
+  try {
+    const require = createRequire(import.meta.url);
+    require.resolve(pkg);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Lazy-loads the adapter package for a given prefix and returns a function
+ * that accepts the remaining model ID (everything after the first `/`) and
+ * produces a `LanguageModel`.
+ */
+async function loadAdapter(
+  prefix: SupportedProviderPrefix,
+): Promise<(modelId: string) => LanguageModel> {
+  const descriptor = PROVIDER_ADAPTERS[prefix];
+  // Store the package name in a variable so bundlers don't try to statically
+  // resolve the optional peer dependency at build time.
+  const pkg = descriptor.pkg;
+
+  if (descriptor.kind === "openrouter") {
+    const mod = (await import(pkg)) as OpenRouterAdapterModule;
+    if (typeof mod.createOpenRouter !== "function") {
+      throw new Error(
+        `agentickit: "${descriptor.pkg}" was imported but does not export \`createOpenRouter\`. Please upgrade to a version compatible with AI SDK v6.`,
+      );
+    }
+    const openrouter = mod.createOpenRouter({ apiKey: process.env[descriptor.envKey] });
+    return (modelId: string) => openrouter(modelId);
+  }
+
+  // Narrow `prefix` away from the openrouter variant so it indexes cleanly
+  // into the first-party factory shape.
+  type FirstPartyPrefix = Exclude<SupportedProviderPrefix, "openrouter">;
+  const firstPartyPrefix = prefix as FirstPartyPrefix;
+  const mod = (await import(pkg)) as FirstPartyAdapterModule;
+  const factory = mod[firstPartyPrefix];
+  if (typeof factory !== "function") {
+    throw new Error(
+      `agentickit: "${descriptor.pkg}" was imported but does not export a \`${firstPartyPrefix}\` factory. Please upgrade to a version compatible with AI SDK v6.`,
+    );
+  }
+  return (modelId: string) => factory(modelId);
+}
+
+/**
+ * Build the string-model resolver for the handler.
+ *
+ * Performs all environment + peer-dependency probing *synchronously* so any
+ * misconfiguration (missing env var, missing `@ai-sdk/*` package) throws at
+ * handler creation. The actual adapter `import()` is kicked off eagerly but
+ * the closure awaits the cached promise inside each request — first request
+ * pays no extra latency versus any subsequent one.
+ */
+function buildStringModelResolver(
+  initialModel: string | undefined,
+): (model: string) => Promise<ResolvedModel> {
+  // Per-prefix cache so two calls to the same provider share one `import()`.
+  const adapterCache = new Map<
+    SupportedProviderPrefix,
+    Promise<(modelId: string) => LanguageModel>
+  >();
+
+  const ensureAdapter = (
+    prefix: SupportedProviderPrefix,
+  ): Promise<(modelId: string) => LanguageModel> => {
+    const cached = adapterCache.get(prefix);
+    if (cached) return cached;
+    const loading = loadAdapter(prefix);
+    adapterCache.set(prefix, loading);
+    return loading;
+  };
+
+  /**
+   * Plan how a single model string will be resolved. Runs synchronously and
+   * fails fast on *configuration* errors that cannot possibly be recovered
+   * at request time (invalid prefix, peer package missing for an explicitly
+   * selected provider). Missing env vars are *not* fatal here — build-time
+   * tooling (e.g. Next.js `collect page data`) loads the route before env is
+   * available; we defer that check to the first request so the build
+   * succeeds but a misconfigured runtime fails clearly on its first call.
+   */
+  const planResolution = (model: string): (() => Promise<ResolvedModel>) => {
+    const prefix = modelPrefix(model);
+    if (!isSupportedPrefix(prefix)) {
+      const expected = SUPPORTED_PROVIDER_PREFIXES.map((p) => `${p}/`).join(", ");
+      throw new Error(
+        `agentickit: unsupported model prefix in "${model}". Expected one of: ${expected}.`,
+      );
+    }
+    const descriptor = PROVIDER_ADAPTERS[prefix];
+    const modelId = model.slice(prefix.length + 1);
+
+    // 1. Direct provider key present → require the adapter package to be
+    //    installed and hand off to it. Unambiguous choice — fail fast.
+    if (process.env[descriptor.envKey]) {
+      if (!canResolveModule(descriptor.pkg)) {
+        throw new Error(
+          `agentickit: model "${model}" requires either AI_GATEWAY_API_KEY (Vercel gateway) or ${descriptor.envKey} + the ${descriptor.pkg} package installed.\nRun: npm install ${descriptor.pkg}`,
+        );
+      }
+      // Kick off the import eagerly so subsequent requests are hot.
+      void ensureAdapter(prefix);
+      return async () => {
+        const adapter = await ensureAdapter(prefix);
+        return { kind: "instance", model: adapter(modelId) };
+      };
+    }
+
+    // 2. No direct key, but Gateway credentials are present → pass the raw
+    //    string to `streamText` and let the Gateway handle it.
+    if (hasGatewayCredentials()) {
+      return async () => ({ kind: "gateway", id: model });
+    }
+
+    // 3. No environment configured at all. Defer the failure to request
+    //    time — the env may be populated by the runtime (Vercel, Docker
+    //    secrets, etc.) after module load. We re-probe on the first call.
+    return async () => {
+      if (process.env[descriptor.envKey]) {
+        if (!canResolveModule(descriptor.pkg)) {
+          throw new Error(
+            `agentickit: model "${model}" requires either AI_GATEWAY_API_KEY (Vercel gateway) or ${descriptor.envKey} + the ${descriptor.pkg} package installed.\nRun: npm install ${descriptor.pkg}`,
+          );
+        }
+        const adapter = await ensureAdapter(prefix);
+        return { kind: "instance", model: adapter(modelId) };
+      }
+      if (hasGatewayCredentials()) {
+        return { kind: "gateway", id: model };
+      }
+      throw new Error(
+        `agentickit: model "${model}" cannot be served. Set one of: AI_GATEWAY_API_KEY (Vercel AI Gateway), or ${descriptor.envKey} with the ${descriptor.pkg} package installed, or pass a LanguageModel instance to createPilotHandler({ model }).`,
+      );
+    };
+  };
+
+  // Pre-plan the default model (if it was a string) so the factory fails
+  // fast on misconfiguration for the handler's primary model.
+  const planCache = new Map<string, () => Promise<ResolvedModel>>();
+  const plan = (model: string): (() => Promise<ResolvedModel>) => {
+    const cached = planCache.get(model);
+    if (cached) return cached;
+    const p = planResolution(model);
+    planCache.set(model, p);
+    return p;
+  };
+  if (initialModel !== undefined) {
+    plan(initialModel);
+  }
+
+  return (model: string) => plan(model)();
 }
 
 /**
@@ -195,7 +506,9 @@ function composeSystemPrompt(
   if (clientSystem) parts.push(clientSystem);
   if (clientContext && Object.keys(clientContext).length > 0) {
     // JSON-stringify with a label so the LLM can pattern-match on the block.
-    parts.push(`## Current UI state\n\`\`\`json\n${JSON.stringify(clientContext, null, 2)}\n\`\`\``);
+    parts.push(
+      `## Current UI state\n\`\`\`json\n${JSON.stringify(clientContext, null, 2)}\n\`\`\``,
+    );
   }
   return parts.length > 0 ? parts.join("\n\n") : undefined;
 }
@@ -250,6 +563,69 @@ function buildClientToolSet(tools: RequestBody["tools"] | undefined): ToolSet | 
 }
 
 /**
+ * Outcome of resolving the handler's `model` option at factory time.
+ *
+ * - `fixed`: a concrete `LanguageModel` instance that will be reused for
+ *   every request (either supplied directly or returned by a sync thunk).
+ * - `pending`: a promise that resolves to a `LanguageModel` instance — the
+ *   thunk returned a promise. We kicked off awaiting at factory time; each
+ *   request awaits the already-settled promise.
+ * - `fromString`: the consumer supplied a string and each request is routed
+ *   through the provider registry / Gateway.
+ */
+type FactoryResolvedModel =
+  | { kind: "fixed"; model: LanguageModel }
+  | { kind: "pending"; pending: Promise<LanguageModel> }
+  | { kind: "fromString"; resolve: (model: string) => Promise<ResolvedModel> };
+
+/**
+ * Resolve the `model` option into a factory-time descriptor. Runs once at
+ * handler creation so any synchronous misconfiguration (unsupported prefix,
+ * missing env var, missing peer package) throws before the handler returns.
+ */
+function resolveModelSpec(
+  spec: ModelSpec,
+  stringResolver: (model: string) => Promise<ResolvedModel>,
+): FactoryResolvedModel {
+  if (typeof spec === "function") {
+    // Invoke the thunk exactly once at handler creation so any async setup
+    // (auth exchanges, pool construction) is amortized rather than paid per
+    // request. The thunk must return a `LanguageModel` instance — strings
+    // are not supported here because the thunk escape hatch exists precisely
+    // to skip string-based resolution.
+    const initialValue = spec();
+    if (initialValue instanceof Promise) {
+      // Pre-materialize the promise so the first request awaits an already
+      // in-flight async job rather than starting one.
+      const pending = initialValue.then((value) => {
+        if (!isLanguageModelInstance(value)) {
+          throw new Error(
+            "agentickit: model thunk resolved to a value that is not a LanguageModel instance.",
+          );
+        }
+        return value;
+      });
+      return { kind: "pending", pending };
+    }
+    if (!isLanguageModelInstance(initialValue)) {
+      throw new Error(
+        "agentickit: model thunk must return a LanguageModel instance (or a Promise of one).",
+      );
+    }
+    return { kind: "fixed", model: initialValue };
+  }
+  if (isLanguageModelInstance(spec)) {
+    return { kind: "fixed", model: spec };
+  }
+  if (typeof spec === "string") {
+    return { kind: "fromString", resolve: stringResolver };
+  }
+  throw new Error(
+    "agentickit: `model` must be a string, a LanguageModel instance, or a thunk returning one.",
+  );
+}
+
+/**
  * Factory for a Next.js App Router POST handler (also works in any
  * Web-Fetch-compatible runtime — Cloudflare Workers, Bun, edge runtimes).
  *
@@ -260,6 +636,10 @@ function buildClientToolSet(tools: RequestBody["tools"] | undefined): ToolSet | 
  *
  * Behavior:
  *   - Validates the request body against the AI SDK 6 `useChat` contract.
+ *   - Resolves `options.model` into a concrete `LanguageModel` (see
+ *     {@link ModelSpec}) — honoring direct provider keys when present,
+ *     falling back to the Vercel AI Gateway when only `AI_GATEWAY_API_KEY`
+ *     is set, and passing through pre-built instances verbatim.
  *   - Delegates streaming to `streamText` with the resolved model, system
  *     prompt, and any client-declared tools.
  *   - Returns the AI-SDK-native UI-message stream via
@@ -269,23 +649,23 @@ function buildClientToolSet(tools: RequestBody["tools"] | undefined): ToolSet | 
  *   - On unexpected failure returns 500 with `{error, code: "internal_error"}`
  *     and never leaks stack traces.
  *
- * Model strings must start with one of: `openai/`, `anthropic/`, `groq/`.
- * Under the hood they're resolved by the Vercel AI Gateway, so the consumer
- * only needs to set `AI_GATEWAY_API_KEY` (or deploy on Vercel with OIDC).
+ * String models must start with one of: `openai/`, `anthropic/`, `groq/`,
+ * `openrouter/`, `google/`, `mistral/`. Pass a `LanguageModel` instance (or a
+ * thunk returning one) to sidestep the registry — useful for Ollama, Azure,
+ * Bedrock, or any other provider not on the built-in list.
  *
- * Throws synchronously at handler-creation time if `options.model` has an
- * unsupported provider prefix — surfacing misconfiguration during startup
- * rather than on the first request.
+ * Throws synchronously at handler-creation time when:
+ * - `options.model` is a string with an unsupported provider prefix, or
+ * - no direct provider key nor `AI_GATEWAY_API_KEY` is present for that
+ *   prefix (so the handler has no way to resolve the model), or
+ * - the matching `@ai-sdk/*` peer package is missing from `node_modules`.
  */
 export function createPilotHandler(
   options: CreatePilotHandlerOptions,
 ): (request: Request) => Promise<Response> {
-  if (!isSupportedModel(options.model)) {
-    throw new Error(
-      `agentickit: unsupported model prefix in "${options.model}". ` +
-        `Expected one of: ${SUPPORTED_PROVIDER_PREFIXES.join(", ")}.`,
-    );
-  }
+  const initialStringModel = typeof options.model === "string" ? options.model : undefined;
+  const resolveString = buildStringModelResolver(initialStringModel);
+  const resolved = resolveModelSpec(options.model, resolveString);
 
   return async function handler(request: Request): Promise<Response> {
     if (request.method === "OPTIONS") {
@@ -318,15 +698,48 @@ export function createPilotHandler(
     }
     const body = parsed.data;
 
-    // Per-request model override is allowed, but must still pass the
-    // prefix check — otherwise the caller could bypass our allow-list by
-    // injecting arbitrary strings into the request body.
-    const model = body.model ?? options.model;
-    if (!isSupportedModel(model)) {
-      return errorResponse(400, {
-        error: `Unsupported model "${model}". Expected prefix in: ${SUPPORTED_PROVIDER_PREFIXES.join(", ")}.`,
-        code: "unsupported_provider",
-      });
+    // --- Resolve the per-request model ---------------------------------------
+    let resolvedModel: LanguageModel | string;
+    try {
+      if (body.model !== undefined) {
+        // Per-request override. Validate the prefix here too — otherwise a
+        // compromised client could bypass the allow-list by injecting
+        // arbitrary strings into the body. Note: overrides are only honored
+        // when the handler's default `options.model` is a string; otherwise
+        // we'd have no resolver plumbed for them.
+        const prefix = modelPrefix(body.model);
+        if (!isSupportedPrefix(prefix)) {
+          return errorResponse(400, {
+            error: `Unsupported model "${body.model}". Expected prefix in: ${SUPPORTED_PROVIDER_PREFIXES.map((p) => `${p}/`).join(", ")}.`,
+            code: "unsupported_provider",
+          });
+        }
+        if (resolved.kind !== "fromString") {
+          return errorResponse(400, {
+            error:
+              "Per-request model override requires the handler's default model to be a string.",
+            code: "unsupported_provider",
+          });
+        }
+        const outcome = await resolved.resolve(body.model);
+        resolvedModel = outcome.kind === "instance" ? outcome.model : outcome.id;
+      } else if (resolved.kind === "fixed") {
+        resolvedModel = resolved.model;
+      } else if (resolved.kind === "pending") {
+        resolvedModel = await resolved.pending;
+      } else {
+        // resolved.kind === "fromString" + no override. We know
+        // `options.model` was a string because that is the only path that
+        // produces `fromString`. Cast is safe.
+        const defaultModel = options.model as string;
+        const outcome = await resolved.resolve(defaultModel);
+        resolvedModel = outcome.kind === "instance" ? outcome.model : outcome.id;
+      }
+    } catch (error) {
+      // Resolver errors at request time (e.g. body override hit an
+      // unconfigured prefix) surface as a 400 rather than a 500.
+      const message = error instanceof Error ? error.message : "Unknown model-resolution error.";
+      return errorResponse(400, { error: message, code: "unsupported_provider" });
     }
 
     // --- Dispatch to streamText ----------------------------------------------
@@ -347,7 +760,7 @@ export function createPilotHandler(
       const system = composeSystemPrompt(options.system, body.system, body.context);
 
       const result = streamText({
-        model: model as LanguageModel,
+        model: resolvedModel,
         ...(system ? { system } : {}),
         messages: modelMessages,
         ...(clientTools ? { tools: clientTools } : {}),

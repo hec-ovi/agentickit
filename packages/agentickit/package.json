@@ -45,11 +45,7 @@
       "require": "./dist/protocol/index.cjs"
     }
   },
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE"
-  ],
+  "files": ["dist", "README.md", "LICENSE"],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -58,11 +54,35 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
+    "@ai-sdk/anthropic": "^3.0.0",
+    "@ai-sdk/google": "^3.0.0",
+    "@ai-sdk/groq": "^3.0.0",
+    "@ai-sdk/mistral": "^3.0.0",
+    "@ai-sdk/openai": "^3.0.0",
+    "@openrouter/ai-sdk-provider": "^2.0.0",
     "react": "^18.0.0 || ^19.0.0",
     "react-dom": "^18.0.0 || ^19.0.0",
     "react-hook-form": "^7.0.0"
   },
   "peerDependenciesMeta": {
+    "@ai-sdk/anthropic": {
+      "optional": true
+    },
+    "@ai-sdk/google": {
+      "optional": true
+    },
+    "@ai-sdk/groq": {
+      "optional": true
+    },
+    "@ai-sdk/mistral": {
+      "optional": true
+    },
+    "@ai-sdk/openai": {
+      "optional": true
+    },
+    "@openrouter/ai-sdk-provider": {
+      "optional": true
+    },
     "react-hook-form": {
       "optional": true
     }
@@ -74,7 +94,10 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@ai-sdk/openai": "^3.0.0",
+    "@openrouter/ai-sdk-provider": "^2.0.0",
     "@testing-library/react": "^16.1.0",
+    "@types/node": "^20.12.7",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "happy-dom": "^15.11.7",

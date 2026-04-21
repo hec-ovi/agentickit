@@ -2,4 +2,8 @@
 // Provides the Next.js route handler factory plus lower-level streaming helpers.
 
 export { createPilotHandler } from "./handler.js";
-export type { CreatePilotHandlerOptions, PilotErrorBody } from "./handler.js";
+export type {
+  CreatePilotHandlerOptions,
+  ModelSpec,
+  PilotErrorBody,
+} from "./handler.js";

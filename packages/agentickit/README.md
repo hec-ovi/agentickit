@@ -14,6 +14,17 @@
 
 ```bash
 npm install agentickit ai @ai-sdk/react zod
+
+# Plus exactly one provider adapter for your model choice:
+npm install @openrouter/ai-sdk-provider        # free tier, no credit card
+#   or: npm install @ai-sdk/openai             # OPENAI_API_KEY
+#   or: npm install @ai-sdk/anthropic          # ANTHROPIC_API_KEY
+#   or: npm install @ai-sdk/groq               # GROQ_API_KEY
+#   or: npm install @ai-sdk/google             # GOOGLE_GENERATIVE_AI_API_KEY
+#   or: npm install @ai-sdk/mistral            # MISTRAL_API_KEY
+# (no adapter needed if you use AI_GATEWAY_API_KEY — the Vercel AI Gateway
+#  resolves prefix strings server-side.)
+
 # Optional — only required for usePilotForm:
 npm install react-hook-form
 ```
@@ -30,10 +41,33 @@ npm install react-hook-form
 // app/api/pilot/route.ts
 import { createPilotHandler } from "agentickit/server";
 
-export const POST = createPilotHandler({ model: "openai/gpt-4o" });
+// Free tier, no credit card. Grab a key at https://openrouter.ai/keys.
+export const POST = createPilotHandler({ model: "openrouter/qwen/qwen3-coder:free" });
 ```
 
-Set `AI_GATEWAY_API_KEY` in your environment. Model strings are gateway-formatted: `openai/*`, `anthropic/*`, `groq/*`.
+Set `OPENROUTER_API_KEY` and install `@openrouter/ai-sdk-provider`. Want to use another provider instead? Swap the model string and provide the matching env var: `openai/*` reads `OPENAI_API_KEY`, `anthropic/*` reads `ANTHROPIC_API_KEY`, and so on. If only `AI_GATEWAY_API_KEY` is set, strings are handed to the Vercel AI Gateway unchanged.
+
+**Choose your model:**
+
+| Model string                           | Env var                         | Peer package to install         |
+| -------------------------------------- | ------------------------------- | ------------------------------- |
+| `openrouter/<any OpenRouter id>`       | `OPENROUTER_API_KEY`            | `@openrouter/ai-sdk-provider`   |
+| `openai/<model>`                       | `OPENAI_API_KEY`                | `@ai-sdk/openai`                |
+| `anthropic/<model>`                    | `ANTHROPIC_API_KEY`             | `@ai-sdk/anthropic`             |
+| `groq/<model>`                         | `GROQ_API_KEY`                  | `@ai-sdk/groq`                  |
+| `google/<model>`                       | `GOOGLE_GENERATIVE_AI_API_KEY`  | `@ai-sdk/google`                |
+| `mistral/<model>`                      | `MISTRAL_API_KEY`               | `@ai-sdk/mistral`               |
+| any of the above (no direct key)       | `AI_GATEWAY_API_KEY`            | none — goes through Vercel AI Gateway |
+
+**Or pass your own `LanguageModel` instance** (Ollama, Azure, Bedrock, custom):
+
+```ts
+import { createOllama } from "ai-sdk-ollama";
+const ollama = createOllama();
+export const POST = createPilotHandler({ model: ollama("llama3.3") });
+```
+
+Prefix validation and registry lookup are skipped for instances — you bring the adapter, we hand it to `streamText` verbatim.
 
 ### 2. Client
 
@@ -139,12 +173,26 @@ Opinionated chat UI — slide-in panel, dark mode, CSS-variable theming, suggest
 
 Returns a `(Request) => Promise<Response>` for any Web Fetch runtime. Validates the `useChat` body with Zod, dispatches to `streamText`, wraps client-declared tools as `dynamicTool` (they stream to the browser — never execute server-side), and returns `toUIMessageStreamResponse()`.
 
+`model` accepts three shapes:
+
+1. **String** (`"openai/gpt-4o"`, `"openrouter/qwen/qwen3-coder:free"`, ...): the handler auto-detects a matching direct provider key and uses the corresponding `@ai-sdk/*` adapter. If no direct key is set but `AI_GATEWAY_API_KEY` is, the raw string is handed to the Vercel AI Gateway.
+2. **`LanguageModel` instance**: used verbatim. No prefix validation — drop in an Ollama, Azure, or Bedrock adapter and it just works.
+3. **Thunk** (`() => LanguageModel | Promise<LanguageModel>`): called exactly once at handler creation; useful when the adapter needs async setup.
+
 ```ts
+// String with direct provider key (or Gateway fallback)
 export const POST = createPilotHandler({
   model: "anthropic/claude-sonnet-4-5",
   system: "You are a helpful copilot for a kanban app.",
   maxSteps: 5,
 });
+```
+
+```ts
+// LanguageModel instance — bring your own adapter
+import { createOllama } from "ai-sdk-ollama";
+const ollama = createOllama();
+export const POST = createPilotHandler({ model: ollama("llama3.3") });
 ```
 
 ### Protocol (optional)
@@ -205,6 +253,7 @@ import {
 import {
   createPilotHandler,
   type CreatePilotHandlerOptions,
+  type ModelSpec,
   type PilotErrorBody,
 } from "agentickit/server";
 

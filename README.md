@@ -65,6 +65,19 @@ The React AI stack in 2026 has two settled layers: Vercel AI SDK for streaming, 
 
 ```bash
 npm install agentickit ai @ai-sdk/react zod
+
+# Plus exactly one provider adapter for your model choice. The free-tier
+# friendly default is OpenRouter — sign up at https://openrouter.ai/keys:
+npm install @openrouter/ai-sdk-provider
+
+# Any of these also works, pick one:
+#   npm install @ai-sdk/openai       # OPENAI_API_KEY
+#   npm install @ai-sdk/anthropic    # ANTHROPIC_API_KEY
+#   npm install @ai-sdk/groq         # GROQ_API_KEY
+#   npm install @ai-sdk/google       # GOOGLE_GENERATIVE_AI_API_KEY
+#   npm install @ai-sdk/mistral      # MISTRAL_API_KEY
+# (or skip the adapter and set AI_GATEWAY_API_KEY to use the Vercel AI Gateway.)
+
 # Optional — only if you want `usePilotForm`:
 npm install react-hook-form
 ```
@@ -81,10 +94,11 @@ Requires **Node 20+** and a framework that supports the Web Fetch API on the ser
 // app/api/pilot/route.ts
 import { createPilotHandler } from "agentickit/server";
 
-export const POST = createPilotHandler({ model: "openai/gpt-4o" });
+// Free tier, no credit card — sign up at https://openrouter.ai/keys.
+export const POST = createPilotHandler({ model: "openrouter/qwen/qwen3-coder:free" });
 ```
 
-The handler runs model calls through the [Vercel AI Gateway](https://vercel.com/docs/ai-gateway). Set `AI_GATEWAY_API_KEY` in your environment (or deploy on Vercel with OIDC and you get one automatically).
+Set `OPENROUTER_API_KEY` and install `@openrouter/ai-sdk-provider`. Prefer a different provider? Swap the model string and the handler auto-routes through the matching `@ai-sdk/*` adapter (e.g. `"openai/gpt-4o"` + `OPENAI_API_KEY`). Or set `AI_GATEWAY_API_KEY` to let the [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) resolve any prefix server-side.
 
 ### 2. Wrap your app
 
@@ -199,7 +213,7 @@ Registers three tools scoped to the form: `set_invoice_field`, `submit_invoice`,
 
 | Prop               | Type                                            | Default          | Notes                                                                                           |
 | ------------------ | ----------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------- |
-| `model`            | `string`                                        | `"openai/gpt-4o"` | Gateway-formatted model ID: `openai/*`, `anthropic/*`, `groq/*`.                               |
+| `model`            | `string`                                        | `"openai/gpt-4o"` | `"<provider>/<model>"`. Supported prefixes: `openai`, `anthropic`, `groq`, `openrouter`, `google`, `mistral`. |
 | `apiUrl`           | `string`                                        | `"/api/pilot"`   | Path to the route exposing `createPilotHandler`.                                                |
 | `pilotProtocolUrl` | `string`                                        | `undefined`      | URL (or path) from which the runtime loads `.pilot/manifest.json`. Omit to run hook-only.       |
 | `headers`          | `Record<string, string> \| () => Record<…>`     | `undefined`      | Forwarded on every request. Use the function form for dynamic auth tokens.                     |
@@ -255,10 +269,16 @@ export const POST = createPilotHandler({
 
 | Option               | Type                                | Default | Notes                                                                                      |
 | -------------------- | ----------------------------------- | ------- | ------------------------------------------------------------------------------------------ |
-| `model`              | `string`                            | —       | Required. Must start with `openai/`, `anthropic/`, or `groq/`. Validated at startup.       |
+| `model`              | `ModelSpec`                         | —       | Required. String (`"<provider>/<model>"`), `LanguageModel` instance, or a thunk returning one. Validated at startup. |
 | `system`             | `string`                            | —       | Server-owned system prompt. Always prepended before any client-derived instructions.       |
 | `maxSteps`           | `number`                            | `5`     | Upper bound on `call → result → follow-up` iterations per request.                         |
 | `getProviderOptions` | `() => Record<string, unknown>`     | —       | Per-request provider tuning (caching hints, thinking budgets, etc.).                       |
+
+**`ModelSpec` resolution:**
+
+- **String** like `"openai/gpt-4o"` or `"openrouter/qwen/qwen3-coder:free"`: if a matching provider env var is set (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, ...) *and* the corresponding `@ai-sdk/*` peer package is installed, the direct adapter is used. Otherwise, if `AI_GATEWAY_API_KEY` is set, the raw string is handed to the Vercel AI Gateway. If neither applies, the factory throws at startup — never at request time.
+- **`LanguageModel` instance**: used verbatim. No prefix validation. Ideal for Ollama, Azure, Bedrock, or any other provider not on the built-in list.
+- **Thunk**: called once at handler creation; must return (or resolve to) a `LanguageModel`.
 
 **What it does:**
 
@@ -270,7 +290,7 @@ export const POST = createPilotHandler({
 
 **Security notes:**
 
-- **API keys stay server-side.** `AI_GATEWAY_API_KEY` (or provider-specific keys) are read from `process.env`. The browser bundle never sees them.
+- **API keys stay server-side.** Direct-provider keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, ...), `OPENROUTER_API_KEY`, and `AI_GATEWAY_API_KEY` are read from `process.env`. The browser bundle never sees them.
 - **Provider allow-list.** Unsupported model prefixes fail at handler-creation time, not at first request. Clients that try to override the model via the request body are re-validated against the same list — no path to injecting arbitrary strings.
 - **Client tools never execute server-side.** They're forward declarations. If you need a true server-side tool, call `streamText` directly — the server handler is a shim, not a moat around it.
 - **Mutating confirmations happen in the browser.** The server doesn't see the confirm step; the handler simply won't run until the user approves.
@@ -426,13 +446,23 @@ Yes. `createPilotHandler` returns a `(Request) => Promise<Response>` — runs an
 <details>
 <summary><b>What models are supported?</b></summary>
 
-As of April 2026, `openai/*`, `anthropic/*`, and `groq/*` via the [Vercel AI Gateway](https://vercel.com/docs/ai-gateway). The handler validates the prefix at startup so typos surface immediately. Adding new prefixes is a one-line change in `server/handler.ts` — PRs welcome. If you need a provider the gateway doesn't route, drop `createPilotHandler` and call `streamText` directly with your own adapter.
+As of April 2026, string `model` values with any of these prefixes work out of the box: `openai/`, `anthropic/`, `groq/`, `openrouter/`, `google/`, `mistral/`. The handler picks the direct `@ai-sdk/*` adapter when the matching provider env var is set (e.g. `OPENAI_API_KEY`) — otherwise it falls back to the [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) when `AI_GATEWAY_API_KEY` is present.
+
+For anything else — Ollama (local), Azure, Bedrock, DeepInfra, custom OpenAI-compatible endpoints — pass a prebuilt `LanguageModel` instance instead of a string:
+
+```ts
+import { createOllama } from "ai-sdk-ollama";
+const ollama = createOllama();
+export const POST = createPilotHandler({ model: ollama("llama3.3") });
+```
+
+The prefix allow-list and env detection are skipped for instances; the model is handed to `streamText` verbatim. Supported via the `ModelSpec` escape hatch — no core change needed. For free tier experimentation without a credit card, try `"openrouter/qwen/qwen3-coder:free"` with `OPENROUTER_API_KEY`.
 </details>
 
 <details>
 <summary><b>How does it handle security?</b></summary>
 
-- **API keys only live on the server.** The browser bundle has zero credentials.
+- **API keys only live on the server.** All provider keys (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `AI_GATEWAY_API_KEY`, …) are read from `process.env` on the server; the browser bundle has zero credentials.
 - **Tool allow-list by construction.** The server only sees tool *declarations* from the client; it never executes them. The browser-side dispatcher only runs actions registered through `usePilotAction`. There is no "the AI called an unknown function" path.
 - **Mutating confirmations.** Any action with `mutating: true` (and every auto-generated `update_<state>` tool) pops a confirmation dialog showing the exact arguments before the handler fires.
 - **Form submissions are scoped.** `submit_<form>` walks the form's registered field refs upward to find the `<form>` DOM node. It will not submit a form outside the component that called `usePilotForm`.
@@ -453,7 +483,7 @@ Yes. Hector Oviedo — <hector.ernesto.oviedo@gmail.com>. This library is the po
 - Three hooks (`usePilotState`, `usePilotAction`, `usePilotForm`)
 - `<Pilot>` provider wiring AI SDK 6's `useChat` with a dynamic tool registry
 - `<PilotSidebar>` with dark mode, CSS-variable theming, a11y, suggestion chips
-- `createPilotHandler` for Next.js / Bun / Workers (`openai/*`, `anthropic/*`, `groq/*`)
+- `createPilotHandler` for Next.js / Bun / Workers — direct adapters for `openai/*`, `anthropic/*`, `groq/*`, `openrouter/*`, `google/*`, `mistral/*`, plus Vercel AI Gateway fallback and a `LanguageModel`-instance escape hatch
 - `.pilot/` protocol loader — `RESOLVER.md` parser, `SKILL.md` parser, `manifest.json` validator
 
 ### v0.2 — next
