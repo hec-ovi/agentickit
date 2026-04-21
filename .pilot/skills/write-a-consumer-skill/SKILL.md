@@ -33,7 +33,7 @@ By the end of this skill the consumer has:
   under `packages/agentickit/src/protocol/skill.ts`.
 - `<Pilot pilotProtocolUrl="/pilot">` wired so the runtime fetches the
   manifest at mount.
-- A matching `usePilotAction` for every skill — skills without a binding
+- A matching `usePilotAction` for every skill. Skills without a binding
   are filtered out of the system prompt and never reach the model.
 
 ## Iron Law: every skill MUST have a matching `usePilotAction`
@@ -41,11 +41,11 @@ By the end of this skill the consumer has:
 The runtime composes the system prompt from `manifest.skills.filter(s =>
 registeredActionNames.has(s.name))` (see
 `packages/agentickit/src/components/pilot-provider.tsx` lines 517-519).
-Skills whose `name` doesn't match a registered action are dropped — the
+Skills whose `name` doesn't match a registered action are dropped. The
 LLM never learns they exist. This is a feature: you can ship the markdown
 before the code and the model won't hallucinate a capability. **But a
-SKILL.md with no `usePilotAction` named the same thing is dead weight
-— it won't affect anything until a matching hook registers.**
+SKILL.md with no `usePilotAction` named the same thing is dead weight.
+It won't affect anything until a matching hook registers.**
 
 ## Phases
 
@@ -98,7 +98,7 @@ mutating: true
 - Amounts > $100 require explicit user confirmation.
 
 ## Phases
-1. `get_order({ id })` — resolve the order.
+1. `get_order({ id })` to resolve the order.
 2. If `order.total > 100`, summarize and ask the user to confirm.
 3. `issue_refund({ orderId, amount })`.
 
@@ -115,7 +115,7 @@ Frontmatter rules that matter (enforced by `parseSkill`):
 - `triggers` and `tools` are string lists (leading `- `).
 - `mutating` is a boolean (`true` / `false`).
 - `allowed-tools` is accepted as a synonym for `tools` (Anthropic
-  spelling) — see skill.ts line 46.
+  spelling); see skill.ts line 46.
 - Nested maps, anchors, and flow-style lists are NOT supported (the
   parser is a ~60-line mini-YAML). Stick to the shape above.
 
@@ -180,7 +180,7 @@ shape: `version: 1`, string `resolver`, array `skills`.
 
 On mount the provider fetches `<pilotProtocolUrl>/manifest.json`, then
 (if `manifest.resolver` is set) the resolver. Failures are logged and
-swallowed — the app still works, just without protocol-layer context
+swallowed. The app still works, just without protocol-layer context
 injection. See `components/pilot-provider.tsx` lines 236-278.
 
 ### Phase 6: register the matching action
@@ -221,7 +221,7 @@ assistant to call the corresponding action.
   use the shape above.
 - Putting JS imports in a SKILL.md. The protocol is runtime-agnostic
   markdown. JS bindings live in `usePilotAction` (or, in a future release,
-  `pilot.config.json` — but that isn't shipped yet).
+  `pilot.config.json`, but that isn't shipped yet).
 - Skills without matching actions "as documentation". The runtime filters
   them out silently. If you want documentation, write prose; if you want
   a skill the AI can invoke, register the action.

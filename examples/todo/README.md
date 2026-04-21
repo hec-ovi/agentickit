@@ -1,8 +1,8 @@
 # `@agentickit/example-todo`
 
 A minimal todo-list app demonstrating [`agentickit`](../../packages/agentickit):
-three hooks, one sidebar, working end-to-end with any supported provider —
-set `GROQ_API_KEY` or `OPENROUTER_API_KEY` (both free, no credit card) and
+three hooks, one sidebar, working end-to-end with any supported provider.
+Set `GROQ_API_KEY` or `OPENROUTER_API_KEY` (both free, no credit card) and
 the handler auto-detects which to use.
 
 It's built with Next.js 14 (App Router), TypeScript strict mode, and zero UI
@@ -20,7 +20,7 @@ dependencies beyond React + `agentickit`.
 | Confirmation on destructive actions | `mutating: true` on `remove_todo` |
 | Emergent "read the list" | The model summarizes because state is in its context |
 
-`usePilotForm` is skipped here — the checkout example covers it.
+`usePilotForm` is skipped here; the checkout example covers it.
 
 ---
 
@@ -32,9 +32,9 @@ From the monorepo root (so the workspace resolves `agentickit`):
 pnpm install
 pnpm --filter @agentickit/example-todo build   # sanity check
 cp examples/todo/.env.local.example examples/todo/.env.local
-# Set any ONE key in examples/todo/.env.local — the route auto-detects.
+# Set any ONE key in examples/todo/.env.local. The route auto-detects.
 # Free-tier options (no credit card):
-#   - GROQ_API_KEY (https://console.groq.com/keys) — fastest inference
+#   - GROQ_API_KEY (https://console.groq.com/keys): fastest inference
 #   - OPENROUTER_API_KEY (https://openrouter.ai/keys)
 pnpm --filter @agentickit/example-todo dev
 ```
@@ -44,13 +44,13 @@ Open <http://localhost:3001>, click the copilot button, and try:
 - *"What's still pending?"*
 - *"Add 'buy milk' to my list"*
 - *"Mark the gym todo as done"*
-- *"Remove the milk one"* — triggers the confirmation gate
+- *"Remove the milk one"* (triggers the confirmation gate)
 
 ---
 
 ## Environment
 
-**Set any one key — the route auto-detects the provider.** The handler omits
+**Set any one key and the route auto-detects the provider.** The handler omits
 the `model` option in `app/api/pilot/route.ts`, so at startup it walks this
 priority list and picks the first env var present:
 
@@ -67,7 +67,7 @@ further tweaking. The two free-tier options (Groq, OpenRouter) are
 uncommented in `.env.local.example` for easy copy-paste.
 
 Want a specific model? Edit `app/api/pilot/route.ts` and pass
-`model: "<provider>/<model-id>"` — or a `LanguageModel` instance (Ollama,
+`model: "<provider>/<model-id>"`, or a `LanguageModel` instance (Ollama,
 Azure, Bedrock, …). See the root README's "Server handler" section for the
 full spec.
 
@@ -78,7 +78,7 @@ full spec.
 ```
 examples/todo/
 ├── app/
-│   ├── api/pilot/route.ts   # createPilotHandler — one line
+│   ├── api/pilot/route.ts   # createPilotHandler, one line
 │   ├── globals.css          # app design tokens (also theme the sidebar)
 │   ├── layout.tsx           # root layout
 │   └── page.tsx             # the three hooks in one file

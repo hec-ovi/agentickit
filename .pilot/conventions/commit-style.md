@@ -35,7 +35,7 @@ Rules:
 
 - No emojis in commit messages.
 - No "WIP" commits on `master`. Squash locally first.
-- No `git commit -a` — stage files explicitly so you don't accidentally
+- No `git commit -a`. Stage files explicitly so you don't accidentally
   commit generated artifacts, credentials, or screenshots.
 - Never skip hooks (`--no-verify`) unless the user explicitly authorizes it.
 - Never amend a commit that's already pushed; create a new one.
@@ -45,7 +45,7 @@ Rules:
 - `.env*` (except `.env.example`).
 - `node_modules/`, `dist/`, `.next/`, `tsconfig.tsbuildinfo`.
 - `Screenshot*` or any binary dropped into the repo root.
-- Anything under `.agent/` — that's the research scratchpad.
+- Anything under `.agent/`; that's the research scratchpad.
 
 If `git status` shows one of the above, ask before committing.
 
@@ -55,7 +55,7 @@ If `git status` shows one of the above, ask before committing.
 2. Run `git diff --cached` to verify the diff matches what they asked for.
 3. Run `git log -5 --oneline` to confirm you match the style above.
 4. Stage specific files (never `git add -A` or `git add .` unless the user
-   insists — a stray `.env` slipping in is a security incident).
+   insists; a stray `.env` slipping in is a security incident).
 5. Write the message as a heredoc to preserve newlines.
 6. Run `git status` after the commit to confirm the working tree looks as
    expected.

@@ -43,10 +43,9 @@ The handler composes the final system prompt as
 in `packages/agentickit/src/server/handler.ts` lines 613-628).
 `options.system` is server-controlled and comes first; client-derived
 sections (`.pilot/` skills, registered state) are appended. **If you
-need guardrails the client cannot tamper with — tone, safety
-instructions, tenant isolation — put them in `options.system`. A
-compromised client can inject `body.system` but cannot shadow
-`options.system`.**
+need guardrails the client cannot tamper with (tone, safety instructions,
+tenant isolation), put them in `options.system`. A compromised client can
+inject `body.system` but cannot shadow `options.system`.**
 
 ## Phases
 
@@ -69,7 +68,7 @@ import { createPilotHandler } from "agentickit/server";
 export const POST = createPilotHandler({});
 ```
 
-Auto-detects a provider from env — see `skills/choose-provider/SKILL.md`
+Auto-detects a provider from env. See `skills/choose-provider/SKILL.md`
 for the priority order.
 
 ### Phase 3: the full options surface
@@ -82,7 +81,7 @@ export const POST = createPilotHandler({
   system: [
     "You are the support copilot for a kanban app.",
     "Always confirm destructive actions before invoking them.",
-    "Never expose internal card IDs — reference cards by title.",
+    "Never expose internal card IDs; reference cards by title.",
   ].join(" "),
   maxSteps: 5,
   getProviderOptions: () => ({
@@ -111,7 +110,7 @@ From the exported type (line 115):
 type ModelSpec = string | LanguageModel | (() => LanguageModel | Promise<LanguageModel>);
 ```
 
-**Shape 1 — string**:
+**Shape 1: string**.
 
 ```ts
 createPilotHandler({ model: "openai/gpt-4o" });
@@ -133,7 +132,7 @@ Supported prefixes (line 29): `openai`, `anthropic`, `groq`, `openrouter`,
 `google`, `mistral`. Anything else throws "unsupported model prefix" at
 handler creation.
 
-**Shape 2 — `LanguageModel` instance**:
+**Shape 2: `LanguageModel` instance**.
 
 ```ts
 import { createOllama } from "ai-sdk-ollama";
@@ -144,7 +143,7 @@ export const POST = createPilotHandler({ model: ollama("llama3.3") });
 Detected via `isLanguageModelInstance` (lines 380-392). Prefix validation
 is skipped. Use this for Ollama, Azure, Bedrock, or any custom adapter.
 
-**Shape 3 — thunk**:
+**Shape 3: thunk**.
 
 ```ts
 createPilotHandler({
@@ -163,7 +162,7 @@ clear error. Useful for async auth exchanges at startup.
 
 The client can pass `<Pilot model="openai/gpt-4o-mini">` and the string
 is forwarded in the request body. The server re-validates the prefix
-against the same allow-list (lines 841-853) — the client cannot inject
+against the same allow-list (lines 841-853), so the client cannot inject
 an arbitrary string.
 
 Overrides are only honored when `options.model` is a string (lines
@@ -189,7 +188,7 @@ options forwarded verbatim to `streamText({ providerOptions })`. Use for:
 - Groq tool-call retry settings.
 - Per-provider temperature overrides.
 
-Do NOT return API keys here — they live in env vars. The option's type is
+Do NOT return API keys here; they live in env vars. The option's type is
 intentionally loose (`Record<string, unknown>`) to avoid leaking AI SDK
 internal types through the public API.
 
@@ -204,10 +203,10 @@ All non-streaming errors return a narrow JSON envelope
 
 Codes (narrow, client-matchable):
 
-- `invalid_request` — 400, body didn't parse.
-- `unsupported_provider` — 400, model prefix not allowed.
-- `internal_error` — 500, catchall.
-- `method_not_allowed` — 405, not a POST.
+- `invalid_request`: 400, body didn't parse.
+- `unsupported_provider`: 400, model prefix not allowed.
+- `internal_error`: 500, catchall.
+- `method_not_allowed`: 405, not a POST.
 
 Stack traces never leak (line 925: `console.error` server-side, sanitized
 message to client).
@@ -216,7 +215,7 @@ message to client).
 
 The handler emits permissive CORS headers by default (line 367-372).
 Consumers who need tighter policy wrap the handler in their own
-middleware — don't modify the response headers from inside
+middleware. Don't modify the response headers from inside
 `getProviderOptions` (they're applied after `streamText` returns).
 
 ## Anti-Patterns
@@ -229,10 +228,10 @@ middleware — don't modify the response headers from inside
   custom preprocessor by wrapping the handler in middleware, not by
   patching internals.
 - Setting `maxSteps: 100`. At that point a runaway loop costs real money.
-  If you need more steps, examine whether the chain is the right tool —
-  a multi-step LLM loop is rarely the cheapest or most reliable path.
+  If you need more steps, examine whether the chain is the right tool.
+  A multi-step LLM loop is rarely the cheapest or most reliable path.
 - Assuming `streamText` is called on the server for every tool. Client
-  tools (declared via `usePilotAction`) stream back to the browser — the
+  tools (declared via `usePilotAction`) stream back to the browser. The
   server wraps them with `dynamicTool` and a throwing `execute` that
   signals "this is client-side only" (lines 668-672).
 

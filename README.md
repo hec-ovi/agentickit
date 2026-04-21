@@ -50,7 +50,7 @@ That's the whole library. Three hooks. One sidebar. One server route. The AI now
 
 ## Why agentickit?
 
-The React AI stack in 2026 has two settled layers: Vercel AI SDK for streaming, models, and tool calls; CopilotKit for Fortune-500 agent platforms. agentickit sits in the gap between them — the **app-integration layer**: "this state, this action, this form, go."
+The React AI stack in 2026 has two settled layers: Vercel AI SDK for streaming, models, and tool calls; CopilotKit for Fortune-500 agent platforms. agentickit sits in the gap between them as the **app-integration layer**: "this state, this action, this form, go."
 
 - **Three hooks you can memorize.** `usePilotState`, `usePilotAction`, `usePilotForm`. Type-inferred through Zod. No `useCopilotReadable` / `useCopilotAction` / `useCopilotChat` / `useCopilotChatSuggestions` sprawl.
 - **AI SDK 6 native.** `streamText` underneath, tool-call streaming delegated, `UIMessage` on the wire. You keep every escape hatch the SDK already gives you.
@@ -67,7 +67,7 @@ The React AI stack in 2026 has two settled layers: Vercel AI SDK for streaming, 
 npm install agentickit ai @ai-sdk/react zod
 
 # Plus exactly one provider adapter for your model choice. The free-tier
-# friendly default is OpenRouter — sign up at https://openrouter.ai/keys:
+# friendly default is OpenRouter. Sign up at https://openrouter.ai/keys:
 npm install @openrouter/ai-sdk-provider
 
 # Any of these also works, pick one:
@@ -78,7 +78,7 @@ npm install @openrouter/ai-sdk-provider
 #   npm install @ai-sdk/mistral      # MISTRAL_API_KEY
 # (or skip the adapter and set AI_GATEWAY_API_KEY to use the Vercel AI Gateway.)
 
-# Optional — only if you want `usePilotForm`:
+# Optional, only if you want `usePilotForm`:
 npm install react-hook-form
 ```
 
@@ -88,7 +88,7 @@ Requires **Node 20+** and a framework that supports the Web Fetch API on the ser
 
 ## For AI agents
 
-This repo ships with a root-level [`llms.txt`](./llms.txt) and a [`.pilot/`](./.pilot/) folder so any LLM agent — including a fresh Claude Code or Cursor session with no prior memory — can onboard cold.
+This repo ships with a root-level [`llms.txt`](./llms.txt) and a [`.pilot/`](./.pilot/) folder so any LLM agent can onboard cold, including a fresh Claude Code or Cursor session with no prior memory.
 
 The path: read `llms.txt` first for the map, follow it to [`.pilot/AGENTS.md`](./.pilot/AGENTS.md) for the house rules and read order, then use [`.pilot/RESOLVER.md`](./.pilot/RESOLVER.md) to match the user's task to one of ten `SKILL.md` files. Read the matching skill before writing code. Every snippet in `.pilot/` compiles against the current tree; the source under `packages/agentickit/src/` is the ground truth.
 
@@ -126,7 +126,7 @@ Install the matching provider adapter (e.g. `@ai-sdk/groq` for `GROQ_API_KEY`, `
 import { Pilot, PilotSidebar } from "agentickit";
 
 export default function Root({ children }: { children: React.ReactNode }) {
-  // `model` is optional — omit it and the route handler's auto-detected
+  // `model` is optional. Omit it and the route handler's auto-detected
   // choice is used. Pass a string here only to override per-request.
   return (
     <Pilot apiUrl="/api/pilot">
@@ -172,7 +172,7 @@ Open the sidebar, say *"add a todo to buy groceries."* The model calls `add_todo
 
 ## The three hooks
 
-### `usePilotState` — expose state to the AI
+### `usePilotState`: expose state to the AI
 
 ```tsx
 usePilotState({
@@ -180,13 +180,13 @@ usePilotState({
   description: "Current cart total in USD.",
   value: total,
   schema: z.number(),
-  setValue: setTotal,   // optional — omit to stay read-only
+  setValue: setTotal,   // optional; omit to stay read-only
 });
 ```
 
-The AI always sees the latest `value` on the next turn. When `setValue` is supplied, agentickit auto-registers an `update_<name>` tool with `schema` as its input — the AI can propose whole-value updates and the handler routes them through your setter. `mutating: true` is implied, so the user gets a confirmation prompt before the write lands.
+The AI always sees the latest `value` on the next turn. When `setValue` is supplied, agentickit auto-registers an `update_<name>` tool with `schema` as its input. The AI can propose whole-value updates and the handler routes them through your setter. `mutating: true` is implied, so the user gets a confirmation prompt before the write lands.
 
-### `usePilotAction` — register a typed tool
+### `usePilotAction`: register a typed tool
 
 ```tsx
 usePilotAction({
@@ -201,11 +201,11 @@ usePilotAction({
 });
 ```
 
-The handler runs in the browser — it has access to your React state, your auth'd `fetch`, and everything else a button's `onClick` would. Return values are JSON-serialized and fed back into the next model step so the assistant can narrate what happened.
+The handler runs in the browser. It has access to your React state, your auth'd `fetch`, and everything else a button's `onClick` would. Return values are JSON-serialized and fed back into the next model step so the assistant can narrate what happened.
 
 `mutating: true` pops a confirmation dialog before the handler fires. Use it for anything destructive or side-effecting.
 
-### `usePilotForm` — react-hook-form integration
+### `usePilotForm`: react-hook-form integration
 
 ```tsx
 import { useForm } from "react-hook-form";
@@ -225,7 +225,7 @@ function InvoiceForm() {
 }
 ```
 
-Registers three tools scoped to the form: `set_invoice_field`, `submit_invoice`, `reset_invoice`. The assistant can fill the form progressively, validate with `shouldValidate: true`, and submit — same `onSubmit` path a click would take. Submission walks the registered field refs to find the `<form>` node; it will never submit a form outside your component tree.
+Registers three tools scoped to the form: `set_invoice_field`, `submit_invoice`, `reset_invoice`. The assistant can fill the form progressively, validate with `shouldValidate: true`, and submit via the same `onSubmit` path a click would take. Submission walks the registered field refs to find the `<form>` node; it will never submit a form outside your component tree.
 
 ---
 
@@ -238,7 +238,7 @@ Registers three tools scoped to the form: `set_invoice_field`, `submit_invoice`,
 | `pilotProtocolUrl` | `string`                                        | `undefined`      | URL (or path) from which the runtime loads `.pilot/manifest.json`. Omit to run hook-only.       |
 | `headers`          | `Record<string, string> \| () => Record<…>`     | `undefined`      | Forwarded on every request. Use the function form for dynamic auth tokens.                     |
 
-All props except `apiUrl` can change at runtime. `apiUrl` is captured on mount — changing it mid-session would orphan the current stream.
+All props except `apiUrl` can change at runtime. `apiUrl` is captured on mount; changing it mid-session would orphan the current stream.
 
 ---
 
@@ -257,7 +257,7 @@ All props except `apiUrl` can change at runtime. `apiUrl` is captured on mount �
 
 ### Theming
 
-No Tailwind, no design system — just CSS variables. Override on any parent scope:
+No Tailwind, no design system. Just CSS variables. Override on any parent scope:
 
 ```css
 :root {
@@ -289,14 +289,14 @@ export const POST = createPilotHandler({
 
 | Option               | Type                                | Default | Notes                                                                                      |
 | -------------------- | ----------------------------------- | ------- | ------------------------------------------------------------------------------------------ |
-| `model`              | `ModelSpec`                         | —       | Required. String (`"<provider>/<model>"`), `LanguageModel` instance, or a thunk returning one. Validated at startup. |
-| `system`             | `string`                            | —       | Server-owned system prompt. Always prepended before any client-derived instructions.       |
+| `model`              | `ModelSpec`                         | required | String (`"<provider>/<model>"`), `LanguageModel` instance, or a thunk returning one. Validated at startup. |
+| `system`             | `string`                            | none    | Server-owned system prompt. Always prepended before any client-derived instructions.       |
 | `maxSteps`           | `number`                            | `5`     | Upper bound on `call → result → follow-up` iterations per request.                         |
-| `getProviderOptions` | `() => Record<string, unknown>`     | —       | Per-request provider tuning (caching hints, thinking budgets, etc.).                       |
+| `getProviderOptions` | `() => Record<string, unknown>`     | none    | Per-request provider tuning (caching hints, thinking budgets, etc.).                       |
 
 **`ModelSpec` resolution:**
 
-- **String** like `"openai/gpt-4o"` or `"openrouter/qwen/qwen3-coder:free"`: if a matching provider env var is set (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, ...) *and* the corresponding `@ai-sdk/*` peer package is installed, the direct adapter is used. Otherwise, if `AI_GATEWAY_API_KEY` is set, the raw string is handed to the Vercel AI Gateway. If neither applies, the factory throws at startup — never at request time.
+- **String** like `"openai/gpt-4o"` or `"openrouter/qwen/qwen3-coder:free"`: if a matching provider env var is set (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, ...) *and* the corresponding `@ai-sdk/*` peer package is installed, the direct adapter is used. Otherwise, if `AI_GATEWAY_API_KEY` is set, the raw string is handed to the Vercel AI Gateway. If neither applies, the factory throws at startup, never at request time.
 - **`LanguageModel` instance**: used verbatim. No prefix validation. Ideal for Ollama, Azure, Bedrock, or any other provider not on the built-in list.
 - **Thunk**: called once at handler creation; must return (or resolve to) a `LanguageModel`.
 
@@ -304,15 +304,15 @@ export const POST = createPilotHandler({
 
 1. Validates the `useChat` POST body against a narrow Zod schema.
 2. Converts UI messages to model messages and forwards to `streamText`.
-3. Wraps client-declared tools with `dynamicTool` — tool calls stream back to the browser; handlers never run on the server.
+3. Wraps client-declared tools with `dynamicTool`. Tool calls stream back to the browser; handlers never run on the server.
 4. Returns the AI SDK's native UI-message stream. `useChat` reassembles text, tool parts, and reasoning with no custom decoder.
 5. Emits CORS headers and a stable `{error, code}` envelope (`invalid_request | unsupported_provider | internal_error | method_not_allowed`) on failure.
 
 **Security notes:**
 
 - **API keys stay server-side.** Direct-provider keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, ...), `OPENROUTER_API_KEY`, and `AI_GATEWAY_API_KEY` are read from `process.env`. The browser bundle never sees them.
-- **Provider allow-list.** Unsupported model prefixes fail at handler-creation time, not at first request. Clients that try to override the model via the request body are re-validated against the same list — no path to injecting arbitrary strings.
-- **Client tools never execute server-side.** They're forward declarations. If you need a true server-side tool, call `streamText` directly — the server handler is a shim, not a moat around it.
+- **Provider allow-list.** Unsupported model prefixes fail at handler-creation time, not at first request. Clients that try to override the model via the request body are re-validated against the same list, so there's no path to injecting arbitrary strings.
+- **Client tools never execute server-side.** They're forward declarations. If you need a true server-side tool, call `streamText` directly. The server handler is a shim, not a moat around it.
 - **Mutating confirmations happen in the browser.** The server doesn't see the confirm step; the handler simply won't run until the user approves.
 
 Runs on any Web Fetch runtime: Next.js App Router (tested), Bun, Cloudflare Workers, Hono, edge runtimes.
@@ -323,9 +323,9 @@ Runs on any Web Fetch runtime: Next.js App Router (tested), Bun, Cloudflare Work
 
 Most copilot libraries make you re-author AI behavior in TypeScript on every prompt change. `agentickit` lets you ship capabilities as markdown files your product team can edit.
 
-**Problem:** The rules your assistant should follow ("always confirm refunds over $100", "when the user says 'summarize' on a >50-card board, group by status") live in the system prompt — which lives inside your bundle — which means a prompt change is a code change is a redeploy.
+**Problem:** The rules your assistant should follow ("always confirm refunds over $100", "when the user says 'summarize' on a >50-card board, group by status") live in the system prompt. The system prompt lives inside your bundle, so a prompt change is a code change is a redeploy.
 
-**Fix:** a committed `.pilot/` folder with a routing file (`RESOLVER.md`), a manifest (`manifest.json`), and one `SKILL.md` per capability. The runtime loads it at mount via `pilotProtocolUrl` and filters skills whose `name` doesn't match a registered `usePilotAction` — so the model never sees an uninvokable capability.
+**Fix:** a committed `.pilot/` folder with a routing file (`RESOLVER.md`), a manifest (`manifest.json`), and one `SKILL.md` per capability. The runtime loads it at mount via `pilotProtocolUrl` and filters skills whose `name` doesn't match a registered `usePilotAction`, so the model never sees an uninvokable capability.
 
 ### Folder shape
 
@@ -388,7 +388,7 @@ mutating: true
 - Amounts > $100 require explicit user confirmation.
 
 ## Phases
-1. `get_order({ id })` — resolve the order.
+1. `get_order({ id })` to resolve the order.
 2. If `order.total > 100`, summarize and ask the user to confirm.
 3. `issue_refund({ orderId, amount })`.
 
@@ -401,7 +401,7 @@ Frontmatter is a **strict superset of Anthropic's Agent Skills spec** (which req
 
 ### Interop
 
-- **Claude Code / Cursor / Aider users** who already have `AGENTS.md` or `CLAUDE.md` at the repo root can `extends` them in the manifest — the file stays a single source of truth for both authoring-time and runtime agents.
+- **Claude Code / Cursor / Aider users** who already have `AGENTS.md` or `CLAUDE.md` at the repo root can `extends` them in the manifest, so the file stays a single source of truth for both authoring-time and runtime agents.
 - **External agents** discovering your app can fetch `.pilot/manifest.json` as a machine-readable capability index. If you also emit a top-level `llms.txt`, point it at `/pilot/` so crawlers can find the folder.
 - **MCP bridges** are on the roadmap (v0.2): expose `.pilot/*` as MCP resources so external LLM clients can consume the same skills your in-app copilot sees.
 
@@ -425,7 +425,7 @@ Use it when prompt logic is becoming a code-review bottleneck, when a non-engine
 | Backend required         | 50-LoC route template          | Hosted runtime or self-host    | None (client-side API)        | None                         | Managed cloud               |
 | Ceiling                  | Well-loved small library       | Fortune-500 platform           | YC-backed primitives layer    | Industry standard            | End-to-end automation       |
 
-**Honest read.** CopilotKit is the mature choice if you need AG-UI, CoAgents, multi-vendor federation, or a managed cloud — they own that seat. assistant-ui has better chat primitives than we ship, and their `useAssistantForm` is more polished. Vercel AI SDK is what we sit on top of; if you want to write the integration layer yourself, go straight there. Our slot is "I want a copilot sidebar that understands my app state and actions, and I want to be done by dinner."
+**Honest read.** CopilotKit is the mature choice if you need AG-UI, CoAgents, multi-vendor federation, or a managed cloud. They own that seat. assistant-ui has better chat primitives than we ship, and their `useAssistantForm` is more polished. Vercel AI SDK is what we sit on top of; if you want to write the integration layer yourself, go straight there. Our slot is "I want a copilot sidebar that understands my app state and actions, and I want to be done by dinner."
 
 ---
 
@@ -434,7 +434,7 @@ Use it when prompt logic is becoming a code-review bottleneck, when a non-engine
 <details>
 <summary><b>Who should use this?</b></summary>
 
-React or Next.js apps where you want an AI copilot that reads your state, calls your functions, and fills your forms — and you want the whole integration layer to be readable source you can audit in a lunch break. Solo developers, small teams, side projects, internal tools.
+React or Next.js apps where you want an AI copilot that reads your state, calls your functions, and fills your forms, and you want the whole integration layer to be readable source you can audit in a lunch break. Solo developers, small teams, side projects, internal tools.
 
 Not you if: you need enterprise SSO, multi-agent orchestration, a managed cloud, or non-engineers authoring agents at scale. That's what CopilotKit is for.
 </details>
@@ -448,7 +448,7 @@ CopilotKit is ~60k LoC, 28k stars, a full agent framework with its own AG-UI pro
 <details>
 <summary><b>Why not assistant-ui?</b></summary>
 
-assistant-ui is the headless-primitives layer — `ThreadRoot`, `ComposerInput`, `MessagePartsGrouped`, thirty-odd composable pieces. If you want maximum control over every inch of chat UI, go straight there. We ship a single opinionated `<PilotSidebar>` and three hooks that wire chat to app state / actions / forms. We credit assistant-ui's primitives in [`packages/agentickit/NOTICE.md`](./packages/agentickit/NOTICE.md).
+assistant-ui is the headless-primitives layer: `ThreadRoot`, `ComposerInput`, `MessagePartsGrouped`, thirty-odd composable pieces. If you want maximum control over every inch of chat UI, go straight there. We ship a single opinionated `<PilotSidebar>` and three hooks that wire chat to app state / actions / forms. We credit assistant-ui's primitives in [`packages/agentickit/NOTICE.md`](./packages/agentickit/NOTICE.md).
 </details>
 
 <details>
@@ -460,15 +460,15 @@ You absolutely can. `useChat` + `streamText` is ~100 LoC from a working copilot.
 <details>
 <summary><b>Does it work outside Next.js?</b></summary>
 
-Yes. `createPilotHandler` returns a `(Request) => Promise<Response>` — runs anywhere with Web Fetch. We use Next.js App Router in every example because it's the common case, but Bun, Hono, Cloudflare Workers, and Fastify with `@fastify/web-fetch` all work. The client hooks are framework-agnostic React.
+Yes. `createPilotHandler` returns a `(Request) => Promise<Response>` that runs anywhere with Web Fetch. We use Next.js App Router in every example because it's the common case, but Bun, Hono, Cloudflare Workers, and Fastify with `@fastify/web-fetch` all work. The client hooks are framework-agnostic React.
 </details>
 
 <details>
 <summary><b>What models are supported?</b></summary>
 
-As of April 2026, string `model` values with any of these prefixes work out of the box: `openai/`, `anthropic/`, `groq/`, `openrouter/`, `google/`, `mistral/`. The handler picks the direct `@ai-sdk/*` adapter when the matching provider env var is set (e.g. `OPENAI_API_KEY`) — otherwise it falls back to the [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) when `AI_GATEWAY_API_KEY` is present.
+As of April 2026, string `model` values with any of these prefixes work out of the box: `openai/`, `anthropic/`, `groq/`, `openrouter/`, `google/`, `mistral/`. The handler picks the direct `@ai-sdk/*` adapter when the matching provider env var is set (e.g. `OPENAI_API_KEY`). Otherwise it falls back to the [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) when `AI_GATEWAY_API_KEY` is present.
 
-For anything else — Ollama (local), Azure, Bedrock, DeepInfra, custom OpenAI-compatible endpoints — pass a prebuilt `LanguageModel` instance instead of a string:
+For anything else (Ollama local, Azure, Bedrock, DeepInfra, custom OpenAI-compatible endpoints), pass a prebuilt `LanguageModel` instance instead of a string:
 
 ```ts
 import { createOllama } from "ai-sdk-ollama";
@@ -476,7 +476,7 @@ const ollama = createOllama();
 export const POST = createPilotHandler({ model: ollama("llama3.3") });
 ```
 
-The prefix allow-list and env detection are skipped for instances; the model is handed to `streamText` verbatim. Supported via the `ModelSpec` escape hatch — no core change needed. For free tier experimentation without a credit card, try `"openrouter/qwen/qwen3-coder:free"` with `OPENROUTER_API_KEY`.
+The prefix allow-list and env detection are skipped for instances; the model is handed to `streamText` verbatim. Supported via the `ModelSpec` escape hatch, no core change needed. For free tier experimentation without a credit card, try `"openrouter/qwen/qwen3-coder:free"` with `OPENROUTER_API_KEY`.
 </details>
 
 <details>
@@ -492,25 +492,25 @@ The prefix allow-list and env detection are skipped for instances; the model is 
 <details>
 <summary><b>Is the author looking for a job?</b></summary>
 
-Yes. Hector Oviedo — <hector.ernesto.oviedo@gmail.com>. This library is the portfolio artifact.
+Yes. Hector Oviedo, <hector.ernesto.oviedo@gmail.com>. This library is the portfolio artifact.
 </details>
 
 ---
 
 ## Roadmap
 
-### v0.1 — shipped
+### v0.1 (shipped)
 - Three hooks (`usePilotState`, `usePilotAction`, `usePilotForm`)
 - `<Pilot>` provider wiring AI SDK 6's `useChat` with a dynamic tool registry
 - `<PilotSidebar>` with dark mode, CSS-variable theming, a11y, suggestion chips
-- `createPilotHandler` for Next.js / Bun / Workers — direct adapters for `openai/*`, `anthropic/*`, `groq/*`, `openrouter/*`, `google/*`, `mistral/*`, plus Vercel AI Gateway fallback and a `LanguageModel`-instance escape hatch
-- `.pilot/` protocol loader — `RESOLVER.md` parser, `SKILL.md` parser, `manifest.json` validator
+- `createPilotHandler` for Next.js / Bun / Workers, with direct adapters for `openai/*`, `anthropic/*`, `groq/*`, `openrouter/*`, `google/*`, `mistral/*`, plus Vercel AI Gateway fallback and a `LanguageModel`-instance escape hatch
+- `.pilot/` protocol loader with a `RESOLVER.md` parser, a `SKILL.md` parser, and a `manifest.json` validator
 
-### v0.2 — next
-- **Ghost fills** — streaming form previews; Tab to accept, Shift-Tab to reject
-- **AI cursor** — visible floating pointer that narrates DOM-touching actions
+### v0.2 (next)
+- **Ghost fills**: streaming form previews; Tab to accept, Shift-Tab to reject
+- **AI cursor**: visible floating pointer that narrates DOM-touching actions
 - **`renderConfirm` prop** on `<Pilot>` for custom confirmation modals (today: `window.confirm`)
-- **DOM-fallback actuator** — accessibility-tree-driven action layer for sites without explicit integration
+- **DOM-fallback actuator**: accessibility-tree-driven action layer for sites without explicit integration
 
 ### Out of scope
 - Generic chatbot framework
@@ -527,7 +527,7 @@ pnpm build
 pnpm test
 ```
 
-- Open an issue before a large PR — agentickit is deliberately small and we'd rather talk scope upfront than close a big PR.
+- Open an issue before a large PR. agentickit is deliberately small and we'd rather talk scope upfront than close a big PR.
 - Conventional commits (`feat:`, `fix:`, `docs:`, `chore:`).
 - Every public API change needs a test. Current suite uses Vitest + happy-dom.
 - Biome for lint + format (`pnpm lint`, `pnpm format`).

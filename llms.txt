@@ -4,13 +4,13 @@
 
 `agentickit` is a small (~1,500 LoC) React library that sits between the Vercel AI SDK 6 and a consumer app. It ships three hooks (`usePilotState`, `usePilotAction`, `usePilotForm`), a `<Pilot>` provider, a `<PilotSidebar>` component, and a server-side `createPilotHandler`.
 
-This repo ships a `.pilot/` folder at the root as both dogfood and the canonical onboarding pack for LLM agents. Cold-start path for an agent with no prior memory: read `.pilot/AGENTS.md`, then `.pilot/RESOLVER.md` to match the user's task to a skill, then the matching `SKILL.md`. Every code snippet in `.pilot/` compiles against the current tree — the source under `packages/agentickit/src/` is the ground truth.
+This repo ships a `.pilot/` folder at the root as both dogfood and the canonical onboarding pack for LLM agents. Cold-start path for an agent with no prior memory: read `.pilot/AGENTS.md`, then `.pilot/RESOLVER.md` to match the user's task to a skill, then the matching `SKILL.md`. Every code snippet in `.pilot/` compiles against the current tree. The source under `packages/agentickit/src/` is the ground truth.
 
 ## Start here
 
-- [.pilot/AGENTS.md](.pilot/AGENTS.md): entry point — what this repo is, house rules, read order.
+- [.pilot/AGENTS.md](.pilot/AGENTS.md): entry point covering what this repo is, house rules, and read order.
 - [.pilot/RESOLVER.md](.pilot/RESOLVER.md): trigger-to-skill routing table. Read this to pick which `SKILL.md` applies.
-- [README.md](README.md): the public README — install, 60-second demo, API tables, FAQ, security notes.
+- [README.md](README.md): the public README covering install, 60-second demo, API tables, FAQ, and security notes.
 
 ## Skills (procedural guides)
 
@@ -20,10 +20,10 @@ This repo ships a `.pilot/` folder at the root as both dogfood and the canonical
 - [.pilot/skills/register-action/SKILL.md](.pilot/skills/register-action/SKILL.md): register a typed, AI-callable tool via `usePilotAction`. Zod-inferred args, `mutating:` flag guidance.
 - [.pilot/skills/register-form/SKILL.md](.pilot/skills/register-form/SKILL.md): attach a `react-hook-form` instance via `usePilotForm`. Auto-registers `set_<name>_field`, `submit_<name>`, `reset_<name>`.
 - [.pilot/skills/customize-sidebar/SKILL.md](.pilot/skills/customize-sidebar/SKILL.md): theme, relabel, reposition `<PilotSidebar>` via CSS variables. Also when to drop it and build custom UI from `PilotChatContext`.
-- [.pilot/skills/write-custom-backend/SKILL.md](.pilot/skills/write-custom-backend/SKILL.md): configure `createPilotHandler` — full options surface (`model`, `system`, `maxSteps`, `getProviderOptions`), per-request overrides, error envelope.
+- [.pilot/skills/write-custom-backend/SKILL.md](.pilot/skills/write-custom-backend/SKILL.md): configure `createPilotHandler`. Covers the full options surface (`model`, `system`, `maxSteps`, `getProviderOptions`), per-request overrides, and the error envelope.
 - [.pilot/skills/write-a-consumer-skill/SKILL.md](.pilot/skills/write-a-consumer-skill/SKILL.md): author a `SKILL.md` inside a consumer app's own `.pilot/` folder. Frontmatter shape, resolver table, binding contract.
 - [.pilot/skills/debug-and-test/SKILL.md](.pilot/skills/debug-and-test/SKILL.md): run the workspace, tests, and todo example. pnpm layout, tsup build, Vitest config, common failure modes.
-- [.pilot/skills/contribute/SKILL.md](.pilot/skills/contribute/SKILL.md): extend `agentickit` as a contributor — hook, component, provider prefix, protocol field, or example. Size budget and patch shape.
+- [.pilot/skills/contribute/SKILL.md](.pilot/skills/contribute/SKILL.md): extend `agentickit` as a contributor. Add a hook, component, provider prefix, protocol field, or example. Size budget and patch shape.
 
 ## Conventions
 
@@ -32,10 +32,10 @@ This repo ships a `.pilot/` folder at the root as both dogfood and the canonical
 
 ## Architecture
 
-- [packages/agentickit/README.md](packages/agentickit/README.md): the package-level README — public API surface, exports, peer-dep matrix.
-- [packages/agentickit/src/index.ts](packages/agentickit/src/index.ts): client entry point — the three hooks, `<Pilot>`, `<PilotSidebar>`, context.
-- [packages/agentickit/src/server/index.ts](packages/agentickit/src/server/index.ts): server entry point — `createPilotHandler` and types. Never import from client code.
-- [packages/agentickit/src/protocol/index.ts](packages/agentickit/src/protocol/index.ts): `.pilot/` protocol layer — `RESOLVER.md` parser, `SKILL.md` parser, `manifest.json` validator.
+- [packages/agentickit/README.md](packages/agentickit/README.md): the package-level README covering the public API surface, exports, and peer-dep matrix.
+- [packages/agentickit/src/index.ts](packages/agentickit/src/index.ts): client entry point with the three hooks, `<Pilot>`, `<PilotSidebar>`, and context.
+- [packages/agentickit/src/server/index.ts](packages/agentickit/src/server/index.ts): server entry point for `createPilotHandler` and types. Never import from client code.
+- [packages/agentickit/src/protocol/index.ts](packages/agentickit/src/protocol/index.ts): the `.pilot/` protocol layer with the `RESOLVER.md` parser, `SKILL.md` parser, and `manifest.json` validator.
 
 ## Example
 

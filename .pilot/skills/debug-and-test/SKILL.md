@@ -37,7 +37,7 @@ By the end of this skill the agent can:
 
 Never attempt a fix without first seeing the failure locally. The pnpm
 workspace links `agentickit` from `packages/agentickit/dist/` into the
-example — if `dist/` is stale, the example runs last build's behavior
+example. If `dist/` is stale, the example runs last build's behavior
 and your "fix" targets the wrong tree. **`pnpm --filter agentickit build`
 before every reproduction, no exceptions.**
 
@@ -57,7 +57,7 @@ agentickit/
         components/         # <Pilot>, <PilotSidebar>
         server/             # createPilotHandler
         protocol/           # .pilot/ loader
-      dist/                 # tsup output — regenerated on build
+      dist/                 # tsup output, regenerated on build
       tsup.config.ts
       vitest.config.ts
   examples/
@@ -67,7 +67,7 @@ agentickit/
         page.tsx
 ```
 
-Always use absolute paths from repo root when editing — never `cd`.
+Always use absolute paths from repo root when editing. Never `cd`.
 
 ### Phase 2: build the package
 

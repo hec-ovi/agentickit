@@ -11,7 +11,7 @@ read the referenced skill file before acting.
 | Every task that edits code in this repo | `conventions/quality.md` |
 | Every commit | `conventions/commit-style.md` |
 
-## Consumer-facing — using the package in a React app
+## Consumer-facing: using the package in a React app
 
 | Trigger | Skill |
 |---------|-------|
@@ -29,7 +29,7 @@ read the referenced skill file before acting.
 |---------|-------|
 | "write a SKILL.md", "add a skill for my app", ".pilot/ folder", "author a skill" | `skills/write-a-consumer-skill/SKILL.md` |
 
-## Internal — contributors to this repo
+## Internal: contributors to this repo
 
 | Trigger | Skill |
 |---------|-------|

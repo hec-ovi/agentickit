@@ -31,7 +31,7 @@ By the end of this skill the consumer has:
   confused LLM can't produce inputs that break the handler.
 - An explicit decision on the `mutating` flag.
 - A handler that either returns a JSON-serializable result (so the
-  assistant can narrate the outcome) or throws — and knows that the
+  assistant can narrate the outcome) or throws. Keep in mind that the
   error message gets streamed to the model verbatim.
 
 ## Iron Law: validate destructive actions with `mutating: true`
@@ -42,7 +42,7 @@ produces a side effect the user would want to reverse MUST set
 `window.confirm()` prompt before the handler fires (see
 `packages/agentickit/src/components/pilot-provider.tsx` lines 376-394).
 Omitting the flag on a destructive action means the AI can call it
-silently. **If in doubt, set the flag — a spurious confirm dialog costs
+silently. **If in doubt, set the flag. A spurious confirm dialog costs
 one click; a wrongful delete costs trust.**
 
 ## Phases
@@ -51,7 +51,7 @@ one click; a wrongful delete costs trust.**
 
 Tool names must be stable (the LLM reasons across turns using the name)
 and snake_case or kebab-case (compatible with every major provider's
-tool-naming rules — noted in `packages/agentickit/src/hooks/use-pilot-action.ts`
+tool-naming rules, noted in `packages/agentickit/src/hooks/use-pilot-action.ts`
 lines 20-22).
 
 ```
@@ -118,7 +118,7 @@ interface UsePilotActionOptions<TParams, TResult> {
 }
 ```
 
-The hook returns `void`. Cleanup is handled on unmount — see lines 86-88.
+The hook returns `void`. Cleanup is handled on unmount; see lines 86-88.
 
 ### Phase 4: pick `mutating`
 
@@ -130,14 +130,14 @@ Set `mutating: true` when any of these is true:
 - The handler removes data.
 - The handler triggers a workflow the user can't cancel.
 
-Set `mutating: false` (the default — just omit) when the handler only
+Set `mutating: false` (the default; just omit) when the handler only
 reads, queries, computes, or derives. Examples: `summarize_board`,
 `find_card_by_title`, `count_overdue_todos`.
 
 ### Phase 5: return a narratable result
 
 The assistant sees the handler's return value on its next step (it's
-serialized into the tool output — see `pilot-provider.tsx` lines 398-403).
+serialized into the tool output; see `pilot-provider.tsx` lines 398-403).
 Good returns:
 
 ```ts
@@ -146,13 +146,13 @@ return { ok: false, reason: "No matching card." };
 return { summary: "Archived 3 cards from 'Done'." };
 ```
 
-Avoid returning entire objects loaded with secrets or unrelated fields —
+Avoid returning entire objects loaded with secrets or unrelated fields;
 everything you return goes to the LLM provider. If the action is pure
 side-effect, `return { ok: true }` is enough.
 
 ### Phase 6: handle failures explicitly
 
-Throwing is fine — the provider catches and reports the error text to the
+Throwing is fine. The provider catches and reports the error text to the
 model (`pilot-provider.tsx` lines 404-410). But if you know the common
 failure, return a structured result instead so the assistant can
 narrate it usefully:
@@ -173,7 +173,7 @@ handler: ({ id }) => {
   `use-pilot-action.ts` line 61-62. The hook handles it, but it's still
   cheaper and clearer to hoist the schema.
 - Registering a read-only query with `mutating: true`. Every call now
-  pops a confirm dialog — users quickly learn to click "allow" reflexively,
+  pops a confirm dialog; users quickly learn to click "allow" reflexively,
   and the flag loses its signal.
 - Registering the same `name` from two components. The latter wins (see
   `registerAction` duplicate-name warning in `pilot-provider.tsx` lines

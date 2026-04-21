@@ -3,8 +3,8 @@ name: register-form
 version: 1.0.0
 description: |
   Attach a react-hook-form instance to the copilot via usePilotForm. The
-  hook registers three scoped tools — set_<name>_field, submit_<name>,
-  reset_<name> — so the assistant can progressively fill and submit the
+  hook registers three scoped tools (set_<name>_field, submit_<name>,
+  reset_<name>) so the assistant can progressively fill and submit the
   form. Use when a consumer wants AI-assisted form completion.
 triggers:
   - "usePilotForm"
@@ -27,9 +27,9 @@ By the end of this skill the consumer has:
 
 - `react-hook-form` installed (it's an optional peer dep).
 - A `useForm<TFieldValues>()` instance inside their component.
-- A call to `usePilotForm(form, { name })` — the hook returns the form
+- A call to `usePilotForm(form, { name })`. The hook returns the form
   unchanged; existing `form.register(...)` calls keep working.
-- Three tools registered under the scoped names — no more, no less.
+- Three tools registered under the scoped names, no more, no less.
 - Understanding that `submit_<name>` walks the form's registered field
   refs to locate the `<form>` DOM node. It will NOT fall back to
   `document.forms`.
@@ -37,10 +37,10 @@ By the end of this skill the consumer has:
 ## Iron Law: `usePilotForm` never wraps, only registers
 
 The hook takes a `UseFormReturn<TFieldValues>` and returns the same object
-unchanged — see `packages/agentickit/src/hooks/use-pilot-form.ts` line 141.
+unchanged (see `packages/agentickit/src/hooks/use-pilot-form.ts` line 141).
 Consumers keep calling `form.register(...)`, `form.handleSubmit(...)`,
 `form.watch(...)` exactly as they would without the copilot. **Do not
-suggest an alternate "copilot-aware" form API — there isn't one, and
+suggest an alternate "copilot-aware" form API. There isn't one, and
 introducing one would break the RHF ecosystem integration.**
 
 ## Phases
@@ -85,7 +85,7 @@ function usePilotForm<TFieldValues extends FieldValues>(
 ): UseFormReturn<TFieldValues>
 ```
 
-`name` defaults to `"form"` — fine for single-form pages; set it
+`name` defaults to `"form"`, which is fine for single-form pages. Set it
 explicitly on multi-form pages so the tool names don't collide.
 
 `ghostFill` is reserved for v0.2 (streaming preview with Tab-to-accept).
@@ -108,23 +108,23 @@ form via normal RHF APIs (`setValue`, `reset`, `requestSubmit`).
 
 With `name: "invoice"`, the hook registers:
 
-- **`set_invoice_field({ field, value })`** — writes a single field via
+- **`set_invoice_field({ field, value })`** writes a single field via
   `form.setValue(field, value, { shouldValidate: true, shouldDirty: true,
   shouldTouch: true })`. Field path strings like `"email"` or
   `"address.street"` are accepted. Triggers RHF validation so the UI
   reflects errors immediately. (See `use-pilot-form.ts` lines 71-91.)
-- **`submit_invoice()`** — calls `requestSubmit()` on the located form
+- **`submit_invoice()`** calls `requestSubmit()` on the located form
   node so the declared `onSubmit` handler runs exactly as if the user
   clicked. Returns `{ success: false, message }` if the form is already
   submitting or not mounted. `mutating: true`. (Lines 93-120.)
-- **`reset_invoice()`** — `form.reset()` back to `defaultValues`.
+- **`reset_invoice()`** calls `form.reset()` back to `defaultValues`.
   `mutating: true`. (Lines 122-132.)
 
 ### Phase 6: security note
 
 `submit_invoice` locates the `<form>` DOM node by walking from a
 registered field's ref up to the nearest `<form>` ancestor. It will NOT
-fall back to `document.forms` — doing so would let the assistant submit
+fall back to `document.forms`; doing so would let the assistant submit
 any form on the page, including a search bar baked into a host shell.
 (See `findFormElement` at `use-pilot-form.ts` lines 156-172 and the
 comment on lines 149-155 explaining why.)
@@ -140,12 +140,12 @@ the AI can submit.
   dev-only warning and is a no-op (lines 60-68). The user sees no error
   in prod.
 - Forgetting the `name` on multi-form pages. `set_form_field` collides
-  with itself across forms — the last registration wins, chaos ensues.
+  with itself across forms; the last registration wins, chaos ensues.
 - Letting the AI submit without the user's eyes on the form. `submit_<name>`
   is already `mutating: true`; don't also manually register a
   bypass-confirm version.
 - Attempting to expose individual fields via `usePilotState`. The per-field
-  state is RHF's internal — use `form.watch()` if you want read access,
+  state is RHF's internal. Use `form.watch()` if you want read access,
   and surface that derived value through `usePilotState` if truly needed.
 
 ## Output Format

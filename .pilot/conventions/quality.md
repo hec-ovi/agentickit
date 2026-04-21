@@ -12,14 +12,14 @@ you edit any file under `packages/agentickit/src/` or `examples/`.
 4. **`.pilot/skills/*`** are procedures for agents.
 
 If (3) or (4) drifts from (1), fix the doc. If (2) drifts from (1), one of
-them is wrong — investigate before editing either.
+them is wrong. Investigate before editing either.
 
 ## Type safety is non-negotiable
 
 - No `any`. Use `unknown` + narrow at the boundary.
 - No `@ts-ignore` / `@ts-expect-error` without a one-line comment explaining
   exactly which future change removes the need for it.
-- Zod schemas parse at every trust boundary — both the `useChat` POST body
+- Zod schemas parse at every trust boundary: both the `useChat` POST body
   (see `server/handler.ts` `requestBodySchema`) and every `usePilotAction`
   handler (the schema is parsed with `action.parameters.parse(toolCall.input)`
   in `components/pilot-provider.tsx`).
@@ -27,7 +27,7 @@ them is wrong — investigate before editing either.
 ## The three runtime deps
 
 `ai`, `@ai-sdk/react`, `zod`, `nanoid`. Adding a fifth is a cross-cutting
-decision — get it reviewed. Peer deps (`react`, `react-hook-form`, the
+decision; get it reviewed. Peer deps (`react`, `react-hook-form`, the
 `@ai-sdk/*` adapters) are either optional or well-established; don't add
 new required peers.
 
@@ -37,7 +37,7 @@ new required peers.
   into hooks or components.
 - `packages/agentickit/src/hooks/` and `components/` are `"use client"`.
   Never import Node-only APIs there.
-- `packages/agentickit/src/protocol/` is isomorphic — it runs in both and
+- `packages/agentickit/src/protocol/` is isomorphic. It runs in both and
   must stay dependency-free of `react`, `next`, or Node built-ins beyond
   what browsers ship.
 
@@ -55,7 +55,7 @@ safe under React 18 strict-mode double invocation. That means:
 ## Fail-soft for the protocol layer
 
 `.pilot/manifest.json` may be missing, malformed, or unreachable. The
-package must still work. See `Pilot` in `components/pilot-provider.tsx` —
+package must still work. See `Pilot` in `components/pilot-provider.tsx`:
 the manifest fetch is wrapped in try/catch and swallowed in prod. Preserve
 that property.
 

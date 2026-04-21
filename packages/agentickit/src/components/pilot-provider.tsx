@@ -473,11 +473,15 @@ function buildToolsPayload(snapshot: PilotRegistrySnapshot): Record<string, Outg
   const out: Record<string, OutgoingToolSpec> = {};
 
   for (const action of snapshot.actions) {
+    // We extract the JSON Schema directly rather than shipping the full
+    // `zodSchema()` wrapper: the wrapper carries methods (`.validate`)
+    // that don't survive JSON serialization, so the server would receive
+    // a stripped object and fail with "schema is not a function" when the
+    // AI SDK tries to invoke them. Plain JSON Schema round-trips cleanly
+    // and is what `dynamicTool({ inputSchema })` actually wants.
     out[action.name] = {
       description: action.description,
-      // `zodSchema` wraps the Zod schema in a StandardSchema so the server
-      // can serialize it to JSON Schema via the same helper.
-      inputSchema: zodSchema(action.parameters),
+      inputSchema: zodSchema(action.parameters).jsonSchema,
       ...(action.mutating ? { mutating: true } : {}),
     };
   }

@@ -40,7 +40,7 @@ Every install MUST set exactly one of the supported provider env vars AND
 install the matching `@ai-sdk/*` peer package. Auto-detection walks the list
 in order (see `packages/agentickit/src/server/handler.ts` `AUTO_DETECT_ORDER`)
 and throws `noProviderConfiguredError()` if none are present. Shipping
-without a provider produces a clear handler-creation-time error — but
+without a provider produces a clear handler-creation-time error, but
 shipping with a key and the wrong adapter produces a `MODULE_NOT_FOUND` on
 first request. **Verify both before you claim the install is done.**
 
@@ -56,7 +56,7 @@ Pick **one** provider. Free-tier-friendly is OpenRouter; zero-latency is
 Groq; widest model selection is the Vercel AI Gateway:
 
 ```bash
-# OpenRouter — free tier, no credit card
+# OpenRouter: free tier, no credit card
 npm install @openrouter/ai-sdk-provider
 # or Groq
 npm install @ai-sdk/groq
@@ -86,7 +86,7 @@ unsure which to pick.
 
 ### Phase 3: create the server route
 
-Next.js App Router — `app/api/pilot/route.ts`:
+Next.js App Router, at `app/api/pilot/route.ts`:
 
 ```ts
 import { createPilotHandler } from "agentickit/server";
@@ -97,7 +97,7 @@ export const POST = createPilotHandler({});
 ```
 
 For Bun / Hono / Cloudflare Workers: `createPilotHandler({})` returns a
-`(request: Request) => Promise<Response>` — hand it to whichever routing
+`(request: Request) => Promise<Response>`. Hand it to whichever routing
 primitive the framework uses.
 
 ### Phase 4: wrap the client tree
@@ -117,9 +117,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 }
 ```
 
-`apiUrl` defaults to `/api/pilot` so it's usually redundant — leave it for
-clarity. Do not pass `model` on `<Pilot>` unless you want a client-side
-override of the handler's default.
+`apiUrl` defaults to `/api/pilot` so it's usually redundant, but leave it
+for clarity. Do not pass `model` on `<Pilot>` unless you want a
+client-side override of the handler's default.
 
 ### Phase 5: smoke test
 
@@ -136,12 +136,12 @@ Failure modes and fixes:
 | 500 on first message, `MODULE_NOT_FOUND` | Env var set but adapter not installed | `npm install @ai-sdk/<provider>` |
 | 500 with "no model configured" | No env var set | Set one of the supported keys |
 | 400 `unsupported_provider` | Model string prefix typo (e.g. `opnai/gpt-4o`) | Fix the prefix; see `SUPPORTED_PROVIDER_PREFIXES` in `server/handler.ts` |
-| CORS error | Calling the route cross-origin without the handler's CORS headers being preserved | Don't wrap the response — let `createPilotHandler` own the `Response` |
+| CORS error | Calling the route cross-origin without the handler's CORS headers being preserved | Don't wrap the response; let `createPilotHandler` own the `Response` |
 
 ## Anti-Patterns
 
-- Installing multiple provider adapters "just in case" — the auto-detect
-  order is deterministic, extra keys just confuse the next developer.
+- Installing multiple provider adapters "just in case". The auto-detect
+  order is deterministic; extra keys just confuse the next developer.
 - Exposing provider API keys in the browser bundle. `OPENAI_API_KEY` etc.
   are read server-side from `process.env`; never import them into client
   code.

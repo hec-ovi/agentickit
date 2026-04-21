@@ -38,7 +38,7 @@ By the end of this skill the consumer has:
 
 The sidebar is ~350 lines split across four sibling files
 (`packages/agentickit/src/components/pilot-sidebar*.tsx` + the styles
-file). It uses CSS variables scoped with `--pilot-*` — see the exported
+file). It uses CSS variables scoped with `--pilot-*`. See the exported
 `pilotSidebarStyles` injection path in `pilot-sidebar.tsx` line 41 +
 132-134. **Overriding via CSS variables on any parent is idempotent and
 survives package upgrades. Patching the bundled styles via `!important`
@@ -48,12 +48,12 @@ or a fork is a maintenance landmine.**
 
 ### Phase 1: inventory what the consumer wants to change
 
-- **Colors / radius / shadow**: CSS variables — Phase 2.
-- **Label text / placeholder / buttons**: `labels` prop — Phase 3.
-- **Position (left/right) or width**: props — Phase 4.
-- **Suggestion chips** on empty state: `suggestions` prop — Phase 5.
+- **Colors / radius / shadow**: CSS variables, Phase 2.
+- **Label text / placeholder / buttons**: `labels` prop, Phase 3.
+- **Position (left/right) or width**: props, Phase 4.
+- **Suggestion chips** on empty state: `suggestions` prop, Phase 5.
 - **Fundamentally different layout** (bottom-anchored, inline, modal):
-  build a custom UI from `PilotChatContext` — Phase 6.
+  build a custom UI from `PilotChatContext`, Phase 6.
 
 ### Phase 2: theme with CSS variables
 
@@ -93,7 +93,7 @@ defaults (see `DEFAULT_LABELS` in `pilot-sidebar.tsx` lines 91-98).
 />
 ```
 
-The `openButton` and `closeButton` labels are important — they're used as
+The `openButton` and `closeButton` labels are important: they're used as
 the `aria-label` on the toggle and close controls (lines 221-224, 258-260).
 Localize them for accessibility.
 
@@ -111,7 +111,7 @@ Localize them for accessibility.
 (`"32rem"`, `"50vw"`, `"clamp(320px, 30vw, 540px)"`). See lines 213-214.
 
 `position` renders `data-position="left|right"` on the outer `<aside>`
-(line 246) — the bundled styles mirror the slide-in and toggle based on
+(line 246). The bundled styles mirror the slide-in and toggle based on
 that attribute.
 
 ### Phase 5: suggestion chips
@@ -175,7 +175,7 @@ lines 434-445):
 - `sendMessage(text: string): Promise<void>`
 - `stop(): void`
 
-Render `messages` however the design calls for — the parts array is
+Render `messages` however the design calls for. The parts array is
 documented in the AI SDK's `UIMessage` type. For tool parts, check
 `part.type === "tool-<name>"` and `part.state === "output-available"`.
 
@@ -192,7 +192,7 @@ documented in the AI SDK's `UIMessage` type. For tool parts, check
   `display: none`. Two copies of the message list re-render on every
   token. Pick one UI.
 - Forgetting to wrap the sidebar (bundled or custom) in a `<Pilot>`
-  provider. The chat context is a tree context — no provider, no chat.
+  provider. The chat context is a tree context; no provider, no chat.
 
 ## Output Format
 

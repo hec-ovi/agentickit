@@ -37,7 +37,7 @@ By the end of this skill the consumer knows:
 - The exact env var and adapter package for their chosen provider.
 - That "bring your own adapter" is supported for providers outside the
   built-in registry (Ollama, Azure, AWS Bedrock, etc.).
-- The Vercel AI Gateway fallback option — no adapter package, one key.
+- The Vercel AI Gateway fallback option: no adapter package, one key.
 
 ## Iron Law: one env var per provider
 
@@ -46,12 +46,12 @@ The server handler resolves strings through a fixed registry (see
 56-71). Each prefix maps to exactly one env var and one adapter package.
 Auto-detection walks `AUTO_DETECT_ORDER` (lines 150-160) and stops on the
 first env var present. **Setting multiple direct-provider keys will work,
-but auto-detect becomes deterministic and non-obvious — the first in
+but auto-detect becomes deterministic and non-obvious; the first in
 priority order wins. Be explicit if the order matters for your case.**
 
 ## Phases
 
-### Phase 1: the happy path — let it auto-detect
+### Phase 1: the happy path, let it auto-detect
 
 Set one env var, install the matching adapter, omit `model`:
 
@@ -77,7 +77,7 @@ If no key is set, the handler factory throws immediately with a message
 listing every supported env var (see `noProviderConfiguredError()` at
 lines 206-215).
 
-### Phase 2: the explicit path — pass a model string
+### Phase 2: the explicit path, pass a model string
 
 When you want a specific model:
 
@@ -124,7 +124,7 @@ export const POST = createPilotHandler({ model: ollama("llama3.3") });
 ```
 
 Any object that's a valid AI SDK v2 or v3 `LanguageModel` instance is
-accepted — it's sniffed via `isLanguageModelInstance` (lines 380-392)
+accepted. It's sniffed via `isLanguageModelInstance` (lines 380-392),
 which checks for the `specificationVersion` + `provider` + `modelId`
 triad every adapter exposes. Prefix validation is skipped for instances.
 
@@ -145,14 +145,14 @@ The thunk runs exactly once at handler creation (lines 710-722).
 
 `<Pilot model="openai/gpt-4o-mini">` forwards the string into every
 request's body. The server handler re-validates the prefix against the
-same allow-list (lines 841-853) — a compromised client cannot inject an
+same allow-list (lines 841-853), so a compromised client cannot inject an
 arbitrary string. Overrides are only honored when the handler's default
 `model` is also a string (lines 854-860); if you passed a `LanguageModel`
 instance or thunk server-side, the client override is a 400.
 
 ## Anti-Patterns
 
-- Installing every adapter "to be safe". Peer deps are optional — shipping
+- Installing every adapter "to be safe". Peer deps are optional; shipping
   all of them bloats the consumer's bundle.
 - Hard-coding the API key in the model string. Keys always come from
   `process.env`.
@@ -167,11 +167,11 @@ instance or thunk server-side, the client override is a 400.
 
 After the choice is made, report:
 
-- The chosen provider (by name — "OpenRouter", "Groq", etc.).
+- The chosen provider (by name: "OpenRouter", "Groq", etc.).
 - The env var the consumer needs to set.
-- The adapter package the consumer needs to install (or "none — using
+- The adapter package the consumer needs to install (or "none, using
   the Vercel AI Gateway").
-- The `model` argument in `createPilotHandler` (or "omitted — using
+- The `model` argument in `createPilotHandler` (or "omitted, using
   auto-detection").
 
 ## Tools Used

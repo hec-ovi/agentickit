@@ -22,10 +22,10 @@ npm install @openrouter/ai-sdk-provider        # free tier, no credit card
 #   or: npm install @ai-sdk/groq               # GROQ_API_KEY
 #   or: npm install @ai-sdk/google             # GOOGLE_GENERATIVE_AI_API_KEY
 #   or: npm install @ai-sdk/mistral            # MISTRAL_API_KEY
-# (no adapter needed if you use AI_GATEWAY_API_KEY — the Vercel AI Gateway
+# (no adapter needed if you use AI_GATEWAY_API_KEY. The Vercel AI Gateway
 #  resolves prefix strings server-side.)
 
-# Optional — only required for usePilotForm:
+# Optional, only required for usePilotForm:
 npm install react-hook-form
 ```
 
@@ -41,7 +41,7 @@ npm install react-hook-form
 // app/api/pilot/route.ts
 import { createPilotHandler } from "agentickit/server";
 
-// Auto-detects a provider from your env — set any ONE of GROQ_API_KEY,
+// Auto-detects a provider from your env. Set any ONE of GROQ_API_KEY,
 // OPENROUTER_API_KEY (both free tier), OPENAI_API_KEY, ANTHROPIC_API_KEY,
 // GOOGLE_GENERATIVE_AI_API_KEY, MISTRAL_API_KEY, or AI_GATEWAY_API_KEY.
 export const POST = createPilotHandler({});
@@ -59,7 +59,7 @@ Install the matching provider adapter (e.g. `@ai-sdk/groq` for `GROQ_API_KEY`, `
 | `groq/<model>`                         | `GROQ_API_KEY`                  | `@ai-sdk/groq`                  |
 | `google/<model>`                       | `GOOGLE_GENERATIVE_AI_API_KEY`  | `@ai-sdk/google`                |
 | `mistral/<model>`                      | `MISTRAL_API_KEY`               | `@ai-sdk/mistral`               |
-| any of the above (no direct key)       | `AI_GATEWAY_API_KEY`            | none — goes through Vercel AI Gateway |
+| any of the above (no direct key)       | `AI_GATEWAY_API_KEY`            | none (goes through Vercel AI Gateway) |
 
 **Or pass your own `LanguageModel` instance** (Ollama, Azure, Bedrock, custom):
 
@@ -69,7 +69,7 @@ const ollama = createOllama();
 export const POST = createPilotHandler({ model: ollama("llama3.3") });
 ```
 
-Prefix validation and registry lookup are skipped for instances — you bring the adapter, we hand it to `streamText` verbatim.
+Prefix validation and registry lookup are skipped for instances. You bring the adapter, we hand it to `streamText` verbatim.
 
 ### 2. Client
 
@@ -100,7 +100,7 @@ function TodoBoard() {
 }
 
 export default function App() {
-  // `model` is optional — omit it and the route's auto-detected choice wins.
+  // `model` is optional. Omit it and the route's auto-detected choice wins.
   return (
     <Pilot apiUrl="/api/pilot">
       <TodoBoard />
@@ -168,18 +168,18 @@ Top-level provider. Wraps an AI SDK 6 `useChat` transport that appends the curre
 
 #### `<PilotSidebar />`
 
-Opinionated chat UI — slide-in panel, dark mode, CSS-variable theming, suggestion chips, accessible keyboard navigation. Props: `defaultOpen`, `position`, `width`, `suggestions`, `greeting`, `labels`, `onOpenChange`, `className`. Theme with CSS custom properties (`--pilot-bg`, `--pilot-accent`, `--pilot-radius`, …).
+Opinionated chat UI: slide-in panel, dark mode, CSS-variable theming, suggestion chips, accessible keyboard navigation. Props: `defaultOpen`, `position`, `width`, `suggestions`, `greeting`, `labels`, `onOpenChange`, `className`. Theme with CSS custom properties (`--pilot-bg`, `--pilot-accent`, `--pilot-radius`, …).
 
 ### Server
 
 #### `createPilotHandler({ model, system?, maxSteps?, getProviderOptions? })`
 
-Returns a `(Request) => Promise<Response>` for any Web Fetch runtime. Validates the `useChat` body with Zod, dispatches to `streamText`, wraps client-declared tools as `dynamicTool` (they stream to the browser — never execute server-side), and returns `toUIMessageStreamResponse()`.
+Returns a `(Request) => Promise<Response>` for any Web Fetch runtime. Validates the `useChat` body with Zod, dispatches to `streamText`, wraps client-declared tools as `dynamicTool` (they stream to the browser and never execute server-side), and returns `toUIMessageStreamResponse()`.
 
 `model` accepts three shapes:
 
 1. **String** (`"openai/gpt-4o"`, `"openrouter/qwen/qwen3-coder:free"`, ...): the handler auto-detects a matching direct provider key and uses the corresponding `@ai-sdk/*` adapter. If no direct key is set but `AI_GATEWAY_API_KEY` is, the raw string is handed to the Vercel AI Gateway.
-2. **`LanguageModel` instance**: used verbatim. No prefix validation — drop in an Ollama, Azure, or Bedrock adapter and it just works.
+2. **`LanguageModel` instance**: used verbatim. No prefix validation. Drop in an Ollama, Azure, or Bedrock adapter and it just works.
 3. **Thunk** (`() => LanguageModel | Promise<LanguageModel>`): called exactly once at handler creation; useful when the adapter needs async setup.
 
 ```ts
@@ -192,7 +192,7 @@ export const POST = createPilotHandler({
 ```
 
 ```ts
-// LanguageModel instance — bring your own adapter
+// LanguageModel instance (bring your own adapter)
 import { createOllama } from "ai-sdk-ollama";
 const ollama = createOllama();
 export const POST = createPilotHandler({ model: ollama("llama3.3") });
@@ -219,7 +219,7 @@ Ship capabilities as markdown. PMs and designers edit `SKILL.md` files; engineer
     fill-checkout/SKILL.md
 ```
 
-Load it at mount with `<Pilot pilotProtocolUrl="/pilot" …>`. Skills whose `name` doesn't match a registered `usePilotAction` are filtered out of the system prompt — the model never sees an uninvokable capability.
+Load it at mount with `<Pilot pilotProtocolUrl="/pilot" …>`. Skills whose `name` doesn't match a registered `usePilotAction` are filtered out of the system prompt, so the model never sees an uninvokable capability.
 
 Full spec, examples, and interop notes (Claude Code / Cursor / MCP): see the [root README on GitHub](https://github.com/hec-ovi/agentickit#the-pilot-skills-folder).
 
@@ -227,9 +227,9 @@ Full spec, examples, and interop notes (Claude Code / Cursor / MCP): see the [ro
 
 ## Why agentickit over the alternatives?
 
-- **vs CopilotKit** — CopilotKit is the Fortune-500 choice (AG-UI, CoAgents, managed cloud, ~60k LoC). agentickit is ~5% of that surface, for solo devs and small teams.
-- **vs assistant-ui** — assistant-ui is 30+ chat primitives; agentickit is one opinionated sidebar plus the state/actions/forms wiring assistant-ui leaves to you.
-- **vs raw AI SDK** — `useChat` + `streamText` is the right call if you want to write the integration layer yourself. agentickit is that layer.
+- **vs CopilotKit.** CopilotKit is the Fortune-500 choice (AG-UI, CoAgents, managed cloud, ~60k LoC). agentickit is ~5% of that surface, for solo devs and small teams.
+- **vs assistant-ui.** assistant-ui is 30+ chat primitives; agentickit is one opinionated sidebar plus the state/actions/forms wiring assistant-ui leaves to you.
+- **vs raw AI SDK.** `useChat` + `streamText` is the right call if you want to write the integration layer yourself. agentickit is that layer.
 
 Full comparison table in the [root README](https://github.com/hec-ovi/agentickit#compared-to-alternatives).
 
