@@ -6,72 +6,125 @@ import {
   usePilotAction,
   usePilotState,
 } from "agentickit";
-import { type FormEvent, useCallback, useMemo, useState } from "react";
 import { z } from "zod";
+import {
+  AppProvider,
+  type ChartSource,
+  type ChartType,
+  useAppContext,
+} from "./app-context";
+import { DetailForm } from "./components/detail-form";
+import { StatsPanel } from "./components/stats-panel";
+import { TodoBoard } from "./components/todo-board";
+import {
+  makeId,
+  priorityValues,
+  type Todo,
+  todoListSchema,
+} from "./todo-types";
 
 // ---------------------------------------------------------------------------
-// Schema + types
+// PilotBindings — registers usePilotState + usePilotAction for the whole page.
+//
+// Kept separate from the UI components so the AI's "world model" is defined
+// in one place. Reading this file tells you everything the AI can do to the
+// app without hunting through three components.
 // ---------------------------------------------------------------------------
 
-const todoSchema = z.object({
-  id: z.string(),
-  text: z.string().min(1),
-  done: z.boolean(),
-});
+function PilotBindings() {
+  const { todos, setTodos, appendTodo, chart, setChart, signalChartFlash } =
+    useAppContext();
 
-const todoListSchema = z.array(todoSchema);
-
-type Todo = z.infer<typeof todoSchema>;
-
-// Seed data so the UI isn't a blank canvas on first load.
-const SEED_TODOS: ReadonlyArray<Todo> = [
-  { id: "seed-1", text: "Read the agentickit README", done: true },
-  { id: "seed-2", text: "Try asking the copilot to add a todo", done: false },
-  { id: "seed-3", text: "Mark the gym todo as done", done: false },
-  { id: "seed-4", text: "Go to the gym", done: false },
-  { id: "seed-5", text: "Ship the portfolio page", done: false },
-];
-
-// Tiny id helper — avoids pulling in a whole uuid lib for a demo.
-function makeId(): string {
-  return `todo-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-// ---------------------------------------------------------------------------
-// TodoBoard — the component that wires the three hooks.
-// ---------------------------------------------------------------------------
-
-function TodoBoard() {
-  const [todos, setTodos] = useState<ReadonlyArray<Todo>>(SEED_TODOS);
-  const [draft, setDraft] = useState("");
-
-  const doneCount = useMemo(() => todos.filter((t) => t.done).length, [todos]);
-
-  // -------------------------------------------------------------------------
-  // usePilotState — expose the full list to the model (read + whole-value
-  // update). Passing `setValue` auto-registers an `update_todos` tool.
-  // -------------------------------------------------------------------------
+  // --- todos state: read + whole-list update -------------------------------
   usePilotState({
     name: "todos",
     description:
-      "The user's current todo list. Each item has an id, text, and done flag.",
+      "The user's current todo list. Each item has an id, text, done flag, " +
+      "and optional priority / dueDate / assignee / notes. Read this to " +
+      "answer questions about what's pending. Use update_todos only for bulk " +
+      "rewrites; prefer add_todo / toggle_todo / remove_todo for single ops.",
     value: todos,
     schema: todoListSchema,
     setValue: (next) => setTodos(next),
   });
 
-  // -------------------------------------------------------------------------
-  // usePilotAction — explicit tools for nicer UX than a whole-list overwrite.
-  // -------------------------------------------------------------------------
+  // --- chart state: read + update_chart auto-tool --------------------------
+  usePilotState({
+    name: "chart",
+    description:
+      "The current chart configuration displayed above the todo list. " +
+      "`type` picks the renderer; `source` picks the data series.",
+    value: chart,
+    schema: z.object({
+      type: z.enum(["bar", "pie", "line"]),
+      source: z.enum(["status", "priority"]),
+    }),
+    // No setValue here — we prefer the narrower partial-update tool below so
+    // the AI can change just `type` without resending `source`.
+  });
+
+  // A narrower, partial-update tool for the chart. Either field can be
+  // omitted; missing fields keep their current value. Also fires the flash
+  // affordance so the chart card pulses when the AI mutates it.
+  usePilotAction({
+    name: "update_chart",
+    description:
+      "Update the chart displayed above the todo list. Either field may be " +
+      "omitted to leave that aspect unchanged. `type` picks Bar / Pie / Line; " +
+      "`source` picks the data series (status = done vs pending, priority = " +
+      "count per priority level).",
+    parameters: z.object({
+      type: z
+        .enum(["bar", "pie", "line"])
+        .optional()
+        .describe("Chart renderer. Omit to keep the current type."),
+      source: z
+        .enum(["status", "priority"])
+        .optional()
+        .describe("Data series. Omit to keep the current source."),
+    }),
+    mutating: true,
+    handler: ({ type, source }) => {
+      const patch: { type?: ChartType; source?: ChartSource } = {};
+      if (type) patch.type = type;
+      if (source) patch.source = source;
+      if (Object.keys(patch).length === 0) {
+        return { ok: false, reason: "Nothing to update." };
+      }
+      setChart(patch);
+      signalChartFlash();
+      return { ok: true, applied: patch };
+    },
+  });
+
+  // --- todo actions: same surface as before, now enriched ------------------
   usePilotAction({
     name: "add_todo",
-    description: "Add a new todo item to the end of the list.",
+    description:
+      "Add a new todo to the end of the list. Use optional priority / " +
+      "dueDate (YYYY-MM-DD) / assignee / notes when the user mentions them.",
     parameters: z.object({
       text: z.string().min(1).describe("The visible text of the todo."),
+      priority: z.enum(priorityValues).optional(),
+      dueDate: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/)
+        .optional()
+        .describe("ISO date (YYYY-MM-DD)."),
+      assignee: z.string().optional(),
+      notes: z.string().optional(),
     }),
-    handler: ({ text }) => {
-      const todo: Todo = { id: makeId(), text, done: false };
-      setTodos((prev) => [...prev, todo]);
+    handler: ({ text, priority, dueDate, assignee, notes }) => {
+      const todo: Todo = {
+        id: makeId(),
+        text,
+        done: false,
+        ...(priority ? { priority } : {}),
+        ...(dueDate ? { dueDate } : {}),
+        ...(assignee ? { assignee } : {}),
+        ...(notes ? { notes } : {}),
+      };
+      appendTodo(todo, { fromAi: true });
       return { ok: true, id: todo.id };
     },
   });
@@ -79,7 +132,8 @@ function TodoBoard() {
   usePilotAction({
     name: "toggle_todo",
     description:
-      "Toggle a todo's done flag. Match by id when possible; otherwise by a substring of the text.",
+      "Toggle a todo's done flag. Match by id when possible; otherwise by a " +
+      "substring of the text.",
     parameters: z.object({
       id: z
         .string()
@@ -93,201 +147,112 @@ function TodoBoard() {
         ),
     }),
     handler: ({ id, match }) => {
-      let targetId: string | null = null;
-      setTodos((prev) => {
-        const byId = id ? prev.find((t) => t.id === id) : undefined;
-        const byMatch =
-          !byId && match
-            ? prev.find((t) => t.text.toLowerCase().includes(match.toLowerCase()))
-            : undefined;
-        const target = byId ?? byMatch;
-        if (!target) return prev;
-        targetId = target.id;
-        return prev.map((t) =>
-          t.id === target.id ? { ...t, done: !t.done } : t,
-        );
-      });
-      if (!targetId) {
+      const byId = id ? todos.find((t) => t.id === id) : undefined;
+      const byMatch =
+        !byId && match
+          ? todos.find((t) =>
+              t.text.toLowerCase().includes(match.toLowerCase()),
+            )
+          : undefined;
+      const target = byId ?? byMatch;
+      if (!target) {
         return { ok: false, reason: "No matching todo." };
       }
-      return { ok: true, id: targetId };
+      setTodos(
+        todos.map((t) =>
+          t.id === target.id ? { ...t, done: !t.done } : t,
+        ),
+      );
+      return { ok: true, id: target.id };
     },
   });
 
   usePilotAction({
     name: "remove_todo",
     description:
-      "Permanently remove a todo. Match by id when possible; otherwise by substring of its text.",
+      "Permanently remove a todo. Match by id when possible; otherwise by " +
+      "substring of its text.",
     parameters: z.object({
       id: z.string().optional().describe("The exact id of the todo."),
       match: z
         .string()
         .optional()
-        .describe("Case-insensitive substring match against the todo text."),
+        .describe(
+          "Case-insensitive substring match against the todo text.",
+        ),
     }),
     mutating: true,
     handler: ({ id, match }) => {
-      let removedId: string | null = null;
-      setTodos((prev) => {
-        const target =
-          (id ? prev.find((t) => t.id === id) : undefined) ??
-          (match
-            ? prev.find((t) => t.text.toLowerCase().includes(match.toLowerCase()))
-            : undefined);
-        if (!target) return prev;
-        removedId = target.id;
-        return prev.filter((t) => t.id !== target.id);
-      });
-      if (!removedId) {
+      const target =
+        (id ? todos.find((t) => t.id === id) : undefined) ??
+        (match
+          ? todos.find((t) =>
+              t.text.toLowerCase().includes(match.toLowerCase()),
+            )
+          : undefined);
+      if (!target) {
         return { ok: false, reason: "No matching todo." };
       }
-      return { ok: true, id: removedId };
+      setTodos(todos.filter((t) => t.id !== target.id));
+      return { ok: true, id: target.id };
     },
   });
 
-  // -------------------------------------------------------------------------
-  // Local UI handlers
-  // -------------------------------------------------------------------------
-  const handleAdd = useCallback(
-    (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const text = draft.trim();
-      if (!text) return;
-      setTodos((prev) => [...prev, { id: makeId(), text, done: false }]);
-      setDraft("");
-    },
-    [draft],
-  );
+  return null;
+}
 
-  const toggleLocal = useCallback((id: string) => {
-    setTodos((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)),
-    );
-  }, []);
+// ---------------------------------------------------------------------------
+// Layout — three sections stacked vertically: stats, detail form, todo board.
+// ---------------------------------------------------------------------------
 
-  const removeLocal = useCallback((id: string) => {
-    setTodos((prev) => prev.filter((t) => t.id !== id));
-  }, []);
-
+function PageShell() {
   return (
     <main className="page">
       <div className="shell">
         <header className="header">
           <h1>Todos</h1>
-          <p>A tiny list. Ask the copilot to add, toggle, or summarize.</p>
+          <p>
+            A single page with three panels. Ask the copilot to rewire the
+            chart, fill the form, or mutate the list.
+          </p>
           <span className="hint" aria-hidden="true">
             Try asking the copilot <kbd>→</kbd>
           </span>
         </header>
-
-        <form className="composer" onSubmit={handleAdd}>
-          <input
-            type="text"
-            placeholder="Add a todo and press Enter"
-            aria-label="New todo"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-          />
-          <button type="submit" className="btn" disabled={!draft.trim()}>
-            Add
-          </button>
-        </form>
-
-        {todos.length > 0 ? (
-          <>
-            <div className="meta">
-              <span className="meta-count">
-                {doneCount} of {todos.length} done
-              </span>
-              <span>{todos.length - doneCount} pending</span>
-            </div>
-            <ul className="list">
-              {todos.map((todo) => (
-                <li
-                  key={todo.id}
-                  className={`item${todo.done ? " done" : ""}`}
-                >
-                  <input
-                    type="checkbox"
-                    className="item-checkbox"
-                    checked={todo.done}
-                    onChange={() => toggleLocal(todo.id)}
-                    aria-label={`Mark "${todo.text}" as ${todo.done ? "not done" : "done"}`}
-                  />
-                  <span className="item-text">{todo.text}</span>
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    onClick={() => removeLocal(todo.id)}
-                    aria-label={`Delete "${todo.text}"`}
-                    title="Delete"
-                  >
-                    <TrashIcon />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </>
-        ) : (
-          <div className="empty" role="status">
-            <span className="empty-title">No todos yet</span>
-            <span className="empty-sub">
-              Add one above, or ask the copilot to do it for you.
-            </span>
-          </div>
-        )}
+        <StatsPanel />
+        <DetailForm />
+        <TodoBoard />
+        <PilotBindings />
       </div>
     </main>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Page — wraps the board in <Pilot> and drops in the sidebar.
+// Page — wraps the shell in <Pilot> + AppProvider and drops in the sidebar.
 // ---------------------------------------------------------------------------
 
 export default function Page() {
   return (
     <Pilot apiUrl="/api/pilot">
-      <TodoBoard />
-      <PilotSidebar
-        defaultOpen={false}
-        labels={{
-          title: "Todo copilot",
-          inputPlaceholder: "Add, toggle, or ask what's pending…",
-        }}
-        suggestions={[
-          "What's still pending?",
-          "Add 'buy milk' to my list",
-          "Mark the gym todo as done",
-          "Remove the milk one",
-        ]}
-      />
+      <AppProvider>
+        <PageShell />
+        <PilotSidebar
+          defaultOpen={false}
+          labels={{
+            title: "Todo copilot",
+            inputPlaceholder: "Ask me to change the chart, fill the form, or edit todos…",
+          }}
+          suggestions={[
+            "What's still pending?",
+            "Add 'buy milk'",
+            "Mark the gym one as done",
+            "Show completed vs pending as a bar chart",
+            "Switch to a pie of todos by priority",
+            "Create 'Ship migration', urgent priority, due Friday, assigned to me",
+          ]}
+        />
+      </AppProvider>
     </Pilot>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Inline icon — avoids an icon-library dependency.
-// ---------------------------------------------------------------------------
-
-function TrashIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M3 6h18" />
-      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-      <path d="M10 11v6" />
-      <path d="M14 11v6" />
-    </svg>
   );
 }

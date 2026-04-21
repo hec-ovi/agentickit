@@ -26,6 +26,25 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
     Roboto, "Inter", sans-serif;
 
+  /* Chart palette — muted, readable in both themes. */
+  --chart-green: #16a34a;
+  --chart-gray: #9ca3af;
+  --chart-blue: #3b82f6;
+  --chart-amber: #d97706;
+  --chart-red: #dc2626;
+  --chart-grid: rgba(0, 0, 0, 0.06);
+  --chart-axis: #9ca3af;
+
+  /* Priority pill tones (light). */
+  --pill-low-bg: rgba(59, 130, 246, 0.1);
+  --pill-low-fg: #1d4ed8;
+  --pill-medium-bg: rgba(107, 114, 128, 0.12);
+  --pill-medium-fg: #374151;
+  --pill-high-bg: rgba(217, 119, 6, 0.12);
+  --pill-high-fg: #b45309;
+  --pill-urgent-bg: rgba(220, 38, 38, 0.12);
+  --pill-urgent-fg: #b91c1c;
+
   /* Match the Pilot sidebar's accent to the app accent for a coherent look. */
   --pilot-accent: var(--accent);
   --pilot-accent-fg: var(--accent-fg);
@@ -49,6 +68,23 @@
     --success: #4ade80;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+
+    --chart-green: #4ade80;
+    --chart-gray: #9ca3af;
+    --chart-blue: #60a5fa;
+    --chart-amber: #f59e0b;
+    --chart-red: #f87171;
+    --chart-grid: rgba(255, 255, 255, 0.06);
+    --chart-axis: #6b7280;
+
+    --pill-low-bg: rgba(96, 165, 250, 0.16);
+    --pill-low-fg: #93c5fd;
+    --pill-medium-bg: rgba(156, 163, 175, 0.18);
+    --pill-medium-fg: #d1d5db;
+    --pill-high-bg: rgba(245, 158, 11, 0.16);
+    --pill-high-fg: #fcd34d;
+    --pill-urgent-bg: rgba(248, 113, 113, 0.18);
+    --pill-urgent-fg: #fca5a5;
   }
 }
 
@@ -75,7 +111,9 @@ button {
   cursor: pointer;
 }
 
-input {
+input,
+select,
+textarea {
   font: inherit;
   color: inherit;
 }
@@ -92,10 +130,10 @@ input {
 
 .shell {
   width: 100%;
-  max-width: 560px;
+  max-width: 720px;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 28px;
 }
 
 .header {
@@ -115,6 +153,7 @@ input {
   margin: 0;
   color: var(--fg-muted);
   font-size: 14px;
+  max-width: 56ch;
 }
 
 .hint {
@@ -140,13 +179,266 @@ input {
   color: var(--fg);
 }
 
+/* ---------- generic panel shell ---------- */
+
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.panel-sub {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+/* "AI just touched this panel" — soft pulse ring using an accent tone. */
+.panel.is-flashing {
+  animation: panel-pulse 320ms ease-out 1;
+}
+
+@keyframes panel-pulse {
+  0% {
+    box-shadow:
+      var(--shadow-sm),
+      0 0 0 0 var(--pilot-accent, var(--accent));
+  }
+  40% {
+    box-shadow:
+      var(--shadow-md),
+      0 0 0 4px color-mix(in srgb, var(--pilot-accent, var(--accent)) 16%, transparent);
+  }
+  100% {
+    box-shadow: var(--shadow-sm), 0 0 0 0 transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel.is-flashing {
+    animation: none;
+  }
+}
+
+/* ---------- stats panel ---------- */
+
+.stats-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.seg-btn {
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--fg-muted);
+  border: 0;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.seg-btn:hover {
+  color: var(--fg);
+}
+
+.seg-btn.is-active {
+  background: var(--bg-elevated);
+  color: var(--fg);
+  box-shadow: var(--shadow-sm);
+}
+
+.seg-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.stats-chart-wrap {
+  width: 100%;
+  height: 220px;
+}
+
+.stats-empty {
+  margin: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-subtle);
+  font-size: 13px;
+}
+
+.stats-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.legend-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  font-weight: 500;
+}
+
+/* ---------- detail form ---------- */
+
+.detail-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-wide {
+  grid-column: 1 / -1;
+}
+
+.field-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  letter-spacing: 0.01em;
+}
+
+.field-input {
+  width: 100%;
+  padding: 9px 11px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease,
+    background 300ms ease;
+}
+
+.field-input:hover {
+  border-color: var(--border-strong);
+}
+
+.field-input:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.field-textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.field.has-error .field-input {
+  border-color: var(--danger);
+}
+
+.field-error {
+  font-size: 12px;
+  color: var(--danger);
+}
+
+/* "AI just set this field" — brief glow that fades on its own. */
+.field.is-ai-flashing .field-input {
+  background: color-mix(
+    in srgb,
+    var(--pilot-accent, var(--accent)) 6%,
+    var(--bg-elevated)
+  );
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--pilot-accent, var(--accent)) 18%, transparent);
+  animation: field-settle 900ms ease-out 1;
+}
+
+@keyframes field-settle {
+  0% {
+    box-shadow: 0 0 0 3px
+      color-mix(in srgb, var(--pilot-accent, var(--accent)) 26%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .field.is-ai-flashing .field-input {
+    animation: none;
+    box-shadow: none;
+  }
+}
+
+.detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.btn-subtle {
+  background: transparent;
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+}
+
+.btn-subtle:hover:not(:disabled) {
+  color: var(--fg);
+  border-color: var(--border-strong);
+  opacity: 1;
+}
+
 /* ---------- composer ---------- */
 
 .composer {
   display: flex;
   gap: 8px;
   padding: 6px;
-  background: var(--bg-elevated);
+  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
@@ -233,11 +525,12 @@ input {
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  background: var(--bg-elevated);
+  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  transition: border-color 120ms ease, transform 120ms ease;
+  transition: border-color 120ms ease, transform 120ms ease,
+    background 260ms ease;
 }
 
 .item:hover {
@@ -263,6 +556,87 @@ input {
   color: var(--fg-muted);
   text-decoration: line-through;
   text-decoration-thickness: 1px;
+}
+
+.pill {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: capitalize;
+  border-radius: 999px;
+}
+
+.pill-low {
+  background: var(--pill-low-bg);
+  color: var(--pill-low-fg);
+}
+
+.pill-medium {
+  background: var(--pill-medium-bg);
+  color: var(--pill-medium-fg);
+}
+
+.pill-high {
+  background: var(--pill-high-bg);
+  color: var(--pill-high-fg);
+}
+
+.pill-urgent {
+  background: var(--pill-urgent-bg);
+  color: var(--pill-urgent-fg);
+}
+
+/* AI-added item marker — appears briefly on items the AI created. */
+.ai-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent-fg);
+  background: var(--pilot-accent, var(--accent));
+  border-radius: 999px;
+  animation: ai-badge-fade 3s ease-out 1 forwards;
+}
+
+@keyframes ai-badge-fade {
+  0% {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  12%,
+  70% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.item.is-ai-new {
+  background: color-mix(
+    in srgb,
+    var(--pilot-accent, var(--accent)) 4%,
+    var(--bg)
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--pilot-accent, var(--accent)) 28%,
+    var(--border)
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-badge {
+    animation: none;
+  }
 }
 
 .icon-btn {
@@ -301,7 +675,7 @@ input {
   gap: 6px;
   padding: 48px 24px;
   text-align: center;
-  background: var(--bg-elevated);
+  background: var(--bg);
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-lg);
 }
@@ -319,6 +693,29 @@ input {
 
 /* ---------- responsive ---------- */
 
+@media (max-width: 680px) {
+  .detail-form {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-header {
+    align-items: stretch;
+  }
+
+  .stats-controls {
+    width: 100%;
+  }
+
+  .seg {
+    flex: 1;
+  }
+
+  .seg-btn {
+    flex: 1;
+    text-align: center;
+  }
+}
+
 @media (max-width: 520px) {
   .page {
     padding: 32px 16px 96px;
@@ -326,5 +723,9 @@ input {
 
   .header h1 {
     font-size: 24px;
+  }
+
+  .panel {
+    padding: 16px;
   }
 }
