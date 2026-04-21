@@ -103,7 +103,9 @@ interface OpenRouterAdapterModule {
  *
  * 1. A `"provider/model"` string resolved via the internal provider registry
  *    (see {@link PROVIDER_ADAPTERS}) or, as a fallback, by the Vercel AI
- *    Gateway when `AI_GATEWAY_API_KEY` is set.
+ *    Gateway when `AI_GATEWAY_API_KEY` is set. The literal string `"auto"`
+ *    is a synonym for omitting `model` entirely and triggers env-based
+ *    auto-detection.
  * 2. A pre-built `LanguageModel` instance — used verbatim. This is the
  *    "bring your own provider" escape hatch for Ollama, Azure, Bedrock,
  *    or any other custom adapter.
@@ -111,6 +113,106 @@ interface OpenRouterAdapterModule {
  *    at handler creation so consumers can do async setup lazily.
  */
 export type ModelSpec = string | LanguageModel | (() => LanguageModel | Promise<LanguageModel>);
+
+/**
+ * Auto-detection priority table.
+ *
+ * Order matters — the first env var present wins. The ordering was chosen to
+ * prefer *free-tier-friendly* providers (Groq, OpenRouter) over paid direct
+ * providers, with the Vercel AI Gateway last so consumers who have multiple
+ * keys configured get the most forgiving provider by default. Each default
+ * model string was verified (April 2026) to support tool-calling so the
+ * auto-detect path never produces a broken handler.
+ *
+ * - **Groq `llama-3.3-70b-versatile`**: Groq confirms every hosted model
+ *   supports tool-use; Llama 3.3 70B is explicitly in the parallel-tool-call
+ *   table. Free tier, fastest inference.
+ * - **OpenRouter `qwen/qwen3-coder:free`**: one of the free models confirmed
+ *   to support tool calling (see `research-providers.md`). No credit card.
+ * - **Anthropic `claude-haiku-4-5`**: current Haiku alias per Claude docs
+ *   (April 2026). Cheapest Claude with full tool support.
+ * - **OpenAI `gpt-4o-mini`**: cheapest OpenAI model with full function
+ *   calling support; widely used as a default.
+ * - **Google `gemini-2.5-flash`**: current price-performance Flash model
+ *   (April 2026) with function calling; supersedes 2.0-flash.
+ * - **Mistral `mistral-small-latest`**: tracks the latest Small release,
+ *   confirmed function-calling-capable by Mistral docs.
+ * - **Vercel AI Gateway → `openai/gpt-4o-mini`**: cheap default that works
+ *   through the Gateway as long as the account has access to OpenAI models.
+ */
+interface AutoDetectEntry {
+  /** Env var whose presence selects this entry. */
+  readonly envKey: string;
+  /** Full `<provider>/<model>` string to pass to the resolver on a hit. */
+  readonly model: string;
+}
+
+const AUTO_DETECT_ORDER: ReadonlyArray<AutoDetectEntry> = [
+  { envKey: "GROQ_API_KEY", model: "groq/llama-3.3-70b-versatile" },
+  { envKey: "OPENROUTER_API_KEY", model: "openrouter/qwen/qwen3-coder:free" },
+  { envKey: "ANTHROPIC_API_KEY", model: "anthropic/claude-haiku-4-5" },
+  { envKey: "OPENAI_API_KEY", model: "openai/gpt-4o-mini" },
+  { envKey: "GOOGLE_GENERATIVE_AI_API_KEY", model: "google/gemini-2.5-flash" },
+  { envKey: "MISTRAL_API_KEY", model: "mistral/mistral-small-latest" },
+  // Gateway last: any consumer with only `AI_GATEWAY_API_KEY` set still gets
+  // a sensible out-of-the-box model routed through the Vercel AI Gateway.
+  { envKey: "AI_GATEWAY_API_KEY", model: "openai/gpt-4o-mini" },
+];
+
+/**
+ * Walks the auto-detection table and returns the first `<provider>/<model>`
+ * string whose env var is present, or `null` when nothing is configured.
+ *
+ * Exposed for testing and for consumers who want to inspect what the handler
+ * would pick without creating one.
+ */
+export function autoDetectModel(): string | null {
+  for (const entry of AUTO_DETECT_ORDER) {
+    if (process.env[entry.envKey]) {
+      return entry.model;
+    }
+  }
+  return null;
+}
+
+/**
+ * Internal variant of {@link autoDetectModel} that also returns the env var
+ * that triggered the match — useful for the dev-mode startup log.
+ */
+function autoDetectModelWithEnv(): { envKey: string; model: string } | null {
+  for (const entry of AUTO_DETECT_ORDER) {
+    if (process.env[entry.envKey]) {
+      return { envKey: entry.envKey, model: entry.model };
+    }
+  }
+  return null;
+}
+
+/**
+ * True in development builds. Uses the same heuristic as the client-side
+ * `isDev()` helper in `env.ts`: anything that isn't explicitly
+ * `"production"` is treated as development.
+ */
+function isDev(): boolean {
+  return process.env.NODE_ENV !== "production";
+}
+
+/**
+ * Human-friendly error thrown when auto-detection can't pick a provider.
+ * Pulled out so tests (and the resolver's deferred-failure path) share one
+ * canonical message.
+ */
+function noProviderConfiguredError(): Error {
+  return new Error(
+    [
+      "agentickit: no model configured and no provider API key found in the environment.",
+      "Set one of: OPENROUTER_API_KEY (free tier, no credit card — https://openrouter.ai/keys),",
+      "GROQ_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY,",
+      "MISTRAL_API_KEY, or AI_GATEWAY_API_KEY.",
+      'Alternatively pass model: "<provider>/<model-id>" or a LanguageModel instance explicitly.',
+    ].join("\n"),
+  );
+}
 
 /**
  * Options accepted by {@link createPilotHandler}.
@@ -129,6 +231,18 @@ export interface CreatePilotHandlerOptions {
    * Default model for this handler. See {@link ModelSpec} for the three
    * accepted shapes.
    *
+   * When **omitted** — or set to the literal string `"auto"` — the handler
+   * auto-detects a provider by walking a priority list of well-known env
+   * vars (in order: `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`,
+   * `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, `MISTRAL_API_KEY`,
+   * `AI_GATEWAY_API_KEY`). Each provider pairs with a tool-calling-capable
+   * default model (for example `groq/llama-3.3-70b-versatile` or
+   * `openrouter/qwen/qwen3-coder:free`) so "set any supported key, it just
+   * works". If no key is present the factory throws a clear error listing
+   * every supported env var.
+   *
+   * Passing an explicit value bypasses auto-detection:
+   *
    * - **String** (`"openai/gpt-4o"`, `"openrouter/qwen/qwen3-coder:free"`): resolved
    *   via the internal provider registry. If a direct provider key such as
    *   `OPENAI_API_KEY` is present along with the matching `@ai-sdk/*` peer
@@ -140,7 +254,7 @@ export interface CreatePilotHandlerOptions {
    * - **Thunk**: called exactly once at handler creation; the resolved value
    *   must be a `LanguageModel` instance.
    */
-  model: ModelSpec;
+  model?: ModelSpec;
   /**
    * Called for every incoming request. Returns provider-specific options that
    * are forwarded verbatim to `streamText({ providerOptions })`. Useful for
@@ -663,9 +777,32 @@ function resolveModelSpec(
 export function createPilotHandler(
   options: CreatePilotHandlerOptions,
 ): (request: Request) => Promise<Response> {
-  const initialStringModel = typeof options.model === "string" ? options.model : undefined;
+  // --- Auto-detect a provider when `model` is omitted or set to "auto" -----
+  //
+  // The factory must never return a handler that can't possibly serve a
+  // request, so when the consumer relied on auto-detection we resolve the
+  // env vars here and throw the canonical "no provider configured" error
+  // synchronously. When a provider is found we log a single-line notice in
+  // dev so developers can see exactly which key was picked up.
+  let effectiveModel: ModelSpec;
+  if (options.model === undefined || options.model === "auto") {
+    const picked = autoDetectModelWithEnv();
+    if (picked === null) {
+      throw noProviderConfiguredError();
+    }
+    if (isDev()) {
+      // Single-line, unconditional log — the author explicitly asked for it
+      // so hobbyists can see the auto-pick in their terminal.
+      console.log(`[agentickit] auto-detected ${picked.envKey} — using ${picked.model}`);
+    }
+    effectiveModel = picked.model;
+  } else {
+    effectiveModel = options.model;
+  }
+
+  const initialStringModel = typeof effectiveModel === "string" ? effectiveModel : undefined;
   const resolveString = buildStringModelResolver(initialStringModel);
-  const resolved = resolveModelSpec(options.model, resolveString);
+  const resolved = resolveModelSpec(effectiveModel, resolveString);
 
   return async function handler(request: Request): Promise<Response> {
     if (request.method === "OPTIONS") {
@@ -729,9 +866,9 @@ export function createPilotHandler(
         resolvedModel = await resolved.pending;
       } else {
         // resolved.kind === "fromString" + no override. We know
-        // `options.model` was a string because that is the only path that
+        // `effectiveModel` was a string because that is the only path that
         // produces `fromString`. Cast is safe.
-        const defaultModel = options.model as string;
+        const defaultModel = effectiveModel as string;
         const outcome = await resolved.resolve(defaultModel);
         resolvedModel = outcome.kind === "instance" ? outcome.model : outcome.id;
       }

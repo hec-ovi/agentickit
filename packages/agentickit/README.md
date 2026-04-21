@@ -41,11 +41,13 @@ npm install react-hook-form
 // app/api/pilot/route.ts
 import { createPilotHandler } from "agentickit/server";
 
-// Free tier, no credit card. Grab a key at https://openrouter.ai/keys.
-export const POST = createPilotHandler({ model: "openrouter/qwen/qwen3-coder:free" });
+// Auto-detects a provider from your env — set any ONE of GROQ_API_KEY,
+// OPENROUTER_API_KEY (both free tier), OPENAI_API_KEY, ANTHROPIC_API_KEY,
+// GOOGLE_GENERATIVE_AI_API_KEY, MISTRAL_API_KEY, or AI_GATEWAY_API_KEY.
+export const POST = createPilotHandler({});
 ```
 
-Set `OPENROUTER_API_KEY` and install `@openrouter/ai-sdk-provider`. Want to use another provider instead? Swap the model string and provide the matching env var: `openai/*` reads `OPENAI_API_KEY`, `anthropic/*` reads `ANTHROPIC_API_KEY`, and so on. If only `AI_GATEWAY_API_KEY` is set, strings are handed to the Vercel AI Gateway unchanged.
+Install the matching provider adapter (e.g. `@ai-sdk/groq` for `GROQ_API_KEY`, `@openrouter/ai-sdk-provider` for `OPENROUTER_API_KEY`). Want a specific model? Pass `model: "openai/gpt-4o"` (or any supported prefix/model) and the handler routes through the matching `@ai-sdk/*` adapter. If only `AI_GATEWAY_API_KEY` is set, strings are handed to the Vercel AI Gateway unchanged.
 
 **Choose your model:**
 
@@ -98,8 +100,9 @@ function TodoBoard() {
 }
 
 export default function App() {
+  // `model` is optional — omit it and the route's auto-detected choice wins.
   return (
-    <Pilot model="openrouter/qwen/qwen3-coder:free" apiUrl="/api/pilot">
+    <Pilot apiUrl="/api/pilot">
       <TodoBoard />
       <PilotSidebar />
     </Pilot>

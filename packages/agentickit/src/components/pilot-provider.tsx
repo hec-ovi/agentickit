@@ -54,7 +54,10 @@ export interface PilotProps extends PilotConfig {
  * than a duplicate.
  */
 export function Pilot(props: PilotProps): ReactNode {
-  const { children, apiUrl = "/api/pilot", model = "openai/gpt-4o" } = props;
+  // `model` is intentionally undefined by default: when omitted the server
+  // handler's own model (or its auto-detection) picks the provider. Pass a
+  // string to override per-request from the client.
+  const { children, apiUrl = "/api/pilot", model } = props;
 
   // ------------------------------------------------------------------
   // Registry — mutable Map + subscription set.
@@ -297,7 +300,7 @@ export function Pilot(props: PilotProps): ReactNode {
   manifestRef.current = manifest;
   const resolverRef = useRef(resolverEntries);
   resolverRef.current = resolverEntries;
-  const modelRef = useRef(model);
+  const modelRef = useRef<string | undefined>(model);
   modelRef.current = model;
   const resolveHeadersRef = useRef(resolveHeaders);
   resolveHeadersRef.current = resolveHeaders;
@@ -319,7 +322,10 @@ export function Pilot(props: PilotProps): ReactNode {
           return {
             body: {
               ...(body ?? {}),
-              model: modelRef.current,
+              // Only forward `model` when the consumer supplied one. Omitting
+              // it lets the server handler's own (possibly auto-detected)
+              // default take effect.
+              ...(modelRef.current ? { model: modelRef.current } : {}),
               messages,
               tools,
               context,

@@ -651,4 +651,143 @@ describe("createPilotHandler", () => {
       expect(call?.model).toBe(model2);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Auto-detection — new tests
+  // -------------------------------------------------------------------------
+
+  describe("auto-detection", () => {
+    it("resolves to groq/llama-3.3-70b-versatile when only GROQ_API_KEY is set", async () => {
+      unsetEnv("AI_GATEWAY_API_KEY");
+      process.env.GROQ_API_KEY = "gsk-test";
+
+      const groqModel = fakeLanguageModel("llama-3.3-70b-versatile", "groq");
+      const groq = vi.fn(() => groqModel);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const { createPilotHandler, mocks } = await loadHandlerWithMocks(undefined, { groq });
+      const handler = createPilotHandler({});
+
+      await handler(makeRequest(validBody));
+
+      expect(groq).toHaveBeenCalledWith("llama-3.3-70b-versatile");
+      const call = mocks.streamText.mock.calls[0]?.[0] as { model?: unknown };
+      expect(call?.model).toBe(groqModel);
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("auto-detected GROQ_API_KEY"));
+      logSpy.mockRestore();
+    });
+
+    it("resolves to openrouter/qwen/qwen3-coder:free when only OPENROUTER_API_KEY is set", async () => {
+      unsetEnv("AI_GATEWAY_API_KEY");
+      process.env.OPENROUTER_API_KEY = "sk-or-test";
+
+      const orModel = fakeLanguageModel("qwen/qwen3-coder:free", "openrouter");
+      const orFactory = vi.fn(() => orModel);
+      const createOpenRouter = vi.fn(() => orFactory);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const { createPilotHandler, mocks } = await loadHandlerWithMocks(undefined, {
+        createOpenRouter,
+      });
+      const handler = createPilotHandler({});
+
+      await handler(makeRequest(validBody));
+
+      expect(createOpenRouter).toHaveBeenCalledWith({ apiKey: "sk-or-test" });
+      expect(orFactory).toHaveBeenCalledWith("qwen/qwen3-coder:free");
+      const call = mocks.streamText.mock.calls[0]?.[0] as { model?: unknown };
+      expect(call?.model).toBe(orModel);
+      logSpy.mockRestore();
+    });
+
+    it("picks Groq over OpenRouter over OpenAI when multiple keys are set (priority order)", async () => {
+      unsetEnv("AI_GATEWAY_API_KEY");
+      // All three set — Groq must win by priority.
+      process.env.GROQ_API_KEY = "gsk-test";
+      process.env.OPENROUTER_API_KEY = "sk-or-test";
+      process.env.OPENAI_API_KEY = "sk-openai-test";
+
+      const groqModel = fakeLanguageModel("llama-3.3-70b-versatile", "groq");
+      const groq = vi.fn(() => groqModel);
+      const openai = vi.fn(() => fakeLanguageModel("gpt-4o-mini", "openai"));
+      const orFactory = vi.fn(() => fakeLanguageModel("qwen/qwen3-coder:free", "openrouter"));
+      const createOpenRouter = vi.fn(() => orFactory);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const { createPilotHandler, mocks } = await loadHandlerWithMocks(undefined, {
+        groq,
+        openai,
+        createOpenRouter,
+      });
+      const handler = createPilotHandler({});
+
+      await handler(makeRequest(validBody));
+
+      expect(groq).toHaveBeenCalledTimes(1);
+      expect(openai).not.toHaveBeenCalled();
+      expect(createOpenRouter).not.toHaveBeenCalled();
+      const call = mocks.streamText.mock.calls[0]?.[0] as { model?: unknown };
+      expect(call?.model).toBe(groqModel);
+      logSpy.mockRestore();
+    });
+
+    it("throws a clear error at factory time when no supported env var is set", async () => {
+      unsetEnv("AI_GATEWAY_API_KEY");
+      // beforeEach already cleared every other key.
+
+      const { createPilotHandler } = await loadHandlerWithMocks();
+      expect(() => createPilotHandler({})).toThrowError(
+        /no model configured and no provider API key found/i,
+      );
+      // The error message must list every supported env var so the developer
+      // can fix it without consulting docs.
+      expect(() => createPilotHandler({})).toThrowError(/OPENROUTER_API_KEY/);
+      expect(() => createPilotHandler({})).toThrowError(/GROQ_API_KEY/);
+      expect(() => createPilotHandler({})).toThrowError(/AI_GATEWAY_API_KEY/);
+    });
+
+    it('treats model: "auto" identically to omitting model', async () => {
+      unsetEnv("AI_GATEWAY_API_KEY");
+      process.env.GROQ_API_KEY = "gsk-test";
+
+      const groqModel = fakeLanguageModel("llama-3.3-70b-versatile", "groq");
+      const groq = vi.fn(() => groqModel);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const { createPilotHandler, mocks } = await loadHandlerWithMocks(undefined, { groq });
+      const handler = createPilotHandler({ model: "auto" });
+
+      await handler(makeRequest(validBody));
+
+      expect(groq).toHaveBeenCalledWith("llama-3.3-70b-versatile");
+      const call = mocks.streamText.mock.calls[0]?.[0] as { model?: unknown };
+      expect(call?.model).toBe(groqModel);
+      logSpy.mockRestore();
+    });
+
+    it("respects an explicit model string even when GROQ_API_KEY is set", async () => {
+      unsetEnv("AI_GATEWAY_API_KEY");
+      process.env.GROQ_API_KEY = "gsk-test";
+      process.env.OPENAI_API_KEY = "sk-openai-test";
+
+      // Both the explicit provider (openai) and the would-be auto-pick (groq)
+      // have keys; explicit must win and groq must never be called.
+      const openaiModel = fakeLanguageModel("gpt-4o-mini", "openai");
+      const openai = vi.fn(() => openaiModel);
+      const groq = vi.fn(() => fakeLanguageModel("llama-3.3-70b-versatile", "groq"));
+
+      const { createPilotHandler, mocks } = await loadHandlerWithMocks(undefined, {
+        openai,
+        groq,
+      });
+      const handler = createPilotHandler({ model: "openai/gpt-4o-mini" });
+
+      await handler(makeRequest(validBody));
+
+      expect(openai).toHaveBeenCalledWith("gpt-4o-mini");
+      expect(groq).not.toHaveBeenCalled();
+      const call = mocks.streamText.mock.calls[0]?.[0] as { model?: unknown };
+      expect(call?.model).toBe(openaiModel);
+    });
+  });
 });

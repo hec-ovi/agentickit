@@ -36,7 +36,7 @@ function Checkout() {
 
 export default function App() {
   return (
-    <Pilot model="openrouter/qwen/qwen3-coder:free" apiUrl="/api/pilot">
+    <Pilot apiUrl="/api/pilot">
       <Checkout />
       <PilotSidebar />
     </Pilot>
@@ -94,11 +94,13 @@ Requires **Node 20+** and a framework that supports the Web Fetch API on the ser
 // app/api/pilot/route.ts
 import { createPilotHandler } from "agentickit/server";
 
-// Free tier, no credit card — sign up at https://openrouter.ai/keys.
-export const POST = createPilotHandler({ model: "openrouter/qwen/qwen3-coder:free" });
+// Auto-detects a provider from your env. Set any ONE of GROQ_API_KEY,
+// OPENROUTER_API_KEY (both free tier), OPENAI_API_KEY, ANTHROPIC_API_KEY,
+// GOOGLE_GENERATIVE_AI_API_KEY, MISTRAL_API_KEY, or AI_GATEWAY_API_KEY.
+export const POST = createPilotHandler({});
 ```
 
-Set `OPENROUTER_API_KEY` and install `@openrouter/ai-sdk-provider`. Prefer a different provider? Swap the model string and the handler auto-routes through the matching `@ai-sdk/*` adapter (e.g. `"openai/gpt-4o"` + `OPENAI_API_KEY`). Or set `AI_GATEWAY_API_KEY` to let the [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) resolve any prefix server-side.
+Install the matching provider adapter (e.g. `@ai-sdk/groq` for `GROQ_API_KEY`, `@openrouter/ai-sdk-provider` for `OPENROUTER_API_KEY`). Prefer an explicit model? Pass `model: "<provider>/<model-id>"` and the handler routes through the matching `@ai-sdk/*` adapter (e.g. `"openai/gpt-4o"` + `OPENAI_API_KEY`). Or set `AI_GATEWAY_API_KEY` to let the [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) resolve any prefix server-side.
 
 ### 2. Wrap your app
 
@@ -108,8 +110,10 @@ Set `OPENROUTER_API_KEY` and install `@openrouter/ai-sdk-provider`. Prefer a dif
 import { Pilot, PilotSidebar } from "agentickit";
 
 export default function Root({ children }: { children: React.ReactNode }) {
+  // `model` is optional — omit it and the route handler's auto-detected
+  // choice is used. Pass a string here only to override per-request.
   return (
-    <Pilot model="openrouter/qwen/qwen3-coder:free" apiUrl="/api/pilot">
+    <Pilot apiUrl="/api/pilot">
       {children}
       <PilotSidebar />
     </Pilot>
