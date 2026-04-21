@@ -20,6 +20,7 @@ interface LoadedMocks {
   convertToModelMessages: ReturnType<typeof vi.fn>;
   dynamicTool: ReturnType<typeof vi.fn>;
   stepCountIs: ReturnType<typeof vi.fn>;
+  jsonSchema: ReturnType<typeof vi.fn>;
 }
 
 /**
@@ -63,6 +64,10 @@ async function loadHandlerWithMocks(
     convertToModelMessages: vi.fn(async (msgs: unknown) => msgs),
     dynamicTool: vi.fn((def: unknown) => ({ __mockTool: true, def })),
     stepCountIs: vi.fn((n: number) => ({ __stopWhen: n })),
+    // `jsonSchema` wraps a raw JSON Schema into an AI-SDK `Schema` object at
+    // runtime; for test assertions we simply tag it so we can verify it was
+    // called with the expected schema payload without importing the real impl.
+    jsonSchema: vi.fn((schema: unknown) => ({ __jsonSchema: true, schema })),
   };
 
   vi.doMock("ai", () => ({
@@ -70,6 +75,7 @@ async function loadHandlerWithMocks(
     convertToModelMessages: mocks.convertToModelMessages,
     dynamicTool: mocks.dynamicTool,
     stepCountIs: mocks.stepCountIs,
+    jsonSchema: mocks.jsonSchema,
   }));
 
   if (providerMocks.openai) {
@@ -260,6 +266,19 @@ describe("createPilotHandler", () => {
     );
 
     expect(mocks.dynamicTool).toHaveBeenCalledTimes(1);
+    // Client-side tools must ship their JSON Schema through `jsonSchema(...)`
+    // so the AI SDK's `asSchema` helper sees a proper Schema wrapper rather
+    // than a bare object (which would fall through its dispatch chain and
+    // trigger "schema is not a function" at first tool-use).
+    expect(mocks.jsonSchema).toHaveBeenCalledTimes(1);
+    expect(mocks.jsonSchema).toHaveBeenCalledWith({ type: "object", properties: {} });
+    // Client-side tools must NOT set `execute` — when present the SDK runs it
+    // server-side and emits `tool-output-error`, short-circuiting the browser
+    // handler that `<Pilot>` wires up via `onToolCall`.
+    const dynamicToolArg = mocks.dynamicTool.mock.calls[0]?.[0] as {
+      execute?: unknown;
+    };
+    expect(dynamicToolArg?.execute).toBeUndefined();
     const call = mocks.streamText.mock.calls[0]?.[0] as {
       tools?: Record<string, unknown>;
     };

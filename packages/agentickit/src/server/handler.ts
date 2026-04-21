@@ -4,6 +4,7 @@ import {
   type UIMessage,
   convertToModelMessages,
   dynamicTool,
+  jsonSchema,
   stepCountIs,
   streamText,
 } from "ai";
@@ -667,19 +668,26 @@ function buildClientToolSet(tools: RequestBody["tools"] | undefined): ToolSet | 
       name,
       dynamicTool({
         description: definition.description,
-        // The client ships a JSON-Schema-like object; the AI SDK accepts it as
-        // a FlexibleSchema at runtime. We cast through `unknown` because the
-        // schema shape is user-supplied and only meaningful to the model.
-        inputSchema: definition.inputSchema as never,
-        // Intentionally a no-op: client-side tools run in the browser. If the
-        // model ever calls us without the client having registered a handler,
-        // `addToolResult` from the client completes the loop.
-        execute: async () => {
-          throw new Error(
-            `Tool "${name}" is declared client-side and must be executed by the browser.`,
-          );
-        },
-      }),
+        // The client ships a raw JSON-Schema object (it was extracted from a
+        // Zod schema via `zodSchema(...).jsonSchema` so it could cross the
+        // network as plain JSON). The AI SDK's `asSchema` helper only handles
+        // three shapes: its own `Schema` wrapper, a StandardSchema, or a thunk
+        // that returns a Schema. A bare JSON-Schema object falls through to
+        // the thunk branch and is invoked as a function, producing the classic
+        // "schema is not a function" TypeError. Wrapping it with `jsonSchema()`
+        // here produces a proper `Schema` wrapper that `asSchema` recognises.
+        inputSchema: jsonSchema(definition.inputSchema as never),
+        // Intentionally omit `execute` at runtime — when `execute` is absent
+        // (checked as `!= null` by the AI SDK, see `executeTools` in
+        // `ai@6`) the SDK emits the tool call back over the UI-message
+        // stream without running it server-side. The browser's `onToolCall`
+        // (in `<Pilot>`) then runs the registered handler and pushes the
+        // output via `addToolOutput`. Setting an `execute` here (even one
+        // that throws) causes the SDK to stream a `tool-output-error` frame,
+        // short-circuiting the client-side handler. TypeScript's public
+        // `dynamicTool` signature marks `execute` as required, so we cast
+        // the argument through `unknown` — the runtime accepts its absence.
+      } as unknown as Parameters<typeof dynamicTool>[0]),
     ] as const;
   });
   return Object.fromEntries(entries);
