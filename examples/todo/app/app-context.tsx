@@ -29,6 +29,15 @@ export type ChartType = "bar" | "pie" | "line";
 export type ChartSource = "status" | "priority";
 
 export interface ChartConfig {
+  /**
+   * Whether the chart panel is mounted in the page.
+   *
+   * The chart is hidden by default — it materializes only when the agent
+   * (or the user via a manual trigger we don't ship yet) decides it's
+   * relevant. That's the generative-UI pattern: the AI doesn't just fill
+   * pre-placed widgets, it *conjures* them in response to the request.
+   */
+  visible: boolean;
   type: ChartType;
   source: ChartSource;
 }
@@ -76,6 +85,7 @@ const FIELD_FLASH_MS = 900;
 export function AppProvider({ children }: { children: ReactNode }) {
   const [todos, setTodosState] = useState<ReadonlyArray<Todo>>(SEED_TODOS);
   const [chart, setChartState] = useState<ChartConfig>({
+    visible: false,
     type: "bar",
     source: "status",
   });

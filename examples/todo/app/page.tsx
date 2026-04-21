@@ -9,6 +9,7 @@ import {
 import { z } from "zod";
 import {
   AppProvider,
+  type ChartConfig,
   type ChartSource,
   type ChartType,
   useAppContext,
@@ -48,52 +49,68 @@ function PilotBindings() {
     setValue: (next) => setTodos(next),
   });
 
-  // --- chart state: read + update_chart auto-tool --------------------------
+  // --- chart state: visible-on-demand, updated via show_chart --------------
+  //
+  // The chart is a generative-UI element: nothing renders until the agent
+  // (or the user via a future manual trigger) explicitly summons it with
+  // `show_chart`. `hide_chart` dismisses it. This is the pattern we're
+  // demoing — the agent doesn't just fill pre-placed widgets, it decides
+  // when a widget is worth materializing at all.
   usePilotState({
     name: "chart",
     description:
-      "The current chart configuration displayed above the todo list. " +
-      "`type` picks the renderer; `source` picks the data series.",
+      "Chart panel shown above the todo list. `visible` controls whether it " +
+      "is currently mounted; when hidden it occupies no space. `type` picks " +
+      "the renderer and `source` picks the data series. The chart is hidden " +
+      "by default.",
     value: chart,
     schema: z.object({
+      visible: z.boolean(),
       type: z.enum(["bar", "pie", "line"]),
       source: z.enum(["status", "priority"]),
     }),
-    // No setValue here — we prefer the narrower partial-update tool below so
-    // the AI can change just `type` without resending `source`.
+    // No setValue — we expose narrower show/hide tools instead so the agent's
+    // intent is legible in the stream.
   });
 
-  // A narrower, partial-update tool for the chart. Either field can be
-  // omitted; missing fields keep their current value. Also fires the flash
-  // affordance so the chart card pulses when the AI mutates it.
   usePilotAction({
-    name: "update_chart",
+    name: "show_chart",
     description:
-      "Update the chart displayed above the todo list. Either field may be " +
-      "omitted to leave that aspect unchanged. `type` picks Bar / Pie / Line; " +
-      "`source` picks the data series (status = done vs pending, priority = " +
-      "count per priority level).",
+      "Render a chart of todo statistics above the list. Use this when the " +
+      "user asks to *see* stats, a breakdown, a summary as a chart, or a " +
+      "visualization. If the chart is already visible, this updates its " +
+      "type/source. `type` picks Bar / Pie / Line; `source` picks the data " +
+      "series (status = done vs pending, priority = count per priority level).",
     parameters: z.object({
       type: z
         .enum(["bar", "pie", "line"])
         .optional()
-        .describe("Chart renderer. Omit to keep the current type."),
+        .describe("Chart renderer. Defaults to bar on first show."),
       source: z
         .enum(["status", "priority"])
         .optional()
-        .describe("Data series. Omit to keep the current source."),
+        .describe("Data series. Defaults to status on first show."),
     }),
-    mutating: true,
     handler: ({ type, source }) => {
-      const patch: { type?: ChartType; source?: ChartSource } = {};
+      const patch: Partial<ChartConfig> = { visible: true };
       if (type) patch.type = type;
       if (source) patch.source = source;
-      if (Object.keys(patch).length === 0) {
-        return { ok: false, reason: "Nothing to update." };
-      }
       setChart(patch);
       signalChartFlash();
       return { ok: true, applied: patch };
+    },
+  });
+
+  usePilotAction({
+    name: "hide_chart",
+    description:
+      "Dismiss the chart panel. Use when the user asks to close, hide, or " +
+      "dismiss the chart, or when they're done looking at it.",
+    parameters: z.object({}).strict(),
+    handler: () => {
+      if (!chart.visible) return { ok: true, alreadyHidden: true };
+      setChart({ visible: false });
+      return { ok: true };
     },
   });
 
@@ -247,8 +264,8 @@ export default function Page() {
             "What's still pending?",
             "Add 'buy milk'",
             "Mark the gym one as done",
-            "Show completed vs pending as a bar chart",
-            "Switch to a pie of todos by priority",
+            "Show me a chart of completed vs pending",
+            "Now switch it to a pie of todos by priority",
             "Create 'Ship migration', urgent priority, due Friday, assigned to me",
           ]}
         />

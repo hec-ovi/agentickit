@@ -115,6 +115,11 @@ export function StatsPanel() {
     return () => window.clearTimeout(t);
   }, [flashChart]);
 
+  // Generative-UI pattern: the panel doesn't exist until the agent (or a
+  // future manual trigger) summons it. When hidden we render nothing so
+  // the page reclaims the vertical space completely.
+  if (!chart.visible) return null;
+
   const totalForSource = series.reduce((acc, s) => acc + s.value, 0);
 
   return (
@@ -133,6 +138,22 @@ export function StatsPanel() {
           </p>
         </div>
         <div className="stats-controls">
+          <button
+            type="button"
+            className="panel-dismiss"
+            aria-label="Dismiss chart"
+            title="Dismiss chart"
+            onClick={() => setChart({ visible: false })}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+              <path
+                d="M3 3 L11 11 M11 3 L3 11"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
           <div
             className="seg"
             role="radiogroup"
