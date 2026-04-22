@@ -1,11 +1,12 @@
 ---
 name: write-a-consumer-skill
-version: 1.0.0
+version: 2.0.0
 description: |
   Author a SKILL.md inside a consumer app's own `.pilot/` folder. Covers
-  frontmatter shape (Anthropic + gbrain superset), the resolver table,
-  and the binding contract that ensures the AI never sees a capability
-  your app can't actually invoke. Use when a consumer wants to expose
+  the scaffold CLI (`agentickit init` / `agentickit add-skill`), the
+  frontmatter shape (Anthropic + gbrain superset), the RESOLVER.md
+  routing table, and the binding contract that ties each SKILL.md to a
+  registered `usePilotAction`. Use when a consumer wants to expose
   capabilities as editable markdown.
 triggers:
   - "write a SKILL.md"
@@ -16,6 +17,7 @@ triggers:
 tools:
   - edit_file
   - read_source
+  - run_command
 mutating: true
 ---
 
@@ -25,169 +27,76 @@ mutating: true
 
 By the end of this skill the consumer has:
 
-- A `.pilot/` folder inside their app (typically under `public/pilot/` so
-  Next.js serves it as a static asset).
+- A `.pilot/` folder at the root of their app (sibling to `package.json`
+  and `app/` or `src/`), readable by the server at startup.
 - A valid `RESOLVER.md` with at least one trigger row.
-- A valid `manifest.json` listing every skill.
 - One or more `skills/<name>/SKILL.md` files with frontmatter that parses
   under `packages/agentickit/src/protocol/skill.ts`.
-- `<Pilot pilotProtocolUrl="/pilot">` wired so the runtime fetches the
-  manifest at mount.
-- A matching `usePilotAction` for every skill. Skills without a binding
-  are filtered out of the system prompt and never reach the model.
+- `createPilotHandler` in their API route (no `system` option needed —
+  the handler auto-loads `.pilot/`).
+- A matching `usePilotAction` for every capability the model should be
+  able to invoke. A SKILL.md without a matching action still feeds the
+  model instructions, but the model has nothing to call — lead with the
+  action registration if you can.
 
-## Iron Law: every skill MUST have a matching `usePilotAction`
+## Iron Law: lead with the CLI
 
-The runtime composes the system prompt from `manifest.skills.filter(s =>
-registeredActionNames.has(s.name))` (see
-`packages/agentickit/src/components/pilot-provider.tsx` lines 517-519).
-Skills whose `name` doesn't match a registered action are dropped. The
-LLM never learns they exist. This is a feature: you can ship the markdown
-before the code and the model won't hallucinate a capability. **But a
-SKILL.md with no `usePilotAction` named the same thing is dead weight.
-It won't affect anything until a matching hook registers.**
+The CLI emits canonical markdown. Every hand-written shape is a chance
+for a subtle format mistake the parser silently drops. Use:
+
+```bash
+npx agentickit init               # first time only, creates the folder
+npx agentickit add-skill <name>   # per new capability, appends resolver row
+```
+
+Only hand-edit when the CLI can't express what you want (e.g. adding
+prose between sections). Even then, open the CLI-generated file and
+imitate its shape rather than inventing your own.
 
 ## Phases
 
-### Phase 1: create the folder
+### Phase 1: scaffold
+
+```bash
+cd your-app
+npx agentickit init
+```
+
+Resulting layout:
 
 ```
 your-app/
-  public/
-    pilot/
-      RESOLVER.md
-      manifest.json
-      skills/
-        refund-order/
-          SKILL.md
-        fill-checkout/
-          SKILL.md
-      conventions/           # optional
-        tone.md
+  .pilot/
+    RESOLVER.md
+    skills/
+      example/
+        SKILL.md
 ```
 
-`public/` because Next.js serves it verbatim. On other frameworks, put
-the folder anywhere reachable by a plain HTTP GET from the browser.
+The folder lives at the app root because the server handler looks for
+`./.pilot/` relative to `process.cwd()` at startup. Don't put it under
+`public/` — the browser doesn't need to see it.
 
-### Phase 2: write one SKILL.md
+### Phase 2: add one skill
 
-Frontmatter required fields: `name` and `description`. Everything else is
-optional. The parser (`packages/agentickit/src/protocol/skill.ts` lines
-23-52) accepts this shape:
-
-```markdown
----
-name: refund-order
-version: 1.0.0
-description: |
-  Refund a past order. Always confirms amounts over $100.
-triggers:
-  - "refund"
-  - "cancel order"
-  - "return"
-tools:
-  - get_order
-  - issue_refund
-mutating: true
----
-
-# Refund Order
-
-## Contract
-- Never refund without fetching the order first.
-- Amounts > $100 require explicit user confirmation.
-
-## Phases
-1. `get_order({ id })` to resolve the order.
-2. If `order.total > 100`, summarize and ask the user to confirm.
-3. `issue_refund({ orderId, amount })`.
-
-## Anti-Patterns
-- Do not refund partial line-items without checking `order.lineItems[]`.
-- Do not batch refunds across orders.
+```bash
+npx agentickit add-skill refund-order
 ```
 
-Frontmatter rules that matter (enforced by `parseSkill`):
+Emits `.pilot/skills/refund-order/SKILL.md` with frontmatter
+pre-filled (`name: refund-order`) and TODO markers in the body.
+Appends a row to `.pilot/RESOLVER.md` under `## Skills`.
 
-- The block is fenced by `---` top and bottom.
-- `name` and `description` are required strings. A block scalar (`|`)
-  is accepted for `description`.
-- `triggers` and `tools` are string lists (leading `- `).
-- `mutating` is a boolean (`true` / `false`).
-- `allowed-tools` is accepted as a synonym for `tools` (Anthropic
-  spelling); see skill.ts line 46.
-- Nested maps, anchors, and flow-style lists are NOT supported (the
-  parser is a ~60-line mini-YAML). Stick to the shape above.
+Edit both files. The SKILL.md body is plain prose the model reads
+verbatim; the resolver row is one-line trigger text the agent uses to
+route natural-language requests. Neither file is executed — it's
+context.
 
-### Phase 3: write RESOLVER.md
-
-Two columns, H2 sections, backtick-wrapped paths. The parser
-(`packages/agentickit/src/protocol/resolver.ts`) recognizes:
-
-```markdown
-# Checkout Skill Resolver
-
-## Always-on
-
-| Trigger | Skill |
-|---------|-------|
-| "refund", "cancel order", "return" | `skills/refund-order/SKILL.md` |
-| "fill checkout", "apply invoice" | `skills/fill-checkout/SKILL.md` |
-```
-
-Strict parser behavior (resolver.ts lines 31-76):
-
-- Only rows starting with `|` are considered.
-- The separator row (`|---|---|`) is skipped.
-- The header row (`| Trigger | Skill |`) is skipped (case-insensitive).
-- Skill cells must wrap a local path in backticks: `` `skills/foo/SKILL.md` ``.
-- External pointers (starting with `GStack:`, `Check `, `Read `) are
-  preserved but marked with `isExternalPointer: true` and the runtime
-  skips them.
-
-### Phase 4: write manifest.json
-
-```json
-{
-  "version": 1,
-  "resolver": "RESOLVER.md",
-  "skills": [
-    {
-      "name": "refund-order",
-      "path": "skills/refund-order/SKILL.md",
-      "description": "Refund a past order. Always confirms amounts over $100.",
-      "triggers": ["refund", "cancel order", "return"],
-      "tools": ["get_order", "issue_refund"],
-      "mutating": true
-    }
-  ],
-  "conventions": []
-}
-```
-
-Validated against `validateManifest` in
-`packages/agentickit/src/protocol/manifest.ts` lines 42-59. Required
-shape: `version: 1`, string `resolver`, array `skills`.
-
-### Phase 5: wire `<Pilot pilotProtocolUrl>`
-
-```tsx
-<Pilot apiUrl="/api/pilot" pilotProtocolUrl="/pilot">
-  {children}
-  <PilotSidebar />
-</Pilot>
-```
-
-On mount the provider fetches `<pilotProtocolUrl>/manifest.json`, then
-(if `manifest.resolver` is set) the resolver. Failures are logged and
-swallowed. The app still works, just without protocol-layer context
-injection. See `components/pilot-provider.tsx` lines 236-278.
-
-### Phase 6: register the matching action
+### Phase 3: register the matching action
 
 ```tsx
 usePilotAction({
-  name: "refund-order",           // EXACTLY matches SKILL.md `name:`
+  name: "refund_order",             // must EXACTLY match a tool name in SKILL.md
   description: "Refund a past order. Always confirms amounts over $100.",
   parameters: z.object({
     orderId: z.string(),
@@ -200,34 +109,114 @@ usePilotAction({
 });
 ```
 
-If the `name` strings don't match byte-for-byte, the skill is dropped
-from the system prompt (the filter on `pilot-provider.tsx` line 518 is
-a `Set.has`, not a fuzzy match).
+The `name` on the action must match a tool name listed in the SKILL.md
+frontmatter `tools:` list. The action's `description` is what reaches
+the model at tool-selection time; the SKILL.md body is context for
+**when** to pick the tool.
 
-### Phase 7: verify
+### Phase 4: verify
 
-Open DevTools Network tab on page load. Expect two requests:
+```bash
+pnpm dev
+```
 
-1. `GET /pilot/manifest.json` → 200 with the JSON.
-2. `GET /pilot/RESOLVER.md` → 200 with the markdown.
+In the server terminal you should see:
 
-Then open the sidebar, trigger a phrase from the resolver, and expect the
-assistant to call the corresponding action.
+```
+[agentickit] auto-loaded .pilot/ (~N chars)
+```
+
+Send a user message matching one of the resolver triggers; the sidebar
+shows the assistant calling your action. Turn on `debug: true` in
+`createPilotHandler` to see per-step transcripts in the terminal and
+appended to `./debug/agentickit-YYYY-MM-DD.log`.
+
+## Canonical shapes (for hand-editors)
+
+### SKILL.md
+
+```markdown
+---
+name: refund-order
+description: Refund a past order. Always confirms amounts over $100.
+tools:
+  - get_order
+  - issue_refund
+mutating: true
+---
+
+# When to use
+
+Triggered by phrases like "refund", "cancel order", "return". Use for
+any transaction the user wants to reverse.
+
+# How to use
+
+1. Call `get_order({ id })` to resolve the order.
+2. If `order.total > 100`, summarize and ask the user to confirm.
+3. Call `issue_refund({ orderId, amount })`.
+
+# Anti-patterns
+
+- Do not refund partial line-items without checking `order.lineItems[]`.
+- Do not batch refunds across orders.
+```
+
+Frontmatter rules enforced by `parseSkill`:
+
+- Block fenced by `---` top and bottom.
+- `name` and `description` are required strings.
+- `tools` / `allowed-tools` / `triggers` are string lists (leading `- `).
+- `mutating` is `true` / `false`.
+- Nested maps, anchors, and flow-style lists are NOT supported. Stick to
+  the shape above.
+
+### RESOLVER.md
+
+```markdown
+# Agent Resolver
+
+You are a concise assistant for this checkout flow. Reply in short
+markdown. Prefer calling tools over describing steps.
+
+## Skills
+
+| Trigger                            | Skill                          |
+| ---------------------------------- | ------------------------------ |
+| "refund", "cancel order", "return" | `skills/refund-order/SKILL.md` |
+| "fill checkout", "apply invoice"   | `skills/fill-checkout/SKILL.md`|
+```
+
+`parseResolver` only reads:
+
+- H2 (`##`) headings for section labels.
+- Rows starting with `|`, excluding the `|---|---|` separator and the
+  `| Trigger | Skill |` header (case-insensitive).
+- Skill cells must wrap the path in backticks:
+  `` `skills/<name>/SKILL.md` ``.
+- Lines prefixed `GStack:`, `Check `, or `Read ` are preserved as
+  external pointers (the runtime includes them in the prompt as
+  reference text).
+
+Anything else on a row is silently dropped today. The resolver validator
+(v0.2) will warn instead.
 
 ## Anti-Patterns
 
-- Using complex YAML frontmatter (nested maps, flow-style lists, anchors).
-  The mini-parser rejects them with a clear error, but it's easier to just
-  use the shape above.
-- Putting JS imports in a SKILL.md. The protocol is runtime-agnostic
-  markdown. JS bindings live in `usePilotAction` (or, in a future release,
-  `pilot.config.json`, but that isn't shipped yet).
-- Skills without matching actions "as documentation". The runtime filters
-  them out silently. If you want documentation, write prose; if you want
-  a skill the AI can invoke, register the action.
-- Writing a resolver with natural-language triggers that never appear in
-  user speech. Triggers are matched loosely by the LLM via the system
-  prompt; if no human would ever type your trigger, the skill won't fire.
+- **Hand-writing a new skill when the CLI exists.** The CLI emits the
+  canonical shape; hand-writing invites silent parse failures.
+- **Putting JS imports in SKILL.md.** The protocol is runtime-agnostic
+  markdown. Code bindings live in `usePilotAction`.
+- **Skill `name` that doesn't match any tool or action.** The markdown
+  still reaches the model (the body is prose), but the model has
+  nothing to invoke. Match names byte-for-byte.
+- **Natural-language triggers that no user would type.** The LLM matches
+  triggers loosely, but a trigger like "initiate the recursive
+  refundability evaluation" will never fire because no human speaks
+  that way.
+- **Putting `.pilot/` under `public/` or any bundler-served path.** It
+  doesn't need HTTP access — the server reads it from the filesystem at
+  startup.
 
 ## Output Format
 
@@ -236,11 +225,14 @@ After authoring, report:
 - The skill `name`(s) created.
 - The resolver triggers that route to each.
 - The matching `usePilotAction` registrations (name + file path).
-- Confirmation that `manifest.json` validates against the shape above.
+- Confirmation of a clean `[agentickit] auto-loaded .pilot/` line on
+  dev-server startup.
 
 ## Tools Used
 
-- Edit files under `public/pilot/`.
-- Edit the component that registers the matching actions.
-- Read `packages/agentickit/src/protocol/*.ts` to verify the shape the
-  parser expects.
+- `npx agentickit init` / `npx agentickit add-skill <name>` for
+  scaffolding.
+- Edit files under `.pilot/` for content.
+- Edit the component that registers the matching `usePilotAction`.
+- Read `packages/agentickit/src/protocol/*.ts` to verify what shapes the
+  parser accepts when hand-editing.

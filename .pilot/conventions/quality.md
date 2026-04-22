@@ -54,10 +54,12 @@ safe under React 18 strict-mode double invocation. That means:
 
 ## Fail-soft for the protocol layer
 
-`.pilot/manifest.json` may be missing, malformed, or unreachable. The
-package must still work. See `Pilot` in `components/pilot-provider.tsx`:
-the manifest fetch is wrapped in try/catch and swallowed in prod. Preserve
-that property.
+`.pilot/` may be missing, partial, or contain malformed markdown. The
+handler must still work. See `loadPilotProtocol` in
+`server/pilot-protocol-loader.ts`: missing folder returns `null`,
+unparseable SKILL.md is skipped, edge-runtime filesystem failures return
+`null`. Preserve that property — the handler's behavior without `.pilot/`
+is "no system prompt, everything else works."
 
 ## Never leak stack traces to clients
 

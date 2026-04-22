@@ -12,10 +12,9 @@
  * those would tax the sidebar. `useSyncExternalStore` lets React batch
  * re-reads and skips renders when the relevant slice hasn't changed.
  *
- * The panel does not expose skill-manifest entries directly — the provider
- * already filters manifest skills against registered actions in
- * `buildSystemPrompt`. What the user can see here matches what the model
- * can actually invoke.
+ * The panel renders only what's currently registered via `usePilotAction`,
+ * `usePilotState`, and `usePilotForm`. What the user sees here is exactly
+ * what the model can invoke — no drift with the `.pilot/` source of truth.
  */
 
 import { type ReactElement, useCallback, useContext, useState, useSyncExternalStore } from "react";

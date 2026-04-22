@@ -9,6 +9,13 @@ import {
   streamText,
 } from "ai";
 import { z } from "zod";
+import {
+  buildLoggerConfig,
+  createPilotLogger,
+  type PilotLogger,
+  summarizeUiMessage,
+} from "./debug-logger.js";
+import { loadPilotProtocol } from "./pilot-protocol-loader.js";
 
 /**
  * Extract the exact `providerOptions` parameter type that `streamText` expects
@@ -223,10 +230,24 @@ function noProviderConfiguredError(): Error {
  */
 export interface CreatePilotHandlerOptions {
   /**
-   * System prompt prepended to every turn. Typically composed at init time
-   * from .pilot/RESOLVER.md + conventions.
+   * System prompt prepended to every turn.
+   *
+   * When **omitted**, the handler auto-loads `./.pilot/` from `process.cwd()`
+   * (via {@link loadPilotProtocol}) and composes the prompt from the
+   * consumer's `RESOLVER.md` plus each `skills/<name>/SKILL.md`. If no
+   * `.pilot/` folder is present, no system prompt is set.
+   *
+   * Pass a string to bypass auto-loading and use that text verbatim. Pass
+   * `false` to explicitly opt out of both auto-loading and any server-side
+   * prompt (client-sent `body.system` still applies).
    */
-  system?: string;
+  system?: string | false;
+  /**
+   * Override the `.pilot/` directory location used when `system` is
+   * auto-loaded. Relative paths resolve against `process.cwd()`. Defaults
+   * to `.pilot`. No effect when `system` is a string or `false`.
+   */
+  pilotDir?: string;
   /**
    * Default model for this handler. See {@link ModelSpec} for the three
    * accepted shapes.
@@ -272,6 +293,34 @@ export interface CreatePilotHandlerOptions {
    * round-trips; lower it to cap cost.
    */
   maxSteps?: number;
+  /**
+   * When `true`, log every request and response on the server console:
+   * incoming message transcript, registered client tools, each streamed
+   * step's model output + usage, and the final finish reason. Every line
+   * is prefixed with a short request ID (`[agentickit:abc12]`) so you can
+   * trace one conversation across the tool-calling loop (each client-side
+   * tool result triggers a fresh POST, so a single user turn often spans
+   * multiple entries in the log).
+   *
+   * Safe to leave off in production — when `false` (the default) no
+   * logging is performed beyond the existing error path. Secrets are
+   * never logged; content is capped per line so a verbose response can't
+   * flood your terminal.
+   */
+  debug?: boolean;
+  /**
+   * When truthy, append the same debug lines to a file under `./debug/`
+   * (relative to `process.cwd()`), one file per UTC day:
+   * `debug/agentickit-YYYY-MM-DD.log`. Pass a string to override the
+   * directory. Writes are async and best-effort — failures are swallowed
+   * so a full disk can never break a live chat.
+   *
+   * Independent from {@link debug}: you can log to disk silently, or log
+   * to console without touching disk, or both. Requires a Node-compatible
+   * runtime (the file is opened via `node:fs/promises`); silently no-ops
+   * under edge runtimes where `fs` is unavailable.
+   */
+  log?: boolean | string;
 }
 
 /**
@@ -339,10 +388,10 @@ const requestBodySchema = z
      */
     tools: z.record(clientToolSchema).optional(),
     /**
-     * Optional client-derived system prompt fragment. Typically composed from
-     * the consumer app's `.pilot/` manifest and the currently registered
-     * skills. It is *appended* to the server-side `options.system` (never
-     * replaces it) so server-owned instructions always take precedence.
+     * Optional client-derived system prompt fragment. Appended to the
+     * server-owned prompt (auto-loaded from `.pilot/` or set explicitly via
+     * `createPilotHandler({ system })`) so server-owned instructions always
+     * take precedence.
      *
      * We cap the length so a compromised client can't balloon every request
      * with a megabyte of instructions.
@@ -821,7 +870,30 @@ export function createPilotHandler(
   const resolveString = buildStringModelResolver(initialStringModel);
   const resolved = resolveModelSpec(effectiveModel, resolveString);
 
+  const loggerConfig = buildLoggerConfig(options.debug === true, options.log);
+  const baseLogger = createPilotLogger(loggerConfig);
+
+  // Resolve the server-owned system prompt once, at factory time.
+  //   - `system: "string"` → used verbatim.
+  //   - `system: false`    → no server-owned prompt (client `body.system` still applies).
+  //   - `system` omitted   → auto-load from `./.pilot/` (returns null when absent).
+  let serverSystem: string | undefined;
+  if (options.system === false) {
+    serverSystem = undefined;
+  } else if (typeof options.system === "string") {
+    serverSystem = options.system;
+  } else {
+    const loaded = loadPilotProtocol({ dir: options.pilotDir });
+    serverSystem = loaded ?? undefined;
+    if (isDev() && loaded !== null) {
+      console.log(
+        `[agentickit] auto-loaded .pilot/ (${loaded.length.toLocaleString()} chars) — override with \`system\` or disable with \`system: false\``,
+      );
+    }
+  }
+
   return async function handler(request: Request): Promise<Response> {
+    const log: PilotLogger = baseLogger.forRequest();
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
@@ -845,12 +917,35 @@ export function createPilotHandler(
 
     const parsed = requestBodySchema.safeParse(rawBody);
     if (!parsed.success) {
+      log.line("err", `invalid request body: ${parsed.error.message}`);
       return errorResponse(400, {
         error: `Invalid request body: ${parsed.error.message}`,
         code: "invalid_request",
       });
     }
     const body = parsed.data;
+
+    if (loggerConfig.console || loggerConfig.dir) {
+      const toolNames = body.tools ? Object.keys(body.tools) : [];
+      log.line(
+        "in",
+        `POST /api/pilot — ${body.messages.length} message(s), ${toolNames.length} tool(s)${
+          body.model ? `, model=${body.model}` : ""
+        }${body.trigger ? `, trigger=${body.trigger}` : ""}`,
+      );
+      if (toolNames.length > 0) {
+        log.line("info", `tools: ${toolNames.join(", ")}`);
+      }
+      // Log only the last 3 messages so long conversations don't spam; the
+      // tool-calling loop resubmits every turn with the full history, so the
+      // recent tail is what actually matters for debugging.
+      const tail = body.messages.slice(-3);
+      const skipped = body.messages.length - tail.length;
+      if (skipped > 0) log.line("info", `(skipping ${skipped} older messages)`);
+      for (const msg of tail) {
+        log.line("info", summarizeUiMessage(msg));
+      }
+    }
 
     // --- Resolve the per-request model ---------------------------------------
     let resolvedModel: LanguageModel | string;
@@ -950,11 +1045,13 @@ export function createPilotHandler(
         | StreamTextProviderOptions
         | undefined;
 
-      // Compose the final system prompt. Server-owned `options.system`
-      // always comes first so it can't be overridden by a compromised
-      // client; client-derived sections (.pilot/ skills, registered state)
-      // are appended.
-      const system = composeSystemPrompt(options.system, body.system, body.context);
+      // Compose the final system prompt. Server-owned system text (either
+      // the explicit `options.system` string or the `.pilot/`-derived auto-
+      // load) always comes first so it can't be overridden by a compromised
+      // client; client-derived sections are appended.
+      const system = composeSystemPrompt(serverSystem, body.system, body.context);
+
+      const debugEnabled = loggerConfig.console || Boolean(loggerConfig.dir);
 
       const result = streamText({
         model: resolvedModel,
@@ -965,6 +1062,61 @@ export function createPilotHandler(
         // Permit the model to iterate up to `maxSteps` times so tool-calling
         // loops (call → result → follow-up) can complete in a single request.
         stopWhen: stepCountIs(options.maxSteps ?? 5),
+        ...(debugEnabled
+          ? {
+              onStepFinish: (step: {
+                text?: string;
+                toolCalls?: ReadonlyArray<{ toolName?: string; input?: unknown }>;
+                finishReason?: string;
+                usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+              }) => {
+                const calls = step.toolCalls ?? [];
+                const usage = step.usage;
+                const usageStr = usage
+                  ? ` (in:${usage.inputTokens ?? "?"} out:${usage.outputTokens ?? "?"} total:${
+                      usage.totalTokens ?? "?"
+                    })`
+                  : "";
+                log.line(
+                  "step",
+                  `finish=${step.finishReason ?? "?"}${usageStr}, tool-calls=${calls.length}`,
+                );
+                if (step.text && step.text.trim().length > 0) {
+                  const preview =
+                    step.text.length > 200 ? `${step.text.slice(0, 199)}…` : step.text;
+                  log.line("out", `text: ${preview}`);
+                }
+                for (const call of calls) {
+                  let inputStr: string;
+                  try {
+                    inputStr = JSON.stringify(call.input);
+                  } catch {
+                    inputStr = String(call.input);
+                  }
+                  const capped = inputStr.length > 160 ? `${inputStr.slice(0, 159)}…` : inputStr;
+                  log.line("out", `call ${call.toolName ?? "?"}(${capped})`);
+                }
+              },
+              onFinish: (summary: {
+                finishReason?: string;
+                usage?: { totalTokens?: number };
+                steps?: ReadonlyArray<unknown>;
+              }) => {
+                const total = summary.usage?.totalTokens;
+                log.line(
+                  "done",
+                  `finish=${summary.finishReason ?? "?"}, steps=${summary.steps?.length ?? "?"}${
+                    typeof total === "number" ? `, total tokens=${total}` : ""
+                  }`,
+                );
+              },
+              onError: (err: { error?: unknown } | unknown) => {
+                const raw = (err as { error?: unknown })?.error ?? err;
+                const message = raw instanceof Error ? raw.message : String(raw);
+                log.line("err", `stream error: ${message}`);
+              },
+            }
+          : {}),
       });
 
       const response = result.toUIMessageStreamResponse();
@@ -984,6 +1136,7 @@ export function createPilotHandler(
       // stable envelope to the client.
       console.error("agentickit handler error:", error);
       const message = error instanceof Error ? error.message : "Unknown server error.";
+      log.line("err", `handler error: ${message}`);
       return errorResponse(500, {
         error: message,
         code: "internal_error",

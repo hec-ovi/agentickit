@@ -35,7 +35,7 @@ This repo ships a `.pilot/` folder at the root as both dogfood and the canonical
 - [packages/agentickit/README.md](packages/agentickit/README.md): the package-level README covering the public API surface, exports, and peer-dep matrix.
 - [packages/agentickit/src/index.ts](packages/agentickit/src/index.ts): client entry point with the three hooks, `<Pilot>`, `<PilotSidebar>`, and context.
 - [packages/agentickit/src/server/index.ts](packages/agentickit/src/server/index.ts): server entry point for `createPilotHandler` and types. Never import from client code.
-- [packages/agentickit/src/protocol/index.ts](packages/agentickit/src/protocol/index.ts): the `.pilot/` protocol layer with the `RESOLVER.md` parser, `SKILL.md` parser, and `manifest.json` validator.
+- [packages/agentickit/src/protocol/index.ts](packages/agentickit/src/protocol/index.ts): parsers for the `.pilot/` markdown format (`RESOLVER.md` + `skills/<name>/SKILL.md`). The server handler auto-loads the folder at startup via `loadPilotProtocol` in `src/server/pilot-protocol-loader.ts`.
 
 ## Example
 

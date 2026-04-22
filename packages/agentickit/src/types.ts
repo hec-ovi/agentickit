@@ -78,11 +78,6 @@ export interface PilotConfig {
    */
   model?: string;
   /**
-   * URL or relative path from which the runtime fetches `.pilot/manifest.json`.
-   * If undefined, the protocol layer is not loaded and the package runs in hook-only mode.
-   */
-  pilotProtocolUrl?: string;
-  /**
    * Optional headers sent with every request (e.g. auth tokens).
    */
   headers?: Record<string, string> | (() => Record<string, string>);
@@ -111,17 +106,3 @@ export interface SkillFrontmatter {
   allowedTools?: string[];
 }
 
-/**
- * A loaded skill from the .pilot/ folder.
- */
-export interface LoadedSkill {
-  frontmatter: SkillFrontmatter;
-  body: string;
-  path: string;
-  /**
-   * True when a matching usePilotAction or pilot.config.json binding exists.
-   * Skills without a binding are filtered out of the system prompt to
-   * prevent the LLM from hallucinating uninvokable capabilities.
-   */
-  hasBinding: boolean;
-}

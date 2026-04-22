@@ -2,7 +2,7 @@
 
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, generateId, zodSchema } from "ai";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import {
   PilotChatContext,
   type PilotChatContextValue,
@@ -11,14 +11,11 @@ import {
   type PilotRegistrySnapshot,
 } from "../context.js";
 import { isDev } from "../env.js";
-import { type PilotManifest, loadManifest } from "../protocol/manifest.js";
-import { parseResolver } from "../protocol/resolver.js";
 import type {
   PilotActionRegistration,
   PilotConfig,
   PilotFormRegistration,
   PilotStateRegistration,
-  ResolverEntry,
 } from "../types.js";
 import {
   PilotConfirmModal,
@@ -76,9 +73,9 @@ export interface PilotProps extends PilotConfig {
  *      action, run the handler locally and push the result back to the chat
  *      with `addToolOutput`. After the output lands the SDK resubmits so the
  *      model can continue.
- *   4. Optionally fetch `.pilot/manifest.json` + `RESOLVER.md` and compose a
- *      system prompt. Failures are logged and swallowed so the package still
- *      works without a `.pilot/` folder.
+ *   4. Compose per-request body: a live snapshot of registered tools,
+ *      state, and (optionally) a client-supplied system prompt via `body`.
+ *      The server owns its own system prompt (auto-loaded from `.pilot/`).
  *
  * Strict-mode safety: all registrations are idempotent and clean up in the
  * returned `useEffect` teardown. The registry Map is keyed by a random `id`
@@ -277,59 +274,9 @@ export function Pilot(props: PilotProps): ReactNode {
   );
 
   // ------------------------------------------------------------------
-  // Protocol: fetch .pilot/manifest.json + RESOLVER.md at mount.
-  // ------------------------------------------------------------------
-
-  const [manifest, setManifest] = useState<PilotManifest | null>(null);
-  const [resolverEntries, setResolverEntries] = useState<ResolverEntry[]>([]);
-
-  useEffect(() => {
-    if (!props.pilotProtocolUrl) return;
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const baseUrl = props.pilotProtocolUrl ?? "";
-        const manifestUrl = baseUrl.endsWith("manifest.json")
-          ? baseUrl
-          : `${baseUrl.replace(/\/$/, "")}/manifest.json`;
-        const loaded = await loadManifest(manifestUrl);
-        if (cancelled) return;
-        setManifest(loaded);
-
-        // RESOLVER.md lives alongside manifest.json inside the .pilot/ folder.
-        if (loaded.resolver) {
-          const resolverUrl = new URL(
-            loaded.resolver,
-            new URL(manifestUrl, window.location.href),
-          ).toString();
-          try {
-            const res = await fetch(resolverUrl);
-            if (res.ok && !cancelled) {
-              setResolverEntries(parseResolver(await res.text()));
-            }
-          } catch (resolverError) {
-            if (isDev()) {
-              console.warn("[agentickit] Failed to load RESOLVER.md:", resolverError);
-            }
-          }
-        }
-      } catch (err) {
-        // Fail soft — the package must still work without .pilot/.
-        if (isDev()) {
-          console.warn("[agentickit] Failed to load .pilot manifest:", err);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [props.pilotProtocolUrl]);
-
-  // ------------------------------------------------------------------
-  // useChat wiring. Tools + state + system prompt are injected into the
-  // request body via `prepareSendMessagesRequest`, recomputed on every send.
+  // useChat wiring. Tools + state are injected into the request body via
+  // `prepareSendMessagesRequest`, recomputed on every send. The server
+  // owns the system prompt (auto-loaded from `.pilot/` at handler startup).
   // ------------------------------------------------------------------
 
   // Snapshot that's always current — avoids closure staleness in the
@@ -346,10 +293,6 @@ export function Pilot(props: PilotProps): ReactNode {
 
   // Stable refs so the transport closure (captured once) can see live values
   // without us recreating the transport on every render.
-  const manifestRef = useRef(manifest);
-  manifestRef.current = manifest;
-  const resolverRef = useRef(resolverEntries);
-  resolverRef.current = resolverEntries;
   const modelRef = useRef<string | undefined>(model);
   modelRef.current = model;
   const resolveHeadersRef = useRef(resolveHeaders);
@@ -368,7 +311,6 @@ export function Pilot(props: PilotProps): ReactNode {
           const snapshot = liveSnapshotRef.current();
           const tools = buildToolsPayload(snapshot);
           const context = buildStateContext(snapshot);
-          const system = buildSystemPrompt(manifestRef.current, resolverRef.current, snapshot);
           return {
             body: {
               ...(body ?? {}),
@@ -379,7 +321,6 @@ export function Pilot(props: PilotProps): ReactNode {
               messages,
               tools,
               context,
-              ...(system ? { system } : {}),
             },
           };
         },
@@ -620,48 +561,6 @@ function buildStateContext(snapshot: PilotRegistrySnapshot): Record<string, unkn
     };
   }
   return out;
-}
-
-/**
- * Compose the system prompt from the protocol layer plus whatever's
- * currently registered. Skills whose `name` doesn't match a registered
- * action are filtered out so the LLM never sees a capability it can't
- * actually invoke.
- */
-function buildSystemPrompt(
-  manifest: PilotManifest | null,
-  resolverEntries: ReadonlyArray<ResolverEntry>,
-  snapshot: PilotRegistrySnapshot,
-): string | null {
-  if (!manifest) return null;
-
-  const registeredActionNames = new Set(snapshot.actions.map((a) => a.name));
-  const activeSkills = manifest.skills.filter((s) => registeredActionNames.has(s.name));
-
-  const sections: string[] = [];
-
-  if (manifest.conventions?.length) {
-    sections.push(`## Conventions\n${manifest.conventions.map((c) => `- ${c}`).join("\n")}`);
-  }
-
-  if (activeSkills.length > 0) {
-    sections.push(
-      `## Available skills\n${activeSkills
-        .map((s) => `- **${s.name}**: ${s.description}`)
-        .join("\n")}`,
-    );
-  }
-
-  if (resolverEntries.length > 0) {
-    const localResolverRows = resolverEntries.filter((e) => !e.isExternalPointer);
-    if (localResolverRows.length > 0) {
-      sections.push(
-        `## Triggers\n${localResolverRows.map((e) => `- ${e.trigger} → ${e.skillPath}`).join("\n")}`,
-      );
-    }
-  }
-
-  return sections.length > 0 ? sections.join("\n\n") : null;
 }
 
 /**

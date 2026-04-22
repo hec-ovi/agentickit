@@ -41,9 +41,10 @@ By the end of this skill a contributor has:
 The entire external API is:
 
 - `usePilotState`, `usePilotAction`, `usePilotForm`
-- `<Pilot>`, `<PilotSidebar>`
-- `createPilotHandler` (server)
-- `parseResolver`, `parseSkill`, `loadManifest` (protocol)
+- `<Pilot>`, `<PilotSidebar>`, `<PilotConfirmModal>`
+- `createPilotHandler`, `loadPilotProtocol`, `autoDetectModel` (server)
+- `parseResolver`, `parseSkill` (protocol)
+- `agentickit` CLI (`init`, `add-skill`)
 
 Adding to this surface is a deliberate choice with ecosystem consequences.
 **Every new export is a promise you'll maintain it. Shrink before you

@@ -46,6 +46,9 @@
     }
   },
   "files": ["dist", "README.md", "LICENSE"],
+  "bin": {
+    "agentickit": "./dist/cli.js"
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",

@@ -231,12 +231,11 @@ Registers three tools scoped to the form: `set_invoice_field`, `submit_invoice`,
 
 ## `<Pilot>` provider
 
-| Prop               | Type                                            | Default          | Notes                                                                                           |
-| ------------------ | ----------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------- |
-| `model`            | `string`                                        | `"openai/gpt-4o"` | `"<provider>/<model>"`. Supported prefixes: `openai`, `anthropic`, `groq`, `openrouter`, `google`, `mistral`. |
-| `apiUrl`           | `string`                                        | `"/api/pilot"`   | Path to the route exposing `createPilotHandler`.                                                |
-| `pilotProtocolUrl` | `string`                                        | `undefined`      | URL (or path) from which the runtime loads `.pilot/manifest.json`. Omit to run hook-only.       |
-| `headers`          | `Record<string, string> \| () => Record<…>`     | `undefined`      | Forwarded on every request. Use the function form for dynamic auth tokens.                     |
+| Prop      | Type                                        | Default        | Notes                                                                                                                            |
+| --------- | ------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `model`   | `string`                                    | `undefined`    | Optional `"<provider>/<model>"` override forwarded to the server. When omitted, the server handler's own model (or auto-detect) wins. |
+| `apiUrl`  | `string`                                    | `"/api/pilot"` | Path to the route exposing `createPilotHandler`.                                                                                 |
+| `headers` | `Record<string, string> \| () => Record<…>` | `undefined`    | Forwarded on every request. Use the function form for dynamic auth tokens.                                                       |
 
 All props except `apiUrl` can change at runtime. `apiUrl` is captured on mount; changing it mid-session would orphan the current stream.
 
@@ -325,14 +324,22 @@ Most copilot libraries make you re-author AI behavior in TypeScript on every pro
 
 **Problem:** The rules your assistant should follow ("always confirm refunds over $100", "when the user says 'summarize' on a >50-card board, group by status") live in the system prompt. The system prompt lives inside your bundle, so a prompt change is a code change is a redeploy.
 
-**Fix:** a committed `.pilot/` folder with a routing file (`RESOLVER.md`), a manifest (`manifest.json`), and one `SKILL.md` per capability. The runtime loads it at mount via `pilotProtocolUrl` and filters skills whose `name` doesn't match a registered `usePilotAction`, so the model never sees an uninvokable capability.
+**Fix:** a committed `.pilot/` folder with a routing file (`RESOLVER.md`) and one `SKILL.md` per capability. The server handler auto-loads it at startup and composes the system prompt from that markdown. Edit a file, restart the dev server, behavior changes — no TypeScript touched.
+
+### Scaffold one with the CLI
+
+```bash
+npx agentickit init                # create .pilot/ with one example skill
+npx agentickit add-skill chart     # add a new skill + register in RESOLVER.md
+```
+
+`init` refuses to overwrite an existing `.pilot/`. `add-skill` emits canonical markdown every time so the parser never has to guess. Drop the CLI entirely and hand-author markdown if you prefer; the format is stable and specified below.
 
 ### Folder shape
 
 ```
 .pilot/
-  RESOLVER.md              # trigger → skill routing table
-  manifest.json            # machine-readable index (built by tooling)
+  RESOLVER.md              # persona + trigger → skill routing table
   skills/
     refund-order/
       SKILL.md             # frontmatter + procedural body
@@ -340,9 +347,6 @@ Most copilot libraries make you re-author AI behavior in TypeScript on every pro
       SKILL.md
     summarize-board/
       SKILL.md
-  conventions/             # optional cross-cutting rules
-    tone.md
-    ui-safety.md
 ```
 
 ### `RESOLVER.md`
@@ -401,8 +405,8 @@ Frontmatter is a **strict superset of Anthropic's Agent Skills spec** (which req
 
 ### Interop
 
-- **Claude Code / Cursor / Aider users** who already have `AGENTS.md` or `CLAUDE.md` at the repo root can `extends` them in the manifest, so the file stays a single source of truth for both authoring-time and runtime agents.
-- **External agents** discovering your app can fetch `.pilot/manifest.json` as a machine-readable capability index. If you also emit a top-level `llms.txt`, point it at `/pilot/` so crawlers can find the folder.
+- **Claude Code / Cursor / Aider users** who already have `AGENTS.md` or `CLAUDE.md` at the repo root can keep their authoring-time context there and reference skills from both files. The markdown format is deliberately compatible.
+- **External agents** discovering your app can read `.pilot/RESOLVER.md` directly as a capability index, or you can emit a top-level `llms.txt` pointing at `/.pilot/` so crawlers find the folder.
 - **MCP bridges** are on the roadmap (v0.2): expose `.pilot/*` as MCP resources so external LLM clients can consume the same skills your in-app copilot sees.
 
 ### When to use `.pilot/`
@@ -504,13 +508,15 @@ Yes. Hector Oviedo, <hector.ernesto.oviedo@gmail.com>. This library is the portf
 - `<Pilot>` provider wiring AI SDK 6's `useChat` with a dynamic tool registry
 - `<PilotSidebar>` with dark mode, CSS-variable theming, a11y, suggestion chips
 - `createPilotHandler` for Next.js / Bun / Workers, with direct adapters for `openai/*`, `anthropic/*`, `groq/*`, `openrouter/*`, `google/*`, `mistral/*`, plus Vercel AI Gateway fallback and a `LanguageModel`-instance escape hatch
-- `.pilot/` protocol loader with a `RESOLVER.md` parser, a `SKILL.md` parser, and a `manifest.json` validator
+- `.pilot/` markdown protocol: `RESOLVER.md` + `skills/<name>/SKILL.md`, auto-loaded by `createPilotHandler` at startup
+- `agentickit` CLI: `init` + `add-skill` scaffold and grow `.pilot/` without hand-writing markdown
+- `renderConfirm` prop on `<Pilot>` for themed confirmation modals
 
 ### v0.2 (next)
 - **Ghost fills**: streaming form previews; Tab to accept, Shift-Tab to reject
 - **AI cursor**: visible floating pointer that narrates DOM-touching actions
-- **`renderConfirm` prop** on `<Pilot>` for custom confirmation modals (today: `window.confirm`)
 - **DOM-fallback actuator**: accessibility-tree-driven action layer for sites without explicit integration
+- **Resolver validator**: startup health check that flags orphan skills, missing files, and drift between `RESOLVER.md` and the filesystem
 
 ### Out of scope
 - Generic chatbot framework

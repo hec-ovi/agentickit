@@ -162,7 +162,7 @@ usePilotForm(form, { name: "invoice" });
 
 ### Components
 
-#### `<Pilot model apiUrl pilotProtocolUrl? headers?>`
+#### `<Pilot model? apiUrl? headers?>`
 
 Top-level provider. Wraps an AI SDK 6 `useChat` transport that appends the current tool registry and state snapshot to every request. See the [root README](https://github.com/hec-ovi/agentickit#pilot-provider) for the full prop table.
 
@@ -198,28 +198,36 @@ const ollama = createOllama();
 export const POST = createPilotHandler({ model: ollama("llama3.3") });
 ```
 
-### Protocol (optional)
+### Protocol parsers (optional)
 
-`import { parseResolver, parseSkill, loadManifest } from "agentickit/protocol";`
+`import { parseResolver, parseSkill } from "agentickit/protocol";`
 
-Reads an optional `.pilot/` folder (see below) with a resolver table, per-capability `SKILL.md` files, and a `manifest.json` index.
+Parsers for the `.pilot/` markdown format. `createPilotHandler` already uses these internally — you only need them if you're building tooling on top of the protocol.
 
 ---
 
 ## The `.pilot/` skills folder
 
-Ship capabilities as markdown. PMs and designers edit `SKILL.md` files; engineers only touch code when the *capability* changes. Compatible with Anthropic's Agent Skills frontmatter and gbrain's SKILL.md convention.
+Ship capabilities as markdown. The server reads `.pilot/RESOLVER.md` plus every `skills/<name>/SKILL.md` at startup and composes the system prompt from them. Edit markdown, restart the dev server, the agent changes behavior. No TypeScript edits. Compatible with Anthropic's Agent Skills frontmatter and gbrain's SKILL.md convention.
+
+Scaffold one in any project with the bundled CLI:
+
+```bash
+npx agentickit init                # create .pilot/ with one example skill
+npx agentickit add-skill chart     # add a new skill + register it in RESOLVER.md
+```
+
+Resulting shape:
 
 ```
 .pilot/
-  RESOLVER.md              # trigger → skill routing table
-  manifest.json            # machine-readable index
+  RESOLVER.md                  # persona, routing table
   skills/
-    refund-order/SKILL.md
-    fill-checkout/SKILL.md
+    example/SKILL.md           # frontmatter + body prose
+    chart/SKILL.md
 ```
 
-Load it at mount with `<Pilot pilotProtocolUrl="/pilot" …>`. Skills whose `name` doesn't match a registered `usePilotAction` are filtered out of the system prompt, so the model never sees an uninvokable capability.
+`createPilotHandler({ system })` auto-loads `./.pilot/` at startup when `system` is omitted. Pass a string to override, or `false` to disable the auto-load.
 
 Full spec, examples, and interop notes (Claude Code / Cursor / MCP): see the [root README on GitHub](https://github.com/hec-ovi/agentickit#the-pilot-skills-folder).
 
@@ -263,10 +271,8 @@ import {
 import {
   parseResolver,
   parseSkill,
-  loadManifest,
   type ResolverEntry,
   type SkillFrontmatter,
-  type LoadedSkill,
 } from "agentickit/protocol";
 ```
 

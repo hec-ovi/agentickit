@@ -1,7 +1,6 @@
-// Protocol layer: reads and parses the optional `.pilot/` folder.
+// Protocol layer: parsers for the `.pilot/` markdown folder.
 // Import from "agentickit/protocol".
 
 export { parseResolver } from "./resolver.js";
 export { parseSkill } from "./skill.js";
-export { loadManifest } from "./manifest.js";
-export type { LoadedSkill, ResolverEntry, SkillFrontmatter } from "../types.js";
+export type { ResolverEntry, SkillFrontmatter } from "../types.js";

@@ -7,3 +7,5 @@ export type {
   ModelSpec,
   PilotErrorBody,
 } from "./handler.js";
+export { loadPilotProtocol } from "./pilot-protocol-loader.js";
+export type { LoadPilotProtocolOptions } from "./pilot-protocol-loader.js";
