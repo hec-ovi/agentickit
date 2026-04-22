@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pilot, PilotSidebar } from "agentickit";
+import { Pilot, PilotSidebar } from "@hec-ovi/agentickit";
 import { TodoWidget } from "./widgets/todo";
 import { ContactWidget } from "./widgets/contact";
 import { PreferencesWidget } from "./widgets/preferences";

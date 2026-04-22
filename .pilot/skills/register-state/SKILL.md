@@ -72,7 +72,7 @@ two in lockstep (see `examples/todo/app/page.tsx` lines 16-24).
 Read-only (AI can see `total` but cannot change it):
 
 ```tsx
-import { usePilotState } from "agentickit";
+import { usePilotState } from "@hec-ovi/agentickit";
 
 usePilotState({
   name: "cart_total",

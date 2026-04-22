@@ -2,7 +2,7 @@
 
 **Wire an AI copilot into your React app's state, actions, and forms.** Three hooks, one sidebar, optional `.pilot/` skills folder.
 
-[![npm](https://img.shields.io/npm/v/agentickit.svg?color=black)](https://www.npmjs.com/package/agentickit)
+[![npm](https://img.shields.io/npm/v/%40hec-ovi%2Fagentickit.svg?color=black)](https://www.npmjs.com/package/@hec-ovi/agentickit)
 [![license: MIT](https://img.shields.io/badge/license-MIT-black.svg)](./LICENSE)
 [![built on AI SDK 6](https://img.shields.io/badge/built%20on-AI%20SDK%206-black.svg)](https://ai-sdk.dev)
 
@@ -11,7 +11,7 @@
 ```tsx
 import { useState } from "react";
 import { z } from "zod";
-import { Pilot, PilotSidebar, usePilotState, usePilotAction } from "agentickit";
+import { Pilot, PilotSidebar, usePilotState, usePilotAction } from "@hec-ovi/agentickit";
 
 function Checkout() {
   const [total, setTotal] = useState(42);
@@ -64,7 +64,7 @@ The React AI stack in 2026 has two settled layers: Vercel AI SDK for streaming, 
 ## Install
 
 ```bash
-npm install agentickit ai @ai-sdk/react zod
+npm install @hec-ovi/agentickit ai @ai-sdk/react zod
 
 # Plus exactly one provider adapter for your model choice. The free-tier
 # friendly default is OpenRouter. Sign up at https://openrouter.ai/keys:
@@ -108,7 +108,7 @@ cat .pilot/RESOLVER.md
 
 ```ts
 // app/api/pilot/route.ts
-import { createPilotHandler } from "agentickit/server";
+import { createPilotHandler } from "@hec-ovi/agentickit/server";
 
 // Auto-detects a provider from your env. Set any ONE of GROQ_API_KEY,
 // OPENROUTER_API_KEY (both free tier), OPENAI_API_KEY, ANTHROPIC_API_KEY,
@@ -123,7 +123,7 @@ Install the matching provider adapter (e.g. `@ai-sdk/groq` for `GROQ_API_KEY`, `
 ```tsx
 // app/layout.tsx  (or any client-side root)
 "use client";
-import { Pilot, PilotSidebar } from "agentickit";
+import { Pilot, PilotSidebar } from "@hec-ovi/agentickit";
 
 export default function Root({ children }: { children: React.ReactNode }) {
   // `model` is optional. Omit it and the route handler's auto-detected
@@ -143,7 +143,7 @@ export default function Root({ children }: { children: React.ReactNode }) {
 "use client";
 import { useState } from "react";
 import { z } from "zod";
-import { usePilotState, usePilotAction } from "agentickit";
+import { usePilotState, usePilotAction } from "@hec-ovi/agentickit";
 
 export function TodoBoard() {
   const [todos, setTodos] = useState<string[]>([]);
@@ -176,7 +176,7 @@ Want to poke at a working app before writing a line? The repo ships [`examples/t
 git clone https://github.com/hec-ovi/agentickit
 cd agentickit
 pnpm install
-pnpm --filter agentickit build
+pnpm --filter @hec-ovi/agentickit build
 cd examples/todo
 cp .env.example .env.local       # pick your provider; the default assumes a local vLLM server
 pnpm dev
@@ -225,7 +225,7 @@ The handler runs in the browser. It has access to your React state, your auth'd 
 
 ```tsx
 import { useForm } from "react-hook-form";
-import { usePilotForm } from "agentickit";
+import { usePilotForm } from "@hec-ovi/agentickit";
 
 function InvoiceForm() {
   const form = useForm<{ email: string; amount: number }>();
@@ -293,7 +293,7 @@ Dark mode is automatic (`prefers-color-scheme: dark`). Escape closes the panel a
 
 ```ts
 // app/api/pilot/route.ts
-import { createPilotHandler } from "agentickit/server";
+import { createPilotHandler } from "@hec-ovi/agentickit/server";
 
 export const POST = createPilotHandler({
   model: "openai/gpt-4o",
@@ -357,7 +357,7 @@ npx agentickit --version
 
 #### `agentickit init`
 
-Creates a fresh `.pilot/` folder with a `RESOLVER.md` header and one example skill. Run once per project, usually right after `npm install agentickit`.
+Creates a fresh `.pilot/` folder with a `RESOLVER.md` header and one example skill. Run once per project, usually right after `npm install @hec-ovi/agentickit`.
 
 ```bash
 cd my-app

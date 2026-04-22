@@ -63,7 +63,7 @@ so it works anywhere the Web Fetch API is available:
 
 ```ts
 // app/api/pilot/route.ts
-import { createPilotHandler } from "agentickit/server";
+import { createPilotHandler } from "@hec-ovi/agentickit/server";
 
 export const POST = createPilotHandler({});
 ```
@@ -74,7 +74,7 @@ for the priority order.
 ### Phase 3: the full options surface
 
 ```ts
-import { createPilotHandler } from "agentickit/server";
+import { createPilotHandler } from "@hec-ovi/agentickit/server";
 
 export const POST = createPilotHandler({
   model: "anthropic/claude-sonnet-4-5",

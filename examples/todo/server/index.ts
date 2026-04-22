@@ -12,7 +12,7 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { createPilotHandler, type PilotLogEvent } from "agentickit/server";
+import { createPilotHandler, type PilotLogEvent } from "@hec-ovi/agentickit/server";
 
 const PORT = Number.parseInt(process.env.PORT ?? "8787", 10);
 const MODEL = process.env.PILOT_MODEL ?? "openai/gpt-oss-120b";

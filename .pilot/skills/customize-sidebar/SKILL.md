@@ -147,7 +147,7 @@ The chat surface reads from `PilotChatContext` (exported from
 
 ```tsx
 import { useContext } from "react";
-import { PilotChatContext } from "agentickit";   // still under <Pilot>
+import { PilotChatContext } from "@hec-ovi/agentickit";   // still under <Pilot>
 
 function MyComposer() {
   const chat = useContext(PilotChatContext);

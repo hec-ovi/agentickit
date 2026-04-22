@@ -32,7 +32,7 @@ By the end of this skill a contributor has:
 - A matching test under the same package.
 - Updated public docs: both READMEs when the surface changes, plus the
   relevant `.pilot/skills/*` if the procedure for consumers shifts.
-- A green `pnpm --filter agentickit build` and `pnpm --filter agentickit
+- A green `pnpm --filter @hec-ovi/agentickit build` and `pnpm --filter agentickit
   test`.
 - A commit message matching `conventions/commit-style.md`.
 - Awareness of the rough size budget. The tree is ~5 kLoC today. A PR
@@ -91,7 +91,7 @@ is a new boundary someone has to reason about.
 ### Phase 3: write the test first
 
 Vitest + happy-dom. Tests live adjacent to source (or under a `__tests__/`
-sibling if preferred). Run locally with `pnpm --filter agentickit test:watch`.
+sibling if preferred). Run locally with `pnpm --filter @hec-ovi/agentickit test:watch`.
 
 Test shape we want:
 
@@ -127,8 +127,8 @@ Always do (3); the skills are the agent-facing contract.
 ### Phase 6: validate
 
 ```bash
-pnpm --filter agentickit build
-pnpm --filter agentickit test
+pnpm --filter @hec-ovi/agentickit build
+pnpm --filter @hec-ovi/agentickit test
 pnpm --filter @agentickit-examples/todo dev   # smoke test in the example
 ```
 
@@ -189,6 +189,6 @@ After contributing, report:
 
 ## Tools Used
 
-- `pnpm --filter agentickit build / test / test:watch`.
+- `pnpm --filter @hec-ovi/agentickit build / test / test:watch`.
 - Edit source, test, and doc files.
 - `git add <specific files>`, `git commit -m`.

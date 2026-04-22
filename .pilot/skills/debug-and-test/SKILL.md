@@ -27,8 +27,8 @@ mutating: false
 
 By the end of this skill the agent can:
 
-- Build the package locally (`pnpm --filter agentickit build`).
-- Run the test suite (`pnpm --filter agentickit test`).
+- Build the package locally (`pnpm --filter @hec-ovi/agentickit build`).
+- Run the test suite (`pnpm --filter @hec-ovi/agentickit test`).
 - Run the todo example against the local package
   (`pnpm --filter @agentickit-examples/todo dev`).
 - Diagnose the most common failure modes with a specific fix.
@@ -38,7 +38,7 @@ By the end of this skill the agent can:
 Never attempt a fix without first seeing the failure locally. The pnpm
 workspace links `agentickit` from `packages/agentickit/dist/` into the
 example. If `dist/` is stale, the example runs last build's behavior
-and your "fix" targets the wrong tree. **`pnpm --filter agentickit build`
+and your "fix" targets the wrong tree. **`pnpm --filter @hec-ovi/agentickit build`
 before every reproduction, no exceptions.**
 
 ## Phases
@@ -73,7 +73,7 @@ Always use absolute paths from repo root when editing. Never `cd`.
 
 ```bash
 cd /home/hector/workspace/test-task/agentickit
-pnpm --filter agentickit build
+pnpm --filter @hec-ovi/agentickit build
 ```
 
 Runs `tsup` (config at `packages/agentickit/tsup.config.ts`), producing
@@ -86,7 +86,7 @@ type bug. Fix the source, not the build config.
 ### Phase 3: run the tests
 
 ```bash
-pnpm --filter agentickit test
+pnpm --filter @hec-ovi/agentickit test
 ```
 
 Runs Vitest once (`vitest run` in `package.json` scripts). Happy-DOM
@@ -95,7 +95,7 @@ environment. Fast; no external network.
 For watch mode during iteration:
 
 ```bash
-pnpm --filter agentickit test:watch
+pnpm --filter @hec-ovi/agentickit test:watch
 ```
 
 ### Phase 4: run the example
@@ -123,13 +123,13 @@ The example's route at `examples/todo/app/api/pilot/route.ts` omits
 The example imports from the built `dist/` via the workspace link, so:
 
 ```bash
-pnpm --filter agentickit build && pnpm --filter @agentickit-examples/todo dev
+pnpm --filter @hec-ovi/agentickit build && pnpm --filter @agentickit-examples/todo dev
 ```
 
 For an iteration loop:
 
 ```bash
-pnpm --filter agentickit dev   # tsup --watch in one terminal
+pnpm --filter @hec-ovi/agentickit dev   # tsup --watch in one terminal
 pnpm --filter @agentickit-examples/todo dev   # next dev in another
 ```
 
@@ -137,7 +137,7 @@ pnpm --filter @agentickit-examples/todo dev   # next dev in another
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| Example imports but types are `any` | Stale `dist/` | `pnpm --filter agentickit build` |
+| Example imports but types are `any` | Stale `dist/` | `pnpm --filter @hec-ovi/agentickit build` |
 | "no model configured" on first message | No env var in example `.env.local` | Set `OPENROUTER_API_KEY` (or another supported key) |
 | 500 `MODULE_NOT_FOUND` for `@ai-sdk/xxx` | Env var set but adapter not installed in the example | `cd examples/todo && npm install @ai-sdk/<provider>` |
 | Sidebar renders but no messages appear | `<PilotSidebar>` outside `<Pilot>` tree | Move sidebar inside the provider |
@@ -182,6 +182,6 @@ After a debugging session, report:
 
 ## Tools Used
 
-- `pnpm --filter agentickit build` / `test` / `dev`.
+- `pnpm --filter @hec-ovi/agentickit build` / `test` / `dev`.
 - `pnpm --filter @agentickit-examples/todo dev`.
 - Read source files under `packages/agentickit/src/`.

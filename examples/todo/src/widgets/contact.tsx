@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { usePilotForm } from "agentickit";
+import { usePilotForm } from "@hec-ovi/agentickit";
 
 interface ContactFormValues {
   name: string;

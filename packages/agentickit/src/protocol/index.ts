@@ -1,5 +1,5 @@
 // Protocol layer: parsers for the `.pilot/` markdown folder.
-// Import from "agentickit/protocol".
+// Import from "@hec-ovi/agentickit/protocol".
 
 export { parseResolver } from "./resolver.js";
 export { parseSkill } from "./skill.js";

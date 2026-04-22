@@ -71,7 +71,7 @@ const form = useForm<InvoiceFields>({
 ### Phase 3: attach `usePilotForm`
 
 ```tsx
-import { usePilotForm } from "agentickit";
+import { usePilotForm } from "@hec-ovi/agentickit";
 
 usePilotForm(form, { name: "invoice" });
 ```

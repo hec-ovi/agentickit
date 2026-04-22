@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { PilotLogEvent } from "agentickit/server";
+import type { PilotLogEvent } from "@hec-ovi/agentickit/server";
 
 /**
  * Live transcript of every structured log event coming from the server.

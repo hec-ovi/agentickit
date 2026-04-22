@@ -49,7 +49,7 @@ first request. **Verify both before you claim the install is done.**
 ### Phase 1: install runtime deps
 
 ```bash
-npm install agentickit ai @ai-sdk/react zod
+npm install @hec-ovi/agentickit ai @ai-sdk/react zod
 ```
 
 Pick **one** provider. Free-tier-friendly is OpenRouter; zero-latency is
@@ -89,7 +89,7 @@ unsure which to pick.
 Next.js App Router, at `app/api/pilot/route.ts`:
 
 ```ts
-import { createPilotHandler } from "agentickit/server";
+import { createPilotHandler } from "@hec-ovi/agentickit/server";
 
 // Omit `model` to auto-detect a provider from env.
 // Pass `model: "openrouter/qwen/qwen3-coder:free"` etc. to be explicit.
@@ -105,7 +105,7 @@ primitive the framework uses.
 ```tsx
 // app/layout.tsx (client boundary) or any root client component
 "use client";
-import { Pilot, PilotSidebar } from "agentickit";
+import { Pilot, PilotSidebar } from "@hec-ovi/agentickit";
 
 export default function Shell({ children }: { children: React.ReactNode }) {
   return (

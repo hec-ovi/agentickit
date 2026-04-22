@@ -844,7 +844,7 @@ function resolveModelSpec(
  *
  * Target usage:
  *   // app/api/pilot/route.ts
- *   import { createPilotHandler } from "agentickit/server";
+ *   import { createPilotHandler } from "@hec-ovi/agentickit/server";
  *   export const POST = createPilotHandler({ model: "openai/gpt-4o" });
  *
  * Behavior:

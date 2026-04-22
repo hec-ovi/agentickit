@@ -1,10 +1,10 @@
 # Changelog
 
-All notable changes to `agentickit` will be documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org).
+All notable changes to `@hec-ovi/agentickit` will be documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org).
 
 ## [0.1.0] — 2026-04-22
 
-First public release. Feature-complete against the planned v0.1 scope; tested end-to-end against a local vLLM server running `openai/gpt-oss-120b`. See the [Testing](../../README.md#testing) section in the root README for the full verified-flows list.
+First public release, published as **`@hec-ovi/agentickit`** (scoped to the author's npm namespace; the bin stays `agentickit`). Feature-complete against the planned v0.1 scope; tested end-to-end against a local vLLM server running `openai/gpt-oss-120b`. See the [Testing](https://github.com/hec-ovi/agentickit#testing) section in the root README for the full verified-flows list.
 
 ### Added
 

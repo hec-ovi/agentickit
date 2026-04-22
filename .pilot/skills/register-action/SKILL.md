@@ -89,7 +89,7 @@ an `output-error` so it can self-correct.
 ### Phase 3: call the hook
 
 ```tsx
-import { usePilotAction } from "agentickit";
+import { usePilotAction } from "@hec-ovi/agentickit";
 import { z } from "zod";
 
 usePilotAction({

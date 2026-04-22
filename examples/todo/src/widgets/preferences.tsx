@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { usePilotAction, usePilotState } from "agentickit";
+import { usePilotAction, usePilotState } from "@hec-ovi/agentickit";
 import { z } from "zod";
 
 const DENSITY_VALUES = ["compact", "comfortable", "roomy"] as const;

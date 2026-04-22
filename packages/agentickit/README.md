@@ -1,29 +1,80 @@
-# agentickit
+# @hec-ovi/agentickit
 
-**Wire an AI copilot into your React app's state, actions, and forms.** Three hooks, one sidebar, optional `.pilot/` skills folder.
+**Wire an AI copilot into your React app's state, actions, and forms.**
 
-[![npm](https://img.shields.io/npm/v/agentickit.svg?color=black)](https://www.npmjs.com/package/agentickit)
+Three hooks, one sidebar, an optional `.pilot/` skills folder, and a one-line server handler. Built on the [Vercel AI SDK 6](https://ai-sdk.dev). MIT.
+
+[![npm version](https://img.shields.io/npm/v/%40hec-ovi%2Fagentickit.svg?color=black&label=npm)](https://www.npmjs.com/package/@hec-ovi/agentickit)
 [![license: MIT](https://img.shields.io/badge/license-MIT-black.svg)](https://github.com/hec-ovi/agentickit/blob/master/LICENSE)
 [![built on AI SDK 6](https://img.shields.io/badge/built%20on-AI%20SDK%206-black.svg)](https://ai-sdk.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-ready-black.svg)](https://www.typescriptlang.org/)
 
-> Sits between Vercel AI SDK's primitives and CopilotKit's enterprise framework. Three hooks, AI SDK 6 native, ~5 kLoC of source + inlined CSS + CLI. MIT. Not a chatbot framework, not a browser agent, not a LangGraph runner.
+> Sits in the gap between Vercel AI SDK's primitives and CopilotKit's enterprise framework: small, typed, opinionated on the integration layer. Not a chatbot framework, not a browser-use agent, not a LangGraph runner.
+
+- 📦 [Full documentation + roadmap + FAQ on GitHub](https://github.com/hec-ovi/agentickit)
+- 🧪 [Testing notes (170 automated tests + vLLM e2e)](https://github.com/hec-ovi/agentickit#testing)
+- 📜 [CHANGELOG](./CHANGELOG.md)
+- 🎮 [Runnable demo: `examples/todo`](https://github.com/hec-ovi/agentickit/tree/master/examples/todo) — Vite + Hono with three widgets and a live tool-call log panel
+- 🐛 [Report an issue](https://github.com/hec-ovi/agentickit/issues)
+
+---
+
+## At a glance
+
+```tsx
+"use client";
+import { useState } from "react";
+import { z } from "zod";
+import { Pilot, PilotSidebar, usePilotState, usePilotAction } from "@hec-ovi/agentickit";
+
+function Checkout() {
+  const [total, setTotal] = useState(42);
+
+  usePilotState({
+    name: "cart_total",
+    description: "Current cart total in USD.",
+    value: total,
+    schema: z.number(),
+  });
+
+  usePilotAction({
+    name: "apply_discount",
+    description: "Apply a percentage discount to the cart.",
+    parameters: z.object({ percent: z.number().min(0).max(100) }),
+    handler: ({ percent }) => setTotal((t) => t * (1 - percent / 100)),
+    mutating: true,
+  });
+
+  return <>{/* your app */}</>;
+}
+
+export default function App() {
+  return (
+    <Pilot apiUrl="/api/pilot">
+      <Checkout />
+      <PilotSidebar />
+    </Pilot>
+  );
+}
+```
+
+The AI now sees `cart_total` and can call `apply_discount`. `mutating: true` pops a confirmation dialog before any side effect lands.
 
 ---
 
 ## Install
 
 ```bash
-npm install agentickit ai @ai-sdk/react zod
+npm install @hec-ovi/agentickit ai @ai-sdk/react zod
 
-# Plus exactly one provider adapter for your model choice:
-npm install @openrouter/ai-sdk-provider        # free tier, no credit card
-#   or: npm install @ai-sdk/openai             # OPENAI_API_KEY
-#   or: npm install @ai-sdk/anthropic          # ANTHROPIC_API_KEY
-#   or: npm install @ai-sdk/groq               # GROQ_API_KEY
-#   or: npm install @ai-sdk/google             # GOOGLE_GENERATIVE_AI_API_KEY
-#   or: npm install @ai-sdk/mistral            # MISTRAL_API_KEY
-# (no adapter needed if you use AI_GATEWAY_API_KEY. The Vercel AI Gateway
-#  resolves prefix strings server-side.)
+# Plus exactly one provider adapter (optional peer deps — install what you use):
+npm install @openrouter/ai-sdk-provider    # free tier, no credit card
+#   or: npm install @ai-sdk/openai         # OPENAI_API_KEY
+#   or: npm install @ai-sdk/anthropic      # ANTHROPIC_API_KEY
+#   or: npm install @ai-sdk/groq           # GROQ_API_KEY
+#   or: npm install @ai-sdk/google         # GOOGLE_GENERATIVE_AI_API_KEY
+#   or: npm install @ai-sdk/mistral        # MISTRAL_API_KEY
+# (Or skip adapters and set AI_GATEWAY_API_KEY to route through the Vercel AI Gateway.)
 
 # Optional, only required for usePilotForm:
 npm install react-hook-form
@@ -39,78 +90,41 @@ npm install react-hook-form
 
 ```ts
 // app/api/pilot/route.ts
-import { createPilotHandler } from "agentickit/server";
+import { createPilotHandler } from "@hec-ovi/agentickit/server";
 
-// Auto-detects a provider from your env. Set any ONE of GROQ_API_KEY,
-// OPENROUTER_API_KEY (both free tier), OPENAI_API_KEY, ANTHROPIC_API_KEY,
-// GOOGLE_GENERATIVE_AI_API_KEY, MISTRAL_API_KEY, or AI_GATEWAY_API_KEY.
+// Auto-detects a provider from whichever API key is in your env.
 export const POST = createPilotHandler({});
 ```
 
-Install the matching provider adapter (e.g. `@ai-sdk/groq` for `GROQ_API_KEY`, `@openrouter/ai-sdk-provider` for `OPENROUTER_API_KEY`). Want a specific model? Pass `model: "openai/gpt-4o"` (or any supported prefix/model) and the handler routes through the matching `@ai-sdk/*` adapter. If only `AI_GATEWAY_API_KEY` is set, strings are handed to the Vercel AI Gateway unchanged.
+Set exactly one of `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, `MISTRAL_API_KEY`, or `AI_GATEWAY_API_KEY`. The handler picks the first it finds and uses a tool-calling-capable default model for that provider.
 
-**Choose your model:**
-
-| Model string                           | Env var                         | Peer package to install         |
-| -------------------------------------- | ------------------------------- | ------------------------------- |
-| `openrouter/<any OpenRouter id>`       | `OPENROUTER_API_KEY`            | `@openrouter/ai-sdk-provider`   |
-| `openai/<model>`                       | `OPENAI_API_KEY`                | `@ai-sdk/openai`                |
-| `anthropic/<model>`                    | `ANTHROPIC_API_KEY`             | `@ai-sdk/anthropic`             |
-| `groq/<model>`                         | `GROQ_API_KEY`                  | `@ai-sdk/groq`                  |
-| `google/<model>`                       | `GOOGLE_GENERATIVE_AI_API_KEY`  | `@ai-sdk/google`                |
-| `mistral/<model>`                      | `MISTRAL_API_KEY`               | `@ai-sdk/mistral`               |
-| any of the above (no direct key)       | `AI_GATEWAY_API_KEY`            | none (goes through Vercel AI Gateway) |
-
-**Or pass your own `LanguageModel` instance** (Ollama, Azure, Bedrock, custom):
+Want explicit control? Pass `model: "openai/gpt-4o-mini"` (or any `"<provider>/<model>"` string). Or hand in a `LanguageModel` instance for Ollama / Azure / Bedrock / anything off the built-in list:
 
 ```ts
 import { createOllama } from "ai-sdk-ollama";
-const ollama = createOllama();
-export const POST = createPilotHandler({ model: ollama("llama3.3") });
+export const POST = createPilotHandler({ model: createOllama()("llama3.3") });
 ```
 
-Prefix validation and registry lookup are skipped for instances. You bring the adapter, we hand it to `streamText` verbatim.
-
-### 2. Client
+### 2. Wrap your app
 
 ```tsx
+// app/layout.tsx
 "use client";
-import { useState } from "react";
-import { z } from "zod";
-import { Pilot, PilotSidebar, usePilotState, usePilotAction } from "agentickit";
+import { Pilot, PilotSidebar } from "@hec-ovi/agentickit";
 
-function TodoBoard() {
-  const [todos, setTodos] = useState<string[]>([]);
-
-  usePilotState({
-    name: "todos",
-    description: "Current list of todo items.",
-    value: todos,
-    schema: z.array(z.string()),
-  });
-
-  usePilotAction({
-    name: "add_todo",
-    description: "Add a new todo to the list.",
-    parameters: z.object({ text: z.string().min(1) }),
-    handler: ({ text }) => setTodos((t) => [...t, text]),
-  });
-
-  return <ul>{todos.map((t, i) => <li key={i}>{t}</li>)}</ul>;
-}
-
-export default function App() {
-  // `model` is optional. Omit it and the route's auto-detected choice wins.
+export default function Root({ children }: { children: React.ReactNode }) {
   return (
     <Pilot apiUrl="/api/pilot">
-      <TodoBoard />
+      {children}
       <PilotSidebar />
     </Pilot>
   );
 }
 ```
 
-Say *"add a todo to buy groceries"* in the sidebar. The model calls `add_todo`, the list updates, and the assistant sees the new state on its next turn.
+### 3. Expose state + register actions
+
+See the "At a glance" snippet above, or the [runnable demo](https://github.com/hec-ovi/agentickit/tree/master/examples/todo) for three widgets (todo list, contact form, preferences) wired to every hook.
 
 ---
 
@@ -118,139 +132,105 @@ Say *"add a todo to buy groceries"* in the sidebar. The model calls `add_todo`, 
 
 ### Hooks
 
-#### `usePilotState({ name, description, value, schema, setValue? })`
+| Hook | Purpose | Auto-registers |
+| --- | --- | --- |
+| `usePilotState({ name, description, value, schema, setValue? })` | Expose React state to the AI | `update_<name>` tool when `setValue` is supplied |
+| `usePilotAction({ name, description, parameters, handler, mutating? })` | Register a typed, AI-callable tool. Handler runs in the browser | — |
+| `usePilotForm(form, { name?, ghostFill? })` | Attach a `react-hook-form` instance | `set_<name>_field`, `submit_<name>`, `reset_<name>` |
 
-Expose React state to the AI. Pass `setValue` to auto-register an `update_<name>` tool so the AI can propose whole-value updates (confirmed by the user before it lands).
-
-```tsx
-usePilotState({
-  name: "cart_total",
-  description: "Current cart total in USD.",
-  value: total,
-  schema: z.number(),
-  setValue: setTotal,
-});
-```
-
-#### `usePilotAction({ name, description, parameters, handler, mutating? })`
-
-Register a typed, AI-callable tool. Parameters use Zod (inferred into the handler). Handler runs in the browser and can return any JSON-serializable value, which the assistant sees on its next step. `mutating: true` triggers a user confirmation before execution.
-
-```tsx
-usePilotAction({
-  name: "archive_card",
-  description: "Archive a kanban card by id.",
-  parameters: z.object({ cardId: z.string() }),
-  handler: async ({ cardId }) => {
-    await api.archive(cardId);
-    return { ok: true };
-  },
-  mutating: true,
-});
-```
-
-#### `usePilotForm(form, { name?, ghostFill? })`
-
-Attach a `react-hook-form` instance to the copilot. Registers `set_<name>_field`, `submit_<name>`, `reset_<name>`. Returns the form unchanged.
-
-```tsx
-const form = useForm<{ email: string; amount: number }>();
-usePilotForm(form, { name: "invoice" });
-```
-
-`ghostFill` is reserved for v0.2 (streaming preview with Tab-to-accept). Safe to pass today; currently a no-op.
+`mutating: true` on any action (or via `usePilotState`'s auto-registered update tool) triggers a themed confirm modal before the handler fires. Override the modal via `<Pilot renderConfirm={…} />`.
 
 ### Components
 
-#### `<Pilot model? apiUrl? headers?>`
-
-Top-level provider. Wraps an AI SDK 6 `useChat` transport that appends the current tool registry and state snapshot to every request. See the [root README](https://github.com/hec-ovi/agentickit#pilot-provider) for the full prop table.
-
-#### `<PilotSidebar />`
-
-Opinionated chat UI: slide-in panel, dark mode, CSS-variable theming, suggestion chips, accessible keyboard navigation. Props: `defaultOpen`, `position`, `width`, `suggestions`, `greeting`, `labels`, `onOpenChange`, `className`. Theme with CSS custom properties (`--pilot-bg`, `--pilot-accent`, `--pilot-radius`, …).
+| Component | Purpose |
+| --- | --- |
+| `<Pilot apiUrl? model? headers? renderConfirm?>` | Top-level provider. Owns the tool / state / form registry and drives AI SDK 6's `useChat` |
+| `<PilotSidebar />` | Slide-in chat panel. Dark mode, CSS-variable theming, suggestion chips, keyboard-accessible |
+| `<PilotConfirmModal />` | Themed confirm modal for mutating actions. Re-exported for custom layouts |
 
 ### Server
 
-#### `createPilotHandler({ model?, system?, pilotDir?, maxSteps?, getProviderOptions?, debug?, log?, onLogEvent? })`
-
-Returns a `(Request) => Promise<Response>` for any Web Fetch runtime. Validates the `useChat` body with Zod, dispatches to `streamText`, wraps client-declared tools as `dynamicTool` (they stream to the browser and never execute server-side), and returns `toUIMessageStreamResponse()`.
-
-`model` is optional: omit it and the handler walks your env for a supported provider key. Set one of `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, `MISTRAL_API_KEY`, or `AI_GATEWAY_API_KEY` and the factory throws at startup if none are present.
-
-`system` is auto-loaded from `./.pilot/` when omitted. Pass a string to use it verbatim or `false` to disable both the auto-load and any server-side prompt.
-
-`debug` / `log` / `onLogEvent` turn on, respectively, console logging of every request+step+tool-call, append-only daily log files under `./debug/`, and a structured-event subscriber. The example app under `examples/todo` wires the subscriber to an SSE endpoint and renders a live tool-call timeline in a sidebar panel — a working template for your own observability.
-
-`model` accepts three shapes:
-
-1. **String** (`"openai/gpt-4o"`, `"openrouter/qwen/qwen3-coder:free"`, ...): the handler auto-detects a matching direct provider key and uses the corresponding `@ai-sdk/*` adapter. If no direct key is set but `AI_GATEWAY_API_KEY` is, the raw string is handed to the Vercel AI Gateway.
-2. **`LanguageModel` instance**: used verbatim. No prefix validation. Drop in an Ollama, Azure, or Bedrock adapter and it just works.
-3. **Thunk** (`() => LanguageModel | Promise<LanguageModel>`): called exactly once at handler creation; useful when the adapter needs async setup.
-
 ```ts
-// String with direct provider key (or Gateway fallback)
-export const POST = createPilotHandler({
-  model: "anthropic/claude-sonnet-4-5",
-  system: "You are a helpful copilot for a kanban app.",
-  maxSteps: 5,
-});
+import { createPilotHandler } from "@hec-ovi/agentickit/server";
 ```
 
-```ts
-// LanguageModel instance (bring your own adapter)
-import { createOllama } from "ai-sdk-ollama";
-const ollama = createOllama();
-export const POST = createPilotHandler({ model: ollama("llama3.3") });
-```
+`createPilotHandler({ model?, system?, pilotDir?, maxSteps?, getProviderOptions?, debug?, log?, onLogEvent? })` returns a `(Request) => Promise<Response>` for any Web Fetch runtime.
 
-### Protocol parsers (optional)
+| Option | Default | Notes |
+| --- | --- | --- |
+| `model` | auto | `"<provider>/<model>"` string, `LanguageModel` instance, or a thunk. Omitted → walks env for a provider key |
+| `system` | auto | Server-owned system prompt. When omitted, auto-loads `./.pilot/`. Pass a string to override, or `false` to disable |
+| `pilotDir` | `".pilot"` | Directory the auto-load reads from (relative to `process.cwd()`) |
+| `maxSteps` | `5` | Upper bound on tool-call → result → follow-up iterations per request |
+| `getProviderOptions` | none | Per-request provider tuning (caching hints, thinking budgets) |
+| `debug` | `false` | Stream a compact per-request transcript to the server console |
+| `log` | `false` | Append the same lines to `./debug/agentickit-YYYY-MM-DD.log` (pass a string for a custom dir) |
+| `onLogEvent` | none | Structured `PilotLogEvent` subscriber — wire to SSE / EventEmitter for live observability |
 
-`import { parseResolver, parseSkill } from "agentickit/protocol";`
+Full options reference, security notes, and runtime matrix: [server-handler docs on GitHub](https://github.com/hec-ovi/agentickit#server-handler).
 
-Parsers for the `.pilot/` markdown format. `createPilotHandler` already uses these internally — you only need them if you're building tooling on top of the protocol.
+### `.pilot/` skills folder
 
----
+Ship capabilities as markdown. The server reads `RESOLVER.md` plus every `skills/<name>/SKILL.md` at startup and composes the system prompt from them. Edit markdown, restart the dev server, behavior changes — no TypeScript touched. Frontmatter is a strict superset of Anthropic's Agent Skills spec and Garry Tan's gbrain SKILL.md convention.
 
-## The `.pilot/` skills folder
+Full spec + interop notes (Claude Code, Cursor, MCP): [`.pilot/` docs on GitHub](https://github.com/hec-ovi/agentickit#the-pilot-skills-folder).
 
-Ship capabilities as markdown. The server reads `.pilot/RESOLVER.md` plus every `skills/<name>/SKILL.md` at startup and composes the system prompt from them. Edit markdown, restart the dev server, the agent changes behavior. No TypeScript edits. Compatible with Anthropic's Agent Skills frontmatter and gbrain's SKILL.md convention.
+### CLI
 
-Scaffold one with the bundled CLI (ships as the `agentickit` bin; no install needed beyond the package itself):
+Ships as the `agentickit` bin (no extra install — it's a transitive bin once you install the package).
 
 ```bash
-npx agentickit init                   # create .pilot/ with RESOLVER.md + one example skill
-npx agentickit add-skill refund-order # add skills/refund-order/SKILL.md + register it
-npx agentickit add-skill fill-checkout
-npx agentickit --help
+npx agentickit init                 # create .pilot/ with one example skill
+npx agentickit add-skill <name>     # add skills/<name>/SKILL.md + register it in RESOLVER.md
+npx agentickit --help               # usage + exit codes
+npx agentickit --version            # current package version
 ```
 
-Resulting shape:
+Skill names must be kebab-case. `init` refuses to overwrite an existing folder; `add-skill` refuses duplicates and requires `.pilot/` to exist first. Both commands emit the canonical markdown shape the parser accepts — hand-edit the prose, leave the frontmatter keys alone. Full reference: [CLI docs on GitHub](https://github.com/hec-ovi/agentickit#the-agentickit-cli).
 
-```
-.pilot/
-  RESOLVER.md                  # persona + "## Skills" routing table
-  skills/
-    example/SKILL.md           # frontmatter + body prose
-    refund-order/SKILL.md
-    fill-checkout/SKILL.md
+### Protocol parsers (advanced)
+
+```ts
+import { parseResolver, parseSkill } from "@hec-ovi/agentickit/protocol";
 ```
 
-Skill names must be kebab-case (`^[a-z][a-z0-9-]*$`). `init` refuses to overwrite an existing folder; `add-skill` refuses duplicates and refuses to run without `.pilot/` (tells you to `init` first). Both commands emit the canonical markdown shape the parser accepts — hand-edit the prose, leave the frontmatter keys alone.
-
-`createPilotHandler({ system })` auto-loads `./.pilot/` at startup when `system` is omitted. Pass a string to override, or `false` to disable the auto-load.
-
-Full spec, examples, and interop notes (Claude Code / Cursor / MCP): see the [root README on GitHub](https://github.com/hec-ovi/agentickit#the-pilot-skills-folder).
+`createPilotHandler` uses these internally. You only need them if you're building tooling on top of the `.pilot/` format.
 
 ---
 
-## Why agentickit over the alternatives?
+## Provider support
 
-- **vs CopilotKit.** CopilotKit is the Fortune-500 choice (AG-UI, CoAgents, managed cloud, ~60k LoC). agentickit is ~5% of that surface, for solo devs and small teams.
-- **vs assistant-ui.** assistant-ui is 30+ chat primitives; agentickit is one opinionated sidebar plus the state/actions/forms wiring assistant-ui leaves to you.
-- **vs raw AI SDK.** `useChat` + `streamText` is the right call if you want to write the integration layer yourself. agentickit is that layer.
+| Prefix | Env var | Peer package | Auto-detect default |
+| --- | --- | --- | --- |
+| `openai/` | `OPENAI_API_KEY` | `@ai-sdk/openai` | `openai/gpt-4o-mini` |
+| `anthropic/` | `ANTHROPIC_API_KEY` | `@ai-sdk/anthropic` | `anthropic/claude-haiku-4-5` |
+| `groq/` | `GROQ_API_KEY` | `@ai-sdk/groq` | `groq/llama-3.3-70b-versatile` |
+| `openrouter/` | `OPENROUTER_API_KEY` | `@openrouter/ai-sdk-provider` | `openrouter/qwen/qwen3-coder:free` |
+| `google/` | `GOOGLE_GENERATIVE_AI_API_KEY` | `@ai-sdk/google` | `google/gemini-2.5-flash` |
+| `mistral/` | `MISTRAL_API_KEY` | `@ai-sdk/mistral` | `mistral/mistral-small-latest` |
+| _any of the above_ | `AI_GATEWAY_API_KEY` | none — routes through [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) | `openai/gpt-4o-mini` |
 
-Full comparison table in the [root README](https://github.com/hec-ovi/agentickit#compared-to-alternatives).
+OpenAI-compatible local servers (vLLM, Ollama, LM Studio, Fireworks, Together, DeepInfra) work via `OPENAI_BASE_URL` — the handler automatically switches the adapter to Chat Completions mode so tool-calling stays wired. For anything not in this list, pass a `LanguageModel` instance.
+
+---
+
+## Why `@hec-ovi/agentickit`?
+
+- **vs CopilotKit** — CopilotKit is the Fortune-500 choice (AG-UI, CoAgents, managed cloud, ~60 kLoC). agentickit is ~5 % of that surface, for solo devs and small teams who want the integration layer without the platform.
+- **vs assistant-ui** — assistant-ui ships 30+ chat primitives for you to assemble. agentickit ships one opinionated sidebar plus the state/actions/forms wiring assistant-ui leaves to you.
+- **vs raw AI SDK** — `useChat` + `streamText` is the right call if you want to write the integration layer yourself. agentickit *is* that layer.
+
+Full comparison table: [alternatives on GitHub](https://github.com/hec-ovi/agentickit#compared-to-alternatives).
+
+---
+
+## Testing
+
+Ships with **170 automated tests** across 15 files (`pnpm test`). The suite includes 23 component-level integration scenarios that mount a real `<Pilot>` tree in `happy-dom`, replay scripted SSE frames, simulate user clicks, and assert on exact HTTP fetch counts — so the dangerous class of bugs (infinite resubmit loops that drain API credits) fails CI before it ships.
+
+Beyond the mocked suite, `v0.1.0` was verified end-to-end against a local **vLLM** server running `openai/gpt-oss-120b` via the bundled `examples/todo` app: multi-tool conversation turns, confirm-modal approve + decline branches, progressive form fill + submit, auto-generated `update_<name>` state setters, and the full structured observability path through `debug` / `log` / `onLogEvent`.
+
+Full testing notes + verified flows + known gaps: [Testing section on GitHub](https://github.com/hec-ovi/agentickit#testing).
 
 ---
 
@@ -260,6 +240,7 @@ Full comparison table in the [root README](https://github.com/hec-ovi/agentickit
 import {
   Pilot,
   PilotSidebar,
+  PilotConfirmModal,
   usePilotState,
   usePilotAction,
   usePilotForm,
@@ -270,27 +251,35 @@ import {
   type PilotFormRegistration,
   type PilotMessage,
   type PilotMessagePart,
-} from "agentickit";
+  type PilotConfirmRender,
+  type PilotConfirmRenderArgs,
+} from "@hec-ovi/agentickit";
 
 import {
   createPilotHandler,
+  autoDetectModel,
+  loadPilotProtocol,
   type CreatePilotHandlerOptions,
+  type LoadPilotProtocolOptions,
   type ModelSpec,
   type PilotErrorBody,
-} from "agentickit/server";
+  type PilotLogEvent,
+  type PilotLogEventMeta,
+  type LogKind,
+} from "@hec-ovi/agentickit/server";
 
 import {
   parseResolver,
   parseSkill,
   type ResolverEntry,
   type SkillFrontmatter,
-} from "agentickit/protocol";
+} from "@hec-ovi/agentickit/protocol";
 ```
 
 ---
 
-## Links
+## License
 
-- **Full documentation, roadmap, FAQ** → [github.com/hec-ovi/agentickit](https://github.com/hec-ovi/agentickit)
-- **License** → MIT. See [LICENSE](https://github.com/hec-ovi/agentickit/blob/master/LICENSE).
-- **Attribution** → Inspired by CopilotKit and assistant-ui (both MIT). Built on Vercel AI SDK. `.pilot/` protocol inspired by Garry Tan's gbrain and Anthropic's Agent Skills standard. See [`NOTICE.md`](./NOTICE.md).
+MIT © 2026 [Hector Oviedo](https://github.com/hec-ovi). See [LICENSE](./LICENSE).
+
+Inspired by [CopilotKit](https://github.com/CopilotKit/CopilotKit) and [assistant-ui](https://github.com/assistant-ui/assistant-ui) (both MIT). Built on [Vercel AI SDK](https://ai-sdk.dev) (Apache 2.0). `.pilot/` protocol inspired by Garry Tan's [gbrain](https://github.com/garrytan/gbrain) and [Anthropic's Agent Skills](https://github.com/anthropics/skills) standard.
