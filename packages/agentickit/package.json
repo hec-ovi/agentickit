@@ -45,7 +45,7 @@
       "require": "./dist/protocol/index.cjs"
     }
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": ["dist", "README.md", "LICENSE", "CHANGELOG.md"],
   "bin": {
     "agentickit": "./dist/cli.js"
   },
