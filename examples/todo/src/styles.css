@@ -162,15 +162,26 @@ textarea {
   color: var(--text);
   font: inherit;
   font-size: 14px;
-  transition: border-color 120ms ease-out, box-shadow 120ms ease-out;
+  /* `outline` (below) is painted OUTSIDE the border box and is
+     never clipped by flex containers or scroll ancestors —
+     unlike `box-shadow`, which some layouts were cropping.
+     We pre-declare a transparent outline so the focused-state
+     transition animates the color rather than appearing abruptly. */
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition:
+    border-color 120ms ease-out,
+    outline-color 120ms ease-out;
 }
 
 input[type="text"]:focus,
 input[type="email"]:focus,
-textarea:focus {
-  outline: none;
+input[type="text"]:focus-visible,
+input[type="email"]:focus-visible,
+textarea:focus,
+textarea:focus-visible {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-ring);
+  outline-color: var(--accent);
 }
 
 textarea {
