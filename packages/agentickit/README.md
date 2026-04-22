@@ -216,22 +216,27 @@ Parsers for the `.pilot/` markdown format. `createPilotHandler` already uses the
 
 Ship capabilities as markdown. The server reads `.pilot/RESOLVER.md` plus every `skills/<name>/SKILL.md` at startup and composes the system prompt from them. Edit markdown, restart the dev server, the agent changes behavior. No TypeScript edits. Compatible with Anthropic's Agent Skills frontmatter and gbrain's SKILL.md convention.
 
-Scaffold one in any project with the bundled CLI:
+Scaffold one with the bundled CLI (ships as the `agentickit` bin; no install needed beyond the package itself):
 
 ```bash
-npx agentickit init                # create .pilot/ with one example skill
-npx agentickit add-skill chart     # add a new skill + register it in RESOLVER.md
+npx agentickit init                   # create .pilot/ with RESOLVER.md + one example skill
+npx agentickit add-skill refund-order # add skills/refund-order/SKILL.md + register it
+npx agentickit add-skill fill-checkout
+npx agentickit --help
 ```
 
 Resulting shape:
 
 ```
 .pilot/
-  RESOLVER.md                  # persona, routing table
+  RESOLVER.md                  # persona + "## Skills" routing table
   skills/
     example/SKILL.md           # frontmatter + body prose
-    chart/SKILL.md
+    refund-order/SKILL.md
+    fill-checkout/SKILL.md
 ```
+
+Skill names must be kebab-case (`^[a-z][a-z0-9-]*$`). `init` refuses to overwrite an existing folder; `add-skill` refuses duplicates and refuses to run without `.pilot/` (tells you to `init` first). Both commands emit the canonical markdown shape the parser accepts — hand-edit the prose, leave the frontmatter keys alone.
 
 `createPilotHandler({ system })` auto-loads `./.pilot/` at startup when `system` is omitted. Pass a string to override, or `false` to disable the auto-load.
 

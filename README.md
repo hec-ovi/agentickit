@@ -168,6 +168,22 @@ export function TodoBoard() {
 
 Open the sidebar, say *"add a todo to buy groceries."* The model calls `add_todo`, the list updates, and the assistant sees the new state on its next turn.
 
+### 4. Or clone the runnable example
+
+Want to poke at a working app before writing a line? The repo ships [`examples/todo`](./examples/todo) — a minimal Vite + Hono demo with three widgets (todo list, contact form, preferences) and a live log panel that streams every tool call and token count as it happens.
+
+```bash
+git clone https://github.com/hec-ovi/agentickit
+cd agentickit
+pnpm install
+pnpm --filter agentickit build
+cd examples/todo
+cp .env.example .env.local       # pick your provider; the default assumes a local vLLM server
+pnpm dev
+```
+
+The `.pilot/` folder under `examples/todo/.pilot/` was scaffolded with `npx agentickit init` + three `add-skill` calls — the same flow the README walks you through, just already completed. Run it once, then read the widget code to see how every hook is wired.
+
 ---
 
 ## The three hooks
@@ -330,14 +346,60 @@ Most copilot libraries make you re-author AI behavior in TypeScript on every pro
 
 **Fix:** a committed `.pilot/` folder with a routing file (`RESOLVER.md`) and one `SKILL.md` per capability. The server handler auto-loads it at startup and composes the system prompt from that markdown. Edit a file, restart the dev server, behavior changes — no TypeScript touched.
 
-### Scaffold one with the CLI
+### The `agentickit` CLI
+
+Every install of the package ships an `agentickit` bin. Two subcommands, zero dependencies beyond Node 20+. The CLI emits the exact markdown shape the parser accepts, so hand-authoring never has to race the parser.
 
 ```bash
-npx agentickit init                # create .pilot/ with one example skill
-npx agentickit add-skill chart     # add a new skill + register in RESOLVER.md
+npx agentickit --help
+npx agentickit --version
 ```
 
-`init` refuses to overwrite an existing `.pilot/`. `add-skill` emits canonical markdown every time so the parser never has to guess. Drop the CLI entirely and hand-author markdown if you prefer; the format is stable and specified below.
+#### `agentickit init`
+
+Creates a fresh `.pilot/` folder with a `RESOLVER.md` header and one example skill. Run once per project, usually right after `npm install agentickit`.
+
+```bash
+cd my-app
+npx agentickit init
+```
+
+Produces:
+
+```
+.pilot/
+  RESOLVER.md                 # persona + "## Skills" routing table
+  skills/
+    example/
+      SKILL.md                # frontmatter + TODO-marked body
+```
+
+Refuses to overwrite an existing `.pilot/` (exit 2, no file touched). Delete the folder first if you want to restart clean.
+
+#### `agentickit add-skill <name>`
+
+Creates `skills/<name>/SKILL.md` with canonical frontmatter and appends a row to `.pilot/RESOLVER.md`. The name must be kebab-case (matches `^[a-z][a-z0-9-]*$`), e.g. `chart`, `detail-form`, `refund-order`.
+
+```bash
+npx agentickit add-skill refund-order
+npx agentickit add-skill fill-checkout
+npx agentickit add-skill summarize-board
+```
+
+Each call emits:
+
+- `.pilot/skills/<name>/SKILL.md` — `name:` and `description:` pre-filled, `tools:` / `triggers:` / body left as `TODO` markers you fill in.
+- One appended line to the `## Skills` table in `.pilot/RESOLVER.md`. Trigger text starts as `TODO: describe when to trigger <name>` — edit it to match the phrasings real users will type.
+
+Refuses a duplicate skill name (exit 2). Refuses kebab-case violations (`Chart`, `my_skill`, `1skill`, empty — exit 1). Refuses to run if there's no `.pilot/` folder in the current directory; tells you to run `init` first (exit 2).
+
+After either command, restart your dev server — `createPilotHandler` auto-loads `.pilot/` at startup, so changes to these files only take effect on the next process boot.
+
+#### When to hand-edit vs. use the CLI
+
+Use the CLI for the **shapes** — anything the parser reads: frontmatter, the `## Skills` table, the directory layout. Hand-edit for **prose** — skill descriptions, procedural bodies, anti-patterns, inline examples, any content inside a skill file. That's why `init` emits a canonical starting file rather than a magic registry: you own the markdown.
+
+The YAML mini-parser in `agentickit/protocol` only handles the shapes the CLI emits (scalar `key: value`, list items with `- `, `|`-style block scalars for descriptions, booleans). Anchors, flow-style lists, and nested maps are silently dropped. Start from a CLI-emitted file and you never bump against that.
 
 ### Folder shape
 
@@ -515,6 +577,7 @@ Yes. Hector Oviedo, <hector.ernesto.oviedo@gmail.com>. This library is the portf
 - `.pilot/` markdown protocol: `RESOLVER.md` + `skills/<name>/SKILL.md`, auto-loaded by `createPilotHandler` at startup
 - `agentickit` CLI: `init` + `add-skill` scaffold and grow `.pilot/` without hand-writing markdown
 - `renderConfirm` prop on `<Pilot>` for themed confirmation modals
+- Observable server: `debug` / `log` / `onLogEvent` options on `createPilotHandler` emit structured per-request transcripts (tool calls + args, token usage, finish reason, errors) to console, append-only daily log files, and an in-process subscriber the example wires to an SSE visualization panel
 
 ### v0.2 (next)
 - **Ghost fills**: streaming form previews; Tab to accept, Shift-Tab to reject
