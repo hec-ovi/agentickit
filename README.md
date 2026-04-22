@@ -55,7 +55,7 @@ The React AI stack in 2026 has two settled layers: Vercel AI SDK for streaming, 
 - **Three hooks you can memorize.** `usePilotState`, `usePilotAction`, `usePilotForm`. Type-inferred through Zod. No `useCopilotReadable` / `useCopilotAction` / `useCopilotChat` / `useCopilotChatSuggestions` sprawl.
 - **AI SDK 6 native.** `streamText` underneath, tool-call streaming delegated, `UIMessage` on the wire. You keep every escape hatch the SDK already gives you.
 - **Optional `.pilot/` skills folder.** Ship capabilities as markdown. PMs edit `SKILL.md` files to change AI behavior without redeploying the prompt.
-- **Under 1,500 lines, MIT, two runtime dependencies** (`ai`, `@ai-sdk/react`). Readable in a lunch break.
+- **Four runtime deps** (`ai`, `@ai-sdk/react`, `zod`, `nanoid`) and six **optional** peer adapters — you install exactly the one you need. MIT. Source tree is ~5 kLoC of implementation + CSS-in-JS + a CLI, small enough to read end-to-end in an afternoon.
 
 **It is not:** a chatbot framework, a browser-use agent, a LangGraph runner, an MCP server, or an enterprise platform. If you need those, use the tool that specializes in them.
 
@@ -288,10 +288,14 @@ export const POST = createPilotHandler({
 
 | Option               | Type                                | Default | Notes                                                                                      |
 | -------------------- | ----------------------------------- | ------- | ------------------------------------------------------------------------------------------ |
-| `model`              | `ModelSpec`                         | required | String (`"<provider>/<model>"`), `LanguageModel` instance, or a thunk returning one. Validated at startup. |
-| `system`             | `string`                            | none    | Server-owned system prompt. Always prepended before any client-derived instructions.       |
+| `model`              | `ModelSpec`                         | auto    | String (`"<provider>/<model>"`), `LanguageModel` instance, or a thunk returning one. When omitted (or set to `"auto"`) the handler walks the env and picks a provider — throws at startup if none is configured. Validated at startup. |
+| `system`             | `string \| false`                   | auto    | Server-owned system prompt. When omitted, the handler auto-loads `./.pilot/` from `process.cwd()`. Pass a string to use it verbatim, or `false` to disable both. Always prepended before any client-derived instructions. |
+| `pilotDir`           | `string`                            | `".pilot"` | Directory the `.pilot/` auto-load reads from. Relative to `process.cwd()`. No effect when `system` is a string or `false`. |
 | `maxSteps`           | `number`                            | `5`     | Upper bound on `call → result → follow-up` iterations per request.                         |
 | `getProviderOptions` | `() => Record<string, unknown>`     | none    | Per-request provider tuning (caching hints, thinking budgets, etc.).                       |
+| `debug`              | `boolean`                           | `false` | When `true`, stream a compact transcript of each request to the server console: incoming messages, registered tools, per-step tool-calls with args, finish reason, token usage, errors. Every line is tagged with a short request id so concurrent requests don't interleave visually. |
+| `log`                | `boolean \| string`                 | `false` | When truthy, append the same structured lines to `./debug/agentickit-YYYY-MM-DD.log` (one file per UTC day). Pass a string to use a different directory. Fails silently on read-only filesystems (edge runtimes) so a write error never breaks a live chat. |
+| `onLogEvent`         | `(event: PilotLogEvent) => void`    | none    | Structured subscriber for every log line. Each event carries `ts`, `requestId`, `kind`, `message`, plus optional `meta` (tool name + args, usage, finish reason, error message). Wire this to an SSE endpoint or an EventEmitter to visualize the tool-calling loop live in the browser. |
 
 **`ModelSpec` resolution:**
 
@@ -422,7 +426,7 @@ Use it when prompt logic is becoming a code-review bottleneck, when a non-engine
 | | **agentickit** | **CopilotKit** | **assistant-ui** | **Vercel AI SDK** | **Browser agents** (Stagehand, Browserbase) |
 | --- | --- | --- | --- | --- | --- |
 | Focus                    | App integration                | Enterprise agent platform      | Chat UI primitives            | Streaming + model adapters   | Web automation              |
-| Approximate LoC          | ~1,500                         | ~60,000                        | ~15,000                       | N/A (library)                | N/A                         |
+| Approximate LoC          | ~5,000 (incl. CSS-in-JS + CLI) | ~60,000                        | ~15,000                       | N/A (library)                | N/A                         |
 | Agent framework required | No                             | Yes (AG-UI / CoAgents)         | No                            | No                           | Own runtime                 |
 | Form integration         | `usePilotForm` (RHF)           | Not shipped                    | `useAssistantForm` (RHF)      | DIY                          | N/A                         |
 | Markdown skills (`.pilot/`) | Yes                          | No                             | No                            | No                           | No                          |

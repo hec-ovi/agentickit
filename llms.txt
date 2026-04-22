@@ -2,7 +2,7 @@
 
 > Wire an AI copilot into your React app's state, actions, and forms. Three hooks, one sidebar, optional `.pilot/` skills folder.
 
-`agentickit` is a small (~1,500 LoC) React library that sits between the Vercel AI SDK 6 and a consumer app. It ships three hooks (`usePilotState`, `usePilotAction`, `usePilotForm`), a `<Pilot>` provider, a `<PilotSidebar>` component, and a server-side `createPilotHandler`.
+`agentickit` is a small React library (~5 kLoC, counting implementation + CSS-in-JS + the CLI) that sits between the Vercel AI SDK 6 and a consumer app. It ships three hooks (`usePilotState`, `usePilotAction`, `usePilotForm`), a `<Pilot>` provider, a `<PilotSidebar>` component, a server-side `createPilotHandler`, and an `agentickit` CLI for scaffolding `.pilot/` folders.
 
 This repo ships a `.pilot/` folder at the root as both dogfood and the canonical onboarding pack for LLM agents. Cold-start path for an agent with no prior memory: read `.pilot/AGENTS.md`, then `.pilot/RESOLVER.md` to match the user's task to a skill, then the matching `SKILL.md`. Every code snippet in `.pilot/` compiles against the current tree. The source under `packages/agentickit/src/` is the ground truth.
 

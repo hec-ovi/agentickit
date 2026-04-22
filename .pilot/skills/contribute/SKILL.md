@@ -5,7 +5,9 @@ description: |
   Extend agentickit as a contributor. Add a hook, a component, a
   provider prefix, a new protocol field, or an example. Covers the
   expected shape of a patch (src + test + docs), the size budget
-  (<1,500 LoC total), and how to validate a change before sending a PR.
+  (~5 kLoC; below this, shipping is cheap — growing much past it
+  costs the "readable in an afternoon" promise), and how to validate
+  a change before sending a PR.
 triggers:
   - "add a feature"
   - "contribute to agentickit"
@@ -33,8 +35,9 @@ By the end of this skill a contributor has:
 - A green `pnpm --filter agentickit build` and `pnpm --filter agentickit
   test`.
 - A commit message matching `conventions/commit-style.md`.
-- Confidence that the total LoC is still within the package's budget
-  (under 1,500 lines, per the README claim).
+- Awareness of the rough size budget. The tree is ~5 kLoC today. A PR
+  that adds 500 net lines is a red flag worth justifying; a PR that
+  shrinks is a celebration.
 
 ## Iron Law: the public surface is the four hooks + two components + handler
 
@@ -150,15 +153,16 @@ slipping in is a headache.
 
 ### Phase 8: size check
 
-The package's tagline is "under 1,500 lines". After a change, confirm:
+Current package source (including CSS-in-JS + the CLI) sits at about
+5 kLoC. After a change, eyeball the delta with:
 
 ```bash
 cloc packages/agentickit/src   # or any line-counter
 ```
 
-If the change pushes past the budget, it's worth asking: is there an
-existing file that shrinks? A comment that's too long? A helper that
-could be inlined?
+If a PR is adding a lot, ask: is there an existing file that shrinks?
+A comment that's too long? A helper that could be inlined? The
+"readable in an afternoon" promise is worth protecting.
 
 ## Anti-Patterns
 

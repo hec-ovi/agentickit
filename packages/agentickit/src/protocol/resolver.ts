@@ -10,8 +10,14 @@ import type { ResolverEntry } from "../types.js";
  * - Rows with external pointers (GStack:, Check ..., Read ...) are preserved
  *   but marked with isExternalPointer=true so the runtime can skip them.
  *
- * This is a strict parser by design — consumers author RESOLVER.md by hand
- * and we want clear failures on malformed tables rather than silent drops.
+ * This is a lenient, best-effort parser: rows that don't match either the
+ * backtick-wrapped skill-path shape or the `GStack:` / `Check ` / `Read `
+ * external-pointer shape are silently dropped. That keeps a typo in one row
+ * from taking out the whole resolver at load time, but it means a consumer
+ * who mis-indents a table loses that entry without warning. A future
+ * validator (see roadmap in the root README) will surface these as warnings
+ * at build time; until then, `loadPilotProtocol` is the authoritative
+ * check — what it composes is what the model sees.
  */
 export function parseResolver(content: string): ResolverEntry[] {
   const entries: ResolverEntry[] = [];

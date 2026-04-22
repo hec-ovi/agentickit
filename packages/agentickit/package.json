@@ -1,7 +1,7 @@
 {
   "name": "agentickit",
   "version": "0.0.0",
-  "description": "Three hooks that wire an AI copilot into your React app's state, actions, and forms. AI SDK 6 native. Ships with an optional .pilot/ skills folder. Under 1,500 lines. MIT.",
+  "description": "Three hooks that wire an AI copilot into your React app's state, actions, and forms. AI SDK 6 native. Ships with an optional .pilot/ skills folder and an `agentickit` CLI for scaffolding it. MIT.",
   "keywords": [
     "ai",
     "copilot",
@@ -57,18 +57,30 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
+    "@ai-sdk/anthropic": "^3.0.0",
     "@ai-sdk/google": "^3.0.0",
+    "@ai-sdk/groq": "^3.0.0",
     "@ai-sdk/mistral": "^3.0.0",
+    "@ai-sdk/openai": "^3.0.0",
     "@openrouter/ai-sdk-provider": "^2.0.0",
     "react": "^18.0.0 || ^19.0.0",
     "react-dom": "^18.0.0 || ^19.0.0",
     "react-hook-form": "^7.0.0"
   },
   "peerDependenciesMeta": {
+    "@ai-sdk/anthropic": {
+      "optional": true
+    },
     "@ai-sdk/google": {
       "optional": true
     },
+    "@ai-sdk/groq": {
+      "optional": true
+    },
     "@ai-sdk/mistral": {
+      "optional": true
+    },
+    "@ai-sdk/openai": {
       "optional": true
     },
     "@openrouter/ai-sdk-provider": {
@@ -79,15 +91,14 @@
     }
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.71",
-    "@ai-sdk/groq": "^3.0.35",
-    "@ai-sdk/openai": "^3.0.53",
     "@ai-sdk/react": "^3.0.170",
     "ai": "^6.0.0",
     "nanoid": "^5.0.9",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@ai-sdk/anthropic": "^3.0.0",
+    "@ai-sdk/groq": "^3.0.0",
     "@ai-sdk/openai": "^3.0.0",
     "@openrouter/ai-sdk-provider": "^2.0.0",
     "@testing-library/react": "^16.1.0",

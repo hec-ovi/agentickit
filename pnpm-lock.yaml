@@ -69,21 +69,12 @@ importers:
 
   packages/agentickit:
     dependencies:
-      '@ai-sdk/anthropic':
-        specifier: ^3.0.71
-        version: 3.0.71(zod@3.25.76)
       '@ai-sdk/google':
         specifier: ^3.0.0
         version: 3.0.64(zod@3.25.76)
-      '@ai-sdk/groq':
-        specifier: ^3.0.35
-        version: 3.0.35(zod@3.25.76)
       '@ai-sdk/mistral':
         specifier: ^3.0.0
         version: 3.0.30(zod@3.25.76)
-      '@ai-sdk/openai':
-        specifier: ^3.0.53
-        version: 3.0.53(zod@3.25.76)
       '@ai-sdk/react':
         specifier: ^3.0.170
         version: 3.0.170(react@18.3.1)(zod@3.25.76)
@@ -97,6 +88,15 @@ importers:
         specifier: ^3.23.8
         version: 3.25.76
     devDependencies:
+      '@ai-sdk/anthropic':
+        specifier: ^3.0.0
+        version: 3.0.71(zod@3.25.76)
+      '@ai-sdk/groq':
+        specifier: ^3.0.0
+        version: 3.0.35(zod@3.25.76)
+      '@ai-sdk/openai':
+        specifier: ^3.0.0
+        version: 3.0.53(zod@3.25.76)
       '@openrouter/ai-sdk-provider':
         specifier: ^2.0.0
         version: 2.8.0(ai@6.0.168(zod@3.25.76))(zod@3.25.76)

@@ -3,10 +3,10 @@ name: choose-provider
 version: 1.0.0
 description: |
   Pick a model provider for a consumer's app. Covers auto-detection, the
-  seven supported prefixes, the Vercel AI Gateway fallback, and the
-  escape hatch for non-registered providers (Ollama, Azure, Bedrock).
-  Use when the question is "which model string / which env var / which
-  adapter".
+  six allow-listed prefixes (openai, anthropic, groq, openrouter, google,
+  mistral), the Vercel AI Gateway fallback, and the escape hatch for
+  non-registered providers (Ollama, Azure, Bedrock). Use when the question
+  is "which model string / which env var / which adapter".
 triggers:
   - "which provider"
   - "which model"

@@ -6,7 +6,7 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-black.svg)](https://github.com/hec-ovi/agentickit/blob/master/LICENSE)
 [![built on AI SDK 6](https://img.shields.io/badge/built%20on-AI%20SDK%206-black.svg)](https://ai-sdk.dev)
 
-> Sits between Vercel AI SDK's primitives and CopilotKit's enterprise framework. Three hooks, AI SDK 6 native, under 1,500 lines. MIT. Not a chatbot framework, not a browser agent, not a LangGraph runner.
+> Sits between Vercel AI SDK's primitives and CopilotKit's enterprise framework. Three hooks, AI SDK 6 native, ~5 kLoC of source + inlined CSS + CLI. MIT. Not a chatbot framework, not a browser agent, not a LangGraph runner.
 
 ---
 
@@ -172,9 +172,15 @@ Opinionated chat UI: slide-in panel, dark mode, CSS-variable theming, suggestion
 
 ### Server
 
-#### `createPilotHandler({ model, system?, maxSteps?, getProviderOptions? })`
+#### `createPilotHandler({ model?, system?, pilotDir?, maxSteps?, getProviderOptions?, debug?, log?, onLogEvent? })`
 
 Returns a `(Request) => Promise<Response>` for any Web Fetch runtime. Validates the `useChat` body with Zod, dispatches to `streamText`, wraps client-declared tools as `dynamicTool` (they stream to the browser and never execute server-side), and returns `toUIMessageStreamResponse()`.
+
+`model` is optional: omit it and the handler walks your env for a supported provider key. Set one of `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, `MISTRAL_API_KEY`, or `AI_GATEWAY_API_KEY` and the factory throws at startup if none are present.
+
+`system` is auto-loaded from `./.pilot/` when omitted. Pass a string to use it verbatim or `false` to disable both the auto-load and any server-side prompt.
+
+`debug` / `log` / `onLogEvent` turn on, respectively, console logging of every request+step+tool-call, append-only daily log files under `./debug/`, and a structured-event subscriber. The example app under `examples/todo` wires the subscriber to an SSE endpoint and renders a live tool-call timeline in a sidebar panel — a working template for your own observability.
 
 `model` accepts three shapes:
 
