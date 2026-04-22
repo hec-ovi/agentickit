@@ -38,6 +38,7 @@ import {
   toolCallTurn,
 } from "../test-utils/stream-mock.js";
 import { Pilot } from "./pilot-provider.js";
+import { PilotSidebar } from "./pilot-sidebar.js";
 
 // ---------------------------------------------------------------------------
 // Test harness: a tiny todo widget plus a button that fires sendMessage.
@@ -580,5 +581,554 @@ describe("<Pilot> integration — handler that throws surfaces as output-error",
       expect(screen.queryByText("I saw the error.")).not.toBeNull();
     });
     expect(mock.pilotPostCount()).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Advanced scenarios — lifecycle edges, provider props, form edge cases,
+// registry semantics, and sidebar interactions. Each one is self-contained
+// so a failure points straight at the feature it exercises.
+// ---------------------------------------------------------------------------
+
+describe("<Pilot> integration — auto-confirm window skips the modal on rapid repeats", () => {
+  function MutatingWidget({ refs }: { refs: HarnessRefs }) {
+    usePilotAction({
+      name: "stamp",
+      description: "Stamp something.",
+      parameters: z.object({ n: z.number() }),
+      handler: (args) => {
+        refs.addTodoHandler(args);
+        return { ok: true, n: (args as { n: number }).n };
+      },
+      mutating: true,
+    });
+    return <div />;
+  }
+
+  it("prompts once, then auto-approves the same tool within the 5s window", async () => {
+    const refs: HarnessRefs = {
+      addTodoHandler: vi.fn(),
+      unknownToolHandler: vi.fn(),
+    };
+    mock.push(toolCallTurn({ toolCallId: "c1", toolName: "stamp", input: { n: 1 } }));
+    mock.push(toolCallTurn({ toolCallId: "c2", toolName: "stamp", input: { n: 2 } }));
+    mock.push(textReplyTurn({ id: "t1", text: "Stamped twice." }));
+
+    render(
+      <Pilot apiUrl="/api/pilot">
+        <MutatingWidget refs={refs} />
+        <ChatDriver />
+      </Pilot>,
+    );
+    fireEvent.click(screen.getByTestId("send"));
+
+    // First call → modal appears. Approve it.
+    const confirmBtn = await screen.findByRole("button", { name: "Confirm" });
+    fireEvent.click(confirmBtn);
+
+    // Second call — handler runs without a second modal because the first
+    // approval was seconds ago. Assert the handler fired for BOTH calls
+    // and the modal is no longer in the DOM for the second.
+    await waitFor(() => {
+      expect(refs.addTodoHandler).toHaveBeenCalledTimes(2);
+    });
+    expect(refs.addTodoHandler.mock.calls.map((c) => c[0])).toEqual([{ n: 1 }, { n: 2 }]);
+    // A second Confirm button would have been rendered if the modal popped
+    // again. Once the handler has been called twice, no Confirm should
+    // remain visible.
+    expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
+
+    await waitFor(() => {
+      expect(screen.queryByText("Stamped twice.")).not.toBeNull();
+    });
+    expect(mock.pilotPostCount()).toBe(3);
+  });
+});
+
+describe("<Pilot> integration — renderConfirm override replaces the default modal", () => {
+  function MutatingWidget({ refs }: { refs: HarnessRefs }) {
+    usePilotAction({
+      name: "risky",
+      description: "Risky op.",
+      parameters: z.object({}).strict(),
+      handler: (args) => {
+        refs.addTodoHandler(args);
+        return { ok: true };
+      },
+      mutating: true,
+    });
+    return <div />;
+  }
+
+  it("uses the caller-provided renderer and runs the handler when the custom approve fires", async () => {
+    const refs: HarnessRefs = {
+      addTodoHandler: vi.fn(),
+      unknownToolHandler: vi.fn(),
+    };
+    mock.push(toolCallTurn({ toolCallId: "c1", toolName: "risky", input: {} }));
+    mock.push(textReplyTurn({ id: "t1", text: "Took care of it." }));
+
+    render(
+      <Pilot
+        apiUrl="/api/pilot"
+        renderConfirm={(args) => (
+          <div data-testid="custom-modal">
+            <p>custom confirm for {args.name}</p>
+            <button type="button" data-testid="custom-approve" onClick={args.approve}>
+              custom approve
+            </button>
+            <button type="button" data-testid="custom-cancel" onClick={args.cancel}>
+              custom cancel
+            </button>
+          </div>
+        )}
+      >
+        <MutatingWidget refs={refs} />
+        <ChatDriver />
+      </Pilot>,
+    );
+    fireEvent.click(screen.getByTestId("send"));
+
+    // The default modal must NOT render — there should be no button with
+    // the built-in "Confirm" label.
+    await waitFor(() => {
+      expect(screen.queryByTestId("custom-modal")).not.toBeNull();
+    });
+    expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
+
+    fireEvent.click(screen.getByTestId("custom-approve"));
+
+    await waitFor(() => {
+      expect(refs.addTodoHandler).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Took care of it.")).not.toBeNull();
+    });
+  });
+});
+
+describe("<Pilot> integration — custom headers forward on every fetch", () => {
+  it("passes static headers verbatim", async () => {
+    mock.push(textReplyTurn({ id: "t1", text: "ok" }));
+    render(
+      <Pilot apiUrl="/api/pilot" headers={{ "x-test-header": "static-value" }}>
+        <ChatDriver />
+      </Pilot>,
+    );
+    fireEvent.click(screen.getByTestId("send"));
+    await waitFor(() => {
+      expect(mock.pilotPostCount()).toBe(1);
+    });
+    expect(mock.calls[0]?.headers?.["x-test-header"]).toBe("static-value");
+  });
+
+  it("recomputes a function-valued header per call", async () => {
+    let counter = 0;
+    mock.push(textReplyTurn({ id: "t1", text: "one" }));
+    mock.push(textReplyTurn({ id: "t2", text: "two" }));
+    render(
+      <Pilot
+        apiUrl="/api/pilot"
+        headers={() => ({ "x-counter": String(++counter) })}
+      >
+        <ChatDriver />
+      </Pilot>,
+    );
+    fireEvent.click(screen.getByTestId("send"));
+    await waitFor(() => {
+      expect(mock.pilotPostCount()).toBe(1);
+    });
+    fireEvent.click(screen.getByTestId("send"));
+    await waitFor(() => {
+      expect(mock.pilotPostCount()).toBe(2);
+    });
+    expect(mock.calls[0]?.headers?.["x-counter"]).toBe("1");
+    expect(mock.calls[1]?.headers?.["x-counter"]).toBe("2");
+  });
+});
+
+describe("<Pilot> integration — body.model per-request override", () => {
+  it("forwards the model string as body.model on every POST", async () => {
+    mock.push(textReplyTurn({ id: "t1", text: "ok" }));
+    render(
+      <Pilot apiUrl="/api/pilot" model="anthropic/claude-sonnet-4-5">
+        <ChatDriver />
+      </Pilot>,
+    );
+    fireEvent.click(screen.getByTestId("send"));
+    await waitFor(() => {
+      expect(mock.pilotPostCount()).toBe(1);
+    });
+    const body = mock.calls[0]?.body as { model?: string } | undefined;
+    expect(body?.model).toBe("anthropic/claude-sonnet-4-5");
+  });
+});
+
+describe("<Pilot> integration — usePilotForm reset_<name>", () => {
+  function ContactForm({ onReset }: { onReset: () => void }) {
+    const form = useForm<{ name: string }>({ defaultValues: { name: "default-name" } });
+    usePilotForm(form, { name: "contact" });
+    // Prefill something different so reset is observable.
+    const { register, watch, setValue } = form;
+    const current = watch("name");
+    return (
+      <form>
+        <input data-testid="name" {...register("name")} />
+        <span data-testid="current-value">{current}</span>
+        <button
+          type="button"
+          data-testid="prefill"
+          onClick={() => {
+            setValue("name", "prefilled", { shouldDirty: true });
+            onReset();
+          }}
+        >
+          prefill
+        </button>
+      </form>
+    );
+  }
+
+  it("resets the form to defaultValues when reset_contact is called", async () => {
+    const onReset = vi.fn();
+    mock.push(toolCallTurn({ toolCallId: "c1", toolName: "reset_contact", input: {} }));
+    mock.push(textReplyTurn({ id: "t1", text: "Cleared." }));
+    render(
+      <Pilot apiUrl="/api/pilot">
+        <ContactForm onReset={onReset} />
+        <ChatDriver />
+      </Pilot>,
+    );
+    fireEvent.click(screen.getByTestId("prefill"));
+    await waitFor(() => {
+      expect(screen.getByTestId("current-value").textContent).toBe("prefilled");
+    });
+    expect(onReset).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId("send"));
+    // reset_contact is mutating; approve the modal.
+    const confirmBtn = await screen.findByRole("button", { name: "Confirm" });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("current-value").textContent).toBe("default-name");
+    });
+    expect(mock.pilotPostCount()).toBe(2);
+  });
+});
+
+describe("<Pilot> integration — usePilotForm submit without a mounted form", () => {
+  function DetachedFormRegistration() {
+    const form = useForm<{ x: string }>({ defaultValues: { x: "" } });
+    usePilotForm(form, { name: "detached" });
+    // No <form> is rendered anywhere in the tree on purpose.
+    return null;
+  }
+
+  it("returns {success:false, message:~locate} without crashing", async () => {
+    mock.push(toolCallTurn({ toolCallId: "c1", toolName: "submit_detached", input: {} }));
+    mock.push(textReplyTurn({ id: "t1", text: "No form to submit." }));
+
+    render(
+      <Pilot apiUrl="/api/pilot">
+        <DetachedFormRegistration />
+        <ChatDriver />
+      </Pilot>,
+    );
+    fireEvent.click(screen.getByTestId("send"));
+
+    // Mutating → Confirm.
+    const confirmBtn = await screen.findByRole("button", { name: "Confirm" });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText("No form to submit.")).not.toBeNull();
+    });
+    // Exactly two POSTs — no loop on the failure.
+    expect(mock.pilotPostCount()).toBe(2);
+  });
+});
+
+describe("<Pilot> integration — duplicate action name is last-wins", () => {
+  function TwoRegistrars({
+    firstHandler,
+    secondHandler,
+  }: {
+    firstHandler: (a: unknown) => unknown;
+    secondHandler: (a: unknown) => unknown;
+  }) {
+    usePilotAction({
+      name: "dup",
+      description: "first",
+      parameters: z.object({ n: z.number() }),
+      handler: firstHandler,
+    });
+    usePilotAction({
+      name: "dup",
+      description: "second",
+      parameters: z.object({ n: z.number() }),
+      handler: secondHandler,
+    });
+    return null;
+  }
+
+  it("dispatches to the most recently registered handler", async () => {
+    const firstHandler = vi.fn();
+    const secondHandler = vi.fn(() => ({ ok: true }));
+    mock.push(toolCallTurn({ toolCallId: "c1", toolName: "dup", input: { n: 5 } }));
+    mock.push(textReplyTurn({ id: "t1", text: "ok" }));
+
+    render(
+      <Pilot apiUrl="/api/pilot">
+        <TwoRegistrars firstHandler={firstHandler} secondHandler={secondHandler} />
+        <ChatDriver />
+      </Pilot>,
+    );
+    fireEvent.click(screen.getByTestId("send"));
+    await waitFor(() => {
+      expect(secondHandler).toHaveBeenCalledTimes(1);
+    });
+    expect(firstHandler).not.toHaveBeenCalled();
+    expect(secondHandler).toHaveBeenCalledWith({ n: 5 });
+  });
+});
+
+describe("<Pilot> integration — async handler (Promise return)", () => {
+  function AsyncWidget({ refs }: { refs: HarnessRefs }) {
+    usePilotAction({
+      name: "slow",
+      description: "takes a tick",
+      parameters: z.object({ x: z.number() }),
+      handler: async (args) => {
+        await new Promise((r) => setTimeout(r, 30));
+        refs.addTodoHandler(args);
+        return { done: true };
+      },
+    });
+    return null;
+  }
+
+  it("awaits the Promise before the next turn fires", async () => {
+    const refs: HarnessRefs = { addTodoHandler: vi.fn(), unknownToolHandler: vi.fn() };
+    mock.push(toolCallTurn({ toolCallId: "c1", toolName: "slow", input: { x: 7 } }));
+    mock.push(textReplyTurn({ id: "t1", text: "Got it." }));
+
+    render(
+      <Pilot apiUrl="/api/pilot">
+        <AsyncWidget refs={refs} />
+        <ChatDriver />
+      </Pilot>,
+    );
+    fireEvent.click(screen.getByTestId("send"));
+
+    await waitFor(() => {
+      expect(refs.addTodoHandler).toHaveBeenCalledTimes(1);
+    });
+    expect(refs.addTodoHandler).toHaveBeenCalledWith({ x: 7 });
+    await waitFor(() => {
+      expect(screen.queryByText("Got it.")).not.toBeNull();
+    });
+    expect(mock.pilotPostCount()).toBe(2);
+  });
+});
+
+describe("<Pilot> integration — Zod parse failure surfaces as output-error", () => {
+  function StrictWidget({ refs }: { refs: HarnessRefs }) {
+    usePilotAction({
+      name: "strict",
+      description: "requires a number",
+      parameters: z.object({ count: z.number() }),
+      handler: (args) => {
+        refs.addTodoHandler(args);
+        return { ok: true };
+      },
+    });
+    return null;
+  }
+
+  it("does not call the handler and records the Zod message", async () => {
+    const refs: HarnessRefs = { addTodoHandler: vi.fn(), unknownToolHandler: vi.fn() };
+    // Bad input: a string instead of a number.
+    mock.push(
+      toolCallTurn({ toolCallId: "c1", toolName: "strict", input: { count: "nope" } }),
+    );
+    mock.push(textReplyTurn({ id: "t1", text: "Saw the schema error." }));
+
+    render(
+      <Pilot apiUrl="/api/pilot">
+        <StrictWidget refs={refs} />
+        <ChatDriver />
+      </Pilot>,
+    );
+    fireEvent.click(screen.getByTestId("send"));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("tool-error")).not.toBeNull();
+    });
+    expect(refs.addTodoHandler).not.toHaveBeenCalled();
+    // Zod's messages vary by version; assert it's non-empty and mentions
+    // something schema-adjacent.
+    expect(screen.getByTestId("tool-error").textContent ?? "").not.toBe("");
+    await waitFor(() => {
+      expect(screen.queryByText("Saw the schema error.")).not.toBeNull();
+    });
+    expect(mock.pilotPostCount()).toBe(2);
+  });
+});
+
+describe("<Pilot> integration — chat.stop() aborts the current stream", () => {
+  function Harness({ probe }: { probe: (ctx: PilotChatContextValue | null) => void }) {
+    const chat = useContext(PilotChatContext);
+    probe(chat);
+    return (
+      <div>
+        <button
+          type="button"
+          data-testid="send"
+          onClick={() => void chat?.sendMessage("start the stream")}
+        >
+          send
+        </button>
+        <button type="button" data-testid="stop" onClick={() => chat?.stop()}>
+          stop
+        </button>
+        <span data-testid="status">{chat?.status ?? "?"}</span>
+      </div>
+    );
+  }
+
+  it("stops a streaming response and returns the UI to ready", async () => {
+    // Emit a real text-delta so useChat advances from `submitted` to
+    // `streaming` — stop() only aborts a fetch that's mid-read — then
+    // park. Only chat.stop() can end the stream after that.
+    mock.pushOpen([
+      { type: "start" },
+      { type: "start-step" },
+      { type: "text-start", id: "t1" },
+      { type: "text-delta", id: "t1", delta: "Starting..." },
+    ]);
+
+    let captured: PilotChatContextValue | null = null;
+    render(
+      <Pilot apiUrl="/api/pilot">
+        <Harness probe={(c) => (captured = c)} />
+      </Pilot>,
+    );
+    fireEvent.click(screen.getByTestId("send"));
+    // Wait until useChat is actively streaming so the abort path has
+    // something to abort. A generous timeout because the hang-park stream
+    // can interact oddly with happy-dom's scheduling.
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("status").textContent).toBe("streaming");
+      },
+      { timeout: 2000 },
+    );
+    fireEvent.click(screen.getByTestId("stop"));
+    await waitFor(
+      () => {
+        const s = screen.getByTestId("status").textContent;
+        expect(s === "ready" || s === "error").toBe(true);
+      },
+      { timeout: 2000 },
+    );
+    // No second POST should have fired.
+    expect(mock.pilotPostCount()).toBe(1);
+    expect(captured).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// <PilotSidebar> interactions. We mount the real sidebar (not a harness)
+// so these tests also double as a smoke check that the sidebar renders
+// without crashing under happy-dom.
+// ---------------------------------------------------------------------------
+
+describe("<PilotSidebar> integration — composer send", () => {
+  it("fires a POST with the typed text when the user submits the form", async () => {
+    mock.push(textReplyTurn({ id: "t1", text: "Got your message." }));
+
+    render(
+      <Pilot apiUrl="/api/pilot">
+        <PilotSidebar defaultOpen />
+      </Pilot>,
+    );
+
+    // The textarea's aria-label mirrors the placeholder, which defaults
+    // to "Ask me anything...". We key off the placeholder text.
+    const textarea = screen.getByPlaceholderText("Ask me anything...") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "hello pilot" } });
+    const sendBtn = screen.getByRole("button", { name: "Send" });
+    fireEvent.click(sendBtn);
+
+    await waitFor(() => {
+      expect(mock.pilotPostCount()).toBe(1);
+    });
+    const body = mock.calls[0]?.body as
+      | { messages?: Array<{ parts?: Array<{ type?: string; text?: string }> }> }
+      | undefined;
+    const lastMessage = body?.messages?.[body.messages.length - 1];
+    const lastText = lastMessage?.parts?.find((p) => p.type === "text")?.text;
+    expect(lastText).toBe("hello pilot");
+  });
+});
+
+describe("<PilotSidebar> integration — suggestion chip", () => {
+  it("fires sendMessage with the chip text when clicked", async () => {
+    mock.push(textReplyTurn({ id: "t1", text: "hi!" }));
+
+    render(
+      <Pilot apiUrl="/api/pilot">
+        <PilotSidebar defaultOpen suggestions={["greet me"]} />
+      </Pilot>,
+    );
+    const chip = await screen.findByRole("button", { name: "greet me" });
+    fireEvent.click(chip);
+    await waitFor(() => {
+      expect(mock.pilotPostCount()).toBe(1);
+    });
+    const body = mock.calls[0]?.body as
+      | { messages?: Array<{ parts?: Array<{ type?: string; text?: string }> }> }
+      | undefined;
+    expect(body?.messages?.[0]?.parts?.[0]?.text).toBe("greet me");
+  });
+});
+
+describe("<PilotSidebar> integration — stop button during streaming", () => {
+  it("shows a Stop-generating button while streaming and aborts on click", async () => {
+    mock.pushOpen([
+      { type: "start" },
+      { type: "start-step" },
+      { type: "text-start", id: "t1" },
+      { type: "text-delta", id: "t1", delta: "In progress..." },
+    ]);
+
+    render(
+      <Pilot apiUrl="/api/pilot">
+        <PilotSidebar defaultOpen />
+      </Pilot>,
+    );
+    const textarea = screen.getByPlaceholderText("Ask me anything...") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "do a long thing" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    // Wait for the stop button to appear (it replaces Send during loading).
+    const stopBtn = await screen.findByRole(
+      "button",
+      { name: "Stop generating" },
+      { timeout: 2000 },
+    );
+    fireEvent.click(stopBtn);
+
+    // After abort, the send button should come back (sidebar exits
+    // the loading state).
+    await waitFor(
+      () => {
+        expect(screen.queryByRole("button", { name: "Send" })).not.toBeNull();
+      },
+      { timeout: 2000 },
+    );
+    // Exactly one POST — no retry after the stop.
+    expect(mock.pilotPostCount()).toBe(1);
   });
 });

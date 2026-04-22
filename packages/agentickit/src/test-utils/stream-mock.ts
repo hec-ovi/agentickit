@@ -53,17 +53,66 @@ export type PilotStreamEvent =
  * parser sees them arrive incrementally (not all in one microtask burst)
  * — closer to real network behavior, and it surfaces race conditions
  * that a single-shot response would hide.
+ *
+ * Options:
+ *   - `keepOpen`: when true, the stream emits `events` and then stays
+ *     open indefinitely (no `[DONE]`, no `close()`). Needed to test the
+ *     client's abort path (`chat.stop()`).
+ *   - `delayMs`: per-frame delay (default 0, just a microtask yield).
  */
-export function createSseResponse(events: ReadonlyArray<PilotStreamEvent>): Response {
+export function createSseResponse(
+  events: ReadonlyArray<PilotStreamEvent>,
+  options: { keepOpen?: boolean; delayMs?: number; signal?: AbortSignal } = {},
+): Response {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      for (const event of events) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-        await Promise.resolve();
+      // For keepOpen streams we also listen to the consumer's abort
+      // signal (from fetch init.signal) so chat.stop() can actually
+      // tear down the reader. Without this the parked promise keeps
+      // the response "live" even after the client aborts.
+      let aborted = false;
+      const abortListener = () => {
+        aborted = true;
+        try {
+          controller.error(new DOMException("aborted", "AbortError"));
+        } catch {
+          /* stream already closed */
+        }
+      };
+      if (options.signal) {
+        if (options.signal.aborted) abortListener();
+        else options.signal.addEventListener("abort", abortListener, { once: true });
       }
-      controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
-      controller.close();
+      try {
+        for (const event of events) {
+          if (aborted) return;
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+          if (options.delayMs) await new Promise((r) => setTimeout(r, options.delayMs));
+          else await Promise.resolve();
+        }
+        if (options.keepOpen) {
+          // Park until abort fires.
+          await new Promise<void>((resolve) => {
+            if (aborted) return resolve();
+            if (options.signal) {
+              options.signal.addEventListener("abort", () => resolve(), { once: true });
+            }
+            // Otherwise sit here forever; the test framework's timeout
+            // will terminate us if the consumer never aborts.
+          });
+        } else {
+          controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+          controller.close();
+        }
+      } catch {
+        // ReadableStream's start may receive a cancel signal; swallow so
+        // vitest doesn't flag an unhandled rejection.
+      }
+    },
+    cancel() {
+      // Consumer aborted via reader.cancel() — we already propagate via
+      // the signal listener, so nothing more to do here.
     },
   });
   return new Response(stream, {
@@ -84,6 +133,12 @@ export interface RecordedCall {
 export interface MockPilotFetchController {
   /** Push the events a future POST will receive, in FIFO order. */
   push(events: ReadonlyArray<PilotStreamEvent>): void;
+  /**
+   * Push a response that streams its events then parks forever. Used to
+   * test the abort / stop() path — the only way to end this is the
+   * consumer calling `AbortController.abort()` on the fetch.
+   */
+  pushOpen(events: ReadonlyArray<PilotStreamEvent>): void;
   /** All intercepted calls so far. */
   readonly calls: ReadonlyArray<RecordedCall>;
   /** Clear both the response queue and the recorded calls. */
@@ -101,10 +156,19 @@ export interface MockPilotFetchController {
  * queue) are rejected loudly so a test mistake never falls through to
  * a surprise real-network call.
  */
+interface QueueEntry {
+  readonly events: ReadonlyArray<PilotStreamEvent>;
+  readonly keepOpen: boolean;
+}
+
+export interface RecordedCallWithHeaders extends RecordedCall {
+  readonly headers: Record<string, string>;
+}
+
 export function installPilotFetchMock(options: { apiUrl?: string } = {}): MockPilotFetchController {
   const apiUrl = options.apiUrl ?? "/api/pilot";
-  const queue: Array<ReadonlyArray<PilotStreamEvent>> = [];
-  const calls: RecordedCall[] = [];
+  const queue: QueueEntry[] = [];
+  const calls: RecordedCallWithHeaders[] = [];
   const original = globalThis.fetch;
 
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
@@ -124,7 +188,8 @@ export function installPilotFetchMock(options: { apiUrl?: string } = {}): MockPi
         body = init.body;
       }
     }
-    calls.push({ url, method: method ?? "GET", body });
+    const headers = flattenHeaders(init?.headers);
+    calls.push({ url, method: method ?? "GET", body, headers });
 
     if (!url.endsWith(apiUrl) && !url.includes(`${apiUrl}?`)) {
       throw new Error(`installPilotFetchMock: unexpected fetch to ${url}`);
@@ -132,18 +197,24 @@ export function installPilotFetchMock(options: { apiUrl?: string } = {}): MockPi
     if (method !== "POST") {
       throw new Error(`installPilotFetchMock: expected POST, got ${method}`);
     }
-    const events = queue.shift();
-    if (!events) {
+    const entry = queue.shift();
+    if (!entry) {
       throw new Error(
         `installPilotFetchMock: no scripted response for POST ${url} (call #${calls.length}). Push one before sending.`,
       );
     }
-    return createSseResponse(events);
+    return createSseResponse(entry.events, {
+      keepOpen: entry.keepOpen,
+      ...(init?.signal ? { signal: init.signal } : {}),
+    });
   }) as typeof fetch;
 
   return {
     push(events) {
-      queue.push(events);
+      queue.push({ events, keepOpen: false });
+    },
+    pushOpen(events) {
+      queue.push({ events, keepOpen: true });
     },
     calls,
     reset() {
@@ -157,6 +228,21 @@ export function installPilotFetchMock(options: { apiUrl?: string } = {}): MockPi
       return calls.filter((c) => c.method === "POST" && c.url.endsWith(apiUrl)).length;
     },
   };
+}
+
+function flattenHeaders(init: RequestInit["headers"] | undefined): Record<string, string> {
+  if (!init) return {};
+  const out: Record<string, string> = {};
+  if (init instanceof Headers) {
+    init.forEach((value, key) => {
+      out[key.toLowerCase()] = value;
+    });
+  } else if (Array.isArray(init)) {
+    for (const [k, v] of init) out[k.toLowerCase()] = String(v);
+  } else {
+    for (const [k, v] of Object.entries(init)) out[k.toLowerCase()] = String(v);
+  }
+  return out;
 }
 
 /**
