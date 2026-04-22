@@ -24,10 +24,12 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useContext, useState } from "react";
+import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PilotChatContext, type PilotChatContextValue } from "../context.js";
 import { usePilotAction } from "../hooks/use-pilot-action.js";
+import { usePilotForm } from "../hooks/use-pilot-form.js";
 import { usePilotState } from "../hooks/use-pilot-state.js";
 import {
   installPilotFetchMock,
@@ -262,6 +264,320 @@ describe("<Pilot> integration — unknown tool errors cleanly", () => {
     expect(mock.pilotPostCount()).toBe(2);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 120));
+    });
+    expect(mock.pilotPostCount()).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Additional scenarios covering the rest of the public surface. Each one
+// spins up its own widget, mocks its own stream, and asserts on the DOM +
+// handler/setter invocations + fetch count.
+// ---------------------------------------------------------------------------
+
+describe("<Pilot> integration — usePilotState setter auto-registers update_<name>", () => {
+  function StatefulTodoWidget({ setter }: { setter: (next: string[]) => void }) {
+    const [todos, setTodos] = useState<string[]>([]);
+    usePilotState({
+      name: "todos",
+      description: "Current todos.",
+      value: todos,
+      schema: z.array(z.string()),
+      setValue: (next) => {
+        setter(next);
+        setTodos(next);
+      },
+    });
+    return (
+      <ul data-testid="todos">
+        {todos.map((t, i) => (
+          <li key={`${i}-${t}`}>{t}</li>
+        ))}
+      </ul>
+    );
+  }
+
+  it("forwards the model's replacement value through the setter when the user approves", async () => {
+    const setter = vi.fn();
+
+    // Model calls the auto-generated `update_todos` with a full new list.
+    // Because `usePilotState` marks this action `mutating: true`, the
+    // confirm modal will appear and we have to click Confirm.
+    mock.push(
+      toolCallTurn({
+        toolCallId: "c1",
+        toolName: "update_todos",
+        input: ["buy milk", "pay rent"],
+      }),
+    );
+    mock.push(textReplyTurn({ id: "t1", text: "Updated." }));
+
+    render(
+      <Pilot apiUrl="/api/pilot">
+        <StatefulTodoWidget setter={setter} />
+        <ChatDriver />
+      </Pilot>,
+    );
+    fireEvent.click(screen.getByTestId("send"));
+
+    // Wait for the confirm modal, then approve.
+    const confirmBtn = await screen.findByRole("button", { name: "Confirm" });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText("buy milk")).not.toBeNull();
+      expect(screen.queryByText("pay rent")).not.toBeNull();
+    });
+    expect(setter).toHaveBeenCalledTimes(1);
+    expect(setter).toHaveBeenCalledWith(["buy milk", "pay rent"]);
+
+    await waitFor(() => {
+      expect(mock.pilotPostCount()).toBe(2);
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 120));
+    });
+    expect(mock.pilotPostCount()).toBe(2);
+  });
+});
+
+describe("<Pilot> integration — mutating action + approve", () => {
+  function MutatingWidget({ refs }: { refs: HarnessRefs }) {
+    usePilotAction({
+      name: "delete_all",
+      description: "Delete everything.",
+      parameters: z.object({}).strict(),
+      handler: (args) => {
+        refs.addTodoHandler(args);
+        return { removed: 42 };
+      },
+      mutating: true,
+    });
+    return <div data-testid="mutating-host" />;
+  }
+
+  it("pops the confirm modal, runs the handler on approve, and continues", async () => {
+    const refs: HarnessRefs = {
+      addTodoHandler: vi.fn(),
+      unknownToolHandler: vi.fn(),
+    };
+    mock.push(
+      toolCallTurn({
+        toolCallId: "c1",
+        toolName: "delete_all",
+        input: {},
+      }),
+    );
+    mock.push(textReplyTurn({ id: "t1", text: "Deleted." }));
+
+    render(
+      <Pilot apiUrl="/api/pilot">
+        <MutatingWidget refs={refs} />
+        <ChatDriver />
+      </Pilot>,
+    );
+    fireEvent.click(screen.getByTestId("send"));
+
+    // Modal must appear before the handler runs.
+    const confirmBtn = await screen.findByRole("button", { name: "Confirm" });
+    expect(refs.addTodoHandler).not.toHaveBeenCalled();
+    fireEvent.click(confirmBtn);
+
+    // Handler fires once, the stream continues to the final text.
+    await waitFor(() => {
+      expect(refs.addTodoHandler).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Deleted.")).not.toBeNull();
+    });
+    expect(mock.pilotPostCount()).toBe(2);
+  });
+});
+
+describe("<Pilot> integration — mutating action + cancel", () => {
+  function MutatingWidget({ refs }: { refs: HarnessRefs }) {
+    usePilotAction({
+      name: "delete_all",
+      description: "Delete everything.",
+      parameters: z.object({}).strict(),
+      handler: (args) => {
+        refs.addTodoHandler(args);
+        return { removed: 42 };
+      },
+      mutating: true,
+    });
+    return <div data-testid="mutating-host" />;
+  }
+
+  it("records a user-declined output and does not run the handler", async () => {
+    const refs: HarnessRefs = {
+      addTodoHandler: vi.fn(),
+      unknownToolHandler: vi.fn(),
+    };
+    mock.push(
+      toolCallTurn({
+        toolCallId: "c1",
+        toolName: "delete_all",
+        input: {},
+      }),
+    );
+    mock.push(textReplyTurn({ id: "t1", text: "Understood." }));
+
+    render(
+      <Pilot apiUrl="/api/pilot">
+        <MutatingWidget refs={refs} />
+        <ChatDriver />
+      </Pilot>,
+    );
+    fireEvent.click(screen.getByTestId("send"));
+
+    const cancelBtn = await screen.findByRole("button", { name: "Cancel" });
+    fireEvent.click(cancelBtn);
+
+    // Handler must never have run, but the conversation still continues
+    // so the model can respond to the decline.
+    await waitFor(() => {
+      expect(screen.queryByText("Understood.")).not.toBeNull();
+    });
+    expect(refs.addTodoHandler).not.toHaveBeenCalled();
+    expect(mock.pilotPostCount()).toBe(2);
+  });
+});
+
+describe("<Pilot> integration — usePilotForm set_field + submit", () => {
+  function ContactFormWidget({
+    onSubmit,
+  }: {
+    onSubmit: (values: { name: string; email: string }) => void;
+  }) {
+    const form = useForm<{ name: string; email: string }>({
+      defaultValues: { name: "", email: "" },
+    });
+    usePilotForm(form, { name: "contact" });
+    return (
+      <form
+        data-testid="contact-form"
+        onSubmit={form.handleSubmit((v) => {
+          onSubmit(v);
+        })}
+      >
+        <input data-testid="name" {...form.register("name")} />
+        <input data-testid="email" {...form.register("email")} />
+        <button type="submit" data-testid="submit">
+          submit
+        </button>
+      </form>
+    );
+  }
+
+  it("runs set_<name>_field to write RHF state, then submit_<name> to fire the form's onSubmit", async () => {
+    const onSubmit = vi.fn();
+
+    // Four scripted turns: two field writes (not mutating), one submit
+    // (mutating → confirm modal), one final text reply.
+    mock.push(
+      toolCallTurn({
+        toolCallId: "c1",
+        toolName: "set_contact_field",
+        input: { field: "name", value: "Ada" },
+      }),
+    );
+    mock.push(
+      toolCallTurn({
+        toolCallId: "c2",
+        toolName: "set_contact_field",
+        input: { field: "email", value: "ada@example.com" },
+      }),
+    );
+    mock.push(
+      toolCallTurn({
+        toolCallId: "c3",
+        toolName: "submit_contact",
+        input: {},
+      }),
+    );
+    mock.push(textReplyTurn({ id: "t1", text: "Submitted." }));
+
+    render(
+      <Pilot apiUrl="/api/pilot">
+        <ContactFormWidget onSubmit={onSubmit} />
+        <ChatDriver />
+      </Pilot>,
+    );
+    fireEvent.click(screen.getByTestId("send"));
+
+    // RHF writes should land before the confirm modal opens.
+    await waitFor(() => {
+      expect((screen.getByTestId("name") as HTMLInputElement).value).toBe("Ada");
+    });
+    await waitFor(() => {
+      expect((screen.getByTestId("email") as HTMLInputElement).value).toBe("ada@example.com");
+    });
+
+    // submit_contact is mutating — approve the modal so the form submits.
+    const confirmBtn = await screen.findByRole("button", { name: "Confirm" });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+    });
+    expect(onSubmit).toHaveBeenCalledWith({ name: "Ada", email: "ada@example.com" });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Submitted.")).not.toBeNull();
+    });
+    expect(mock.pilotPostCount()).toBe(4);
+  });
+});
+
+describe("<Pilot> integration — handler that throws surfaces as output-error", () => {
+  function FlakyWidget({ refs }: { refs: HarnessRefs }) {
+    usePilotAction({
+      name: "flaky",
+      description: "Will throw.",
+      parameters: z.object({ x: z.number() }),
+      handler: (args) => {
+        refs.addTodoHandler(args);
+        throw new Error("simulated failure");
+      },
+    });
+    return <div data-testid="flaky-host" />;
+  }
+
+  it("catches the thrown error, records an output-error part, and does not loop", async () => {
+    const refs: HarnessRefs = {
+      addTodoHandler: vi.fn(),
+      unknownToolHandler: vi.fn(),
+    };
+    mock.push(
+      toolCallTurn({
+        toolCallId: "c1",
+        toolName: "flaky",
+        input: { x: 1 },
+      }),
+    );
+    mock.push(textReplyTurn({ id: "t1", text: "I saw the error." }));
+
+    render(
+      <Pilot apiUrl="/api/pilot">
+        <FlakyWidget refs={refs} />
+        <ChatDriver />
+      </Pilot>,
+    );
+    fireEvent.click(screen.getByTestId("send"));
+
+    await waitFor(() => {
+      expect(refs.addTodoHandler).toHaveBeenCalledTimes(1);
+    });
+    // The provider should surface the throw through addToolOutput, which
+    // our ChatDriver renders as a <p data-testid="tool-error">.
+    await waitFor(() => {
+      expect(screen.queryByTestId("tool-error")).not.toBeNull();
+    });
+    expect(screen.getByTestId("tool-error").textContent).toContain("simulated failure");
+
+    await waitFor(() => {
+      expect(screen.queryByText("I saw the error.")).not.toBeNull();
     });
     expect(mock.pilotPostCount()).toBe(2);
   });
