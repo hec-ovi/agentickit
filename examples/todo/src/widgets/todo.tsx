@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { usePilotAction, usePilotState } from "agentickit";
 import { z } from "zod";
 
@@ -27,6 +27,15 @@ export function TodoWidget() {
   const [todos, setTodos] = useState<ReadonlyArray<Todo>>(INITIAL);
   const [draft, setDraft] = useState("");
 
+  // Keep the latest list in a ref so tool handlers can compute their
+  // return value *synchronously*. `setTodos(fn)` queues the updater —
+  // it runs on the next React work cycle, so reading state from inside
+  // a handler via the outer `todos` variable or by mutating a `let`
+  // inside the updater closure is stale: the handler returns before
+  // React has actually applied the change. Refs are always current.
+  const todosRef = useRef(todos);
+  todosRef.current = todos;
+
   // Expose the whole list read-only. With no setter, the model can read but
   // can't replace it wholesale — forcing it to use the granular actions below.
   usePilotState({
@@ -44,7 +53,7 @@ export function TodoWidget() {
     parameters: z.object({ text: z.string().min(1).max(160) }),
     handler: ({ text }) => {
       const todo: Todo = { id: newId(), text, done: false };
-      setTodos((prev) => [...prev, todo]);
+      setTodos([...todosRef.current, todo]);
       return { id: todo.id };
     },
   });
@@ -54,17 +63,11 @@ export function TodoWidget() {
     description: "Toggle the `done` flag on one todo by id.",
     parameters: z.object({ id: z.string() }),
     handler: ({ id }) => {
-      let found = false;
-      setTodos((prev) =>
-        prev.map((t) => {
-          if (t.id === id) {
-            found = true;
-            return { ...t, done: !t.done };
-          }
-          return t;
-        }),
-      );
-      return { ok: found };
+      const current = todosRef.current;
+      const found = current.some((t) => t.id === id);
+      if (!found) return { ok: false };
+      setTodos(current.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+      return { ok: true };
     },
   });
 
@@ -73,12 +76,10 @@ export function TodoWidget() {
     description: "Delete one todo by id.",
     parameters: z.object({ id: z.string() }),
     handler: ({ id }) => {
-      let removed = false;
-      setTodos((prev) => {
-        const next = prev.filter((t) => t.id !== id);
-        removed = next.length !== prev.length;
-        return next;
-      });
+      const current = todosRef.current;
+      const next = current.filter((t) => t.id !== id);
+      const removed = next.length !== current.length;
+      if (removed) setTodos(next);
       return { ok: removed };
     },
     mutating: true,
@@ -89,12 +90,10 @@ export function TodoWidget() {
     description: "Remove all todos whose `done` is true. Returns the count removed.",
     parameters: z.object({}).strict(),
     handler: () => {
-      let count = 0;
-      setTodos((prev) => {
-        const next = prev.filter((t) => !t.done);
-        count = prev.length - next.length;
-        return next;
-      });
+      const current = todosRef.current;
+      const next = current.filter((t) => !t.done);
+      const count = current.length - next.length;
+      if (count > 0) setTodos(next);
       return { removed: count };
     },
     mutating: true,

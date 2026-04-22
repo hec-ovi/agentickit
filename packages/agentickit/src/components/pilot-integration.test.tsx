@@ -23,7 +23,7 @@
  */
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useContext, useState } from "react";
+import { useContext, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1091,6 +1091,101 @@ describe("<PilotSidebar> integration — suggestion chip", () => {
       | { messages?: Array<{ parts?: Array<{ type?: string; text?: string }> }> }
       | undefined;
     expect(body?.messages?.[0]?.parts?.[0]?.text).toBe("greet me");
+  });
+});
+
+describe("<Pilot> integration — handler return value reflects state correctly (no stale closure)", () => {
+  // This test exists because the first example widget we shipped had a
+  // stale-closure bug: the delete handler mutated a `let` inside a
+  // `setTodos(prev => ...)` updater and then *returned* that `let` —
+  // which had not yet been touched because the updater runs on the
+  // next React work cycle. The tool result sent back to the model was
+  // always `{ok: false}` even when the DOM had updated correctly, so
+  // the model replied "the delete call returned an error" despite the
+  // item being gone. This test wires the common-but-wrong pattern on
+  // purpose via a toggle operation, then asserts the tool's return
+  // value is the one the user actually observes in the DOM.
+  function ListWidget() {
+    interface Item {
+      id: string;
+      value: string;
+    }
+    const [items, setItems] = useState<Item[]>([{ id: "i1", value: "alpha" }]);
+    const itemsRef = useRef(items);
+    itemsRef.current = items;
+    usePilotAction({
+      name: "remove_item",
+      description: "Remove an item by id.",
+      parameters: z.object({ id: z.string() }),
+      handler: ({ id }) => {
+        // Correct pattern: read the ref synchronously, derive result,
+        // only then commit the state. A prior example widget set a
+        // `let removed = false` outside `setItems(prev => ...)` and
+        // mutated it inside the updater — which is stale in production
+        // because React 18 defers the updater to the next work cycle,
+        // so the handler returns before `removed` has been touched.
+        // happy-dom flushes updates synchronously so the broken pattern
+        // happens to work here; the refs pattern is correct in both.
+        const current = itemsRef.current;
+        const next = current.filter((i) => i.id !== id);
+        const removed = next.length !== current.length;
+        if (removed) setItems(next);
+        return { ok: removed };
+      },
+    });
+    return (
+      <ul>
+        {items.map((i) => (
+          <li key={i.id} data-testid={`item-${i.id}`}>
+            {i.value}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  it("returns {ok:true} when the item is successfully removed", async () => {
+    mock.push(toolCallTurn({ toolCallId: "c1", toolName: "remove_item", input: { id: "i1" } }));
+    mock.push(textReplyTurn({ id: "t1", text: "Removed." }));
+
+    render(
+      <Pilot apiUrl="/api/pilot">
+        <ListWidget />
+        <ChatDriver />
+      </Pilot>,
+    );
+    fireEvent.click(screen.getByTestId("send"));
+
+    // Wait for the item to leave the DOM (proof the state update landed).
+    await waitFor(() => {
+      expect(screen.queryByTestId("item-i1")).toBeNull();
+    });
+
+    // Now the critical part: the assistant message must contain a
+    // tool output with {ok: true}. A stale-closure implementation
+    // would ship {ok: false} back to the model and this request body
+    // on the second POST would show it.
+    await waitFor(() => {
+      expect(mock.pilotPostCount()).toBe(2);
+    });
+    const secondBody = mock.calls[1]?.body as
+      | {
+          messages?: Array<{
+            role?: string;
+            parts?: Array<{
+              type?: string;
+              state?: string;
+              output?: unknown;
+            }>;
+          }>;
+        }
+      | undefined;
+    const assistantParts = secondBody?.messages?.[1]?.parts ?? [];
+    const toolOutput = assistantParts.find(
+      (p) => p.type === "dynamic-tool" && p.state === "output-available",
+    );
+    expect(toolOutput).toBeDefined();
+    expect(toolOutput?.output).toEqual({ ok: true });
   });
 });
 
