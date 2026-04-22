@@ -564,26 +564,48 @@ function buildStateContext(snapshot: PilotRegistrySnapshot): Record<string, unkn
 }
 
 /**
- * True when the most recent assistant message contains a tool call whose
- * output has just been added. The AI SDK calls this after every mutation so
- * it can decide whether to spin the loop again.
+ * True when the most recent assistant message contains a tool result the
+ * model has not yet observed. The AI SDK calls this after every client-side
+ * mutation so it can decide whether to resubmit.
  *
- * We hand this to `sendAutomaticallyWhen` rather than rely on the SDK's
- * built-in `lastAssistantMessageIsCompleteWithToolCalls` because that
- * helper assumes a specific provider-execution pattern; our client-side
- * handlers need the simpler "any tool just produced output" check.
+ * Correct behavior is "walk the parts from the tail — the first meaningful
+ * part tells us the state":
+ *   - If it's `text` or `reasoning`, the model has already responded after
+ *     the tool results, the loop is done.
+ *   - If it's a tool part in `output-available` / `output-error`, the
+ *     model is still owed a reaction; resubmit.
+ *   - Anything else (unfinished streaming, unknown part) is ambiguous;
+ *     let the SDK decide by returning false.
+ *
+ * A naive "any part is a completed tool output" check causes an infinite
+ * loop: once the model answers with text, the completed tool parts are
+ * still in the message, so the naive check keeps firing resubmissions
+ * that each produce the same text, forever.
  */
-function lastAssistantMessageNeedsContinuation(messages: ReadonlyArray<unknown>): boolean {
+export function lastAssistantMessageNeedsContinuation(
+  messages: ReadonlyArray<unknown>,
+): boolean {
   const last = messages[messages.length - 1] as
     | { role?: string; parts?: Array<{ type?: string; state?: string }> }
     | undefined;
   if (!last || last.role !== "assistant" || !Array.isArray(last.parts)) return false;
-  // Any tool part in an `output-available` or `output-error` state means the
-  // loop should resubmit so the model observes the result.
-  return last.parts.some(
-    (p) =>
-      typeof p.type === "string" &&
-      (p.type.startsWith("tool-") || p.type === "dynamic-tool") &&
-      (p.state === "output-available" || p.state === "output-error"),
-  );
+  for (let i = last.parts.length - 1; i >= 0; i--) {
+    const part = last.parts[i];
+    if (!part || typeof part.type !== "string") continue;
+    const type = part.type;
+    // `step-start` is a structural marker between model steps, not content
+    // the model has "emitted" in the answer sense — skip and keep walking.
+    if (type === "step-start") continue;
+    if (type === "text" || type === "reasoning") return false;
+    if (
+      (type.startsWith("tool-") || type === "dynamic-tool") &&
+      (part.state === "output-available" || part.state === "output-error")
+    ) {
+      return true;
+    }
+    // Unknown / in-progress part. Don't force a resubmit; the SDK still
+    // owns the normal streaming lifecycle.
+    return false;
+  }
+  return false;
 }
