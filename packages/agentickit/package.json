@@ -1,6 +1,6 @@
 {
   "name": "agentickit",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Three hooks that wire an AI copilot into your React app's state, actions, and forms. AI SDK 6 native. Ships with an optional .pilot/ skills folder and an `agentickit` CLI for scaffolding it. MIT.",
   "keywords": [
     "ai",
