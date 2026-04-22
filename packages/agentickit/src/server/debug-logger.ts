@@ -1,36 +1,87 @@
 /**
- * Small debug-logging facility used by `createPilotHandler` when `debug` or
- * `log` are enabled. Kept in its own module so the handler file stays focused
- * on request handling.
+ * Debug-logging facility used by `createPilotHandler` when `debug`, `log`, or
+ * `onLogEvent` are set. Three sinks, all optional and independent:
  *
- * Two sinks, both optional:
  *   - Console: plain `console.log` / `console.warn`.
  *   - File:    append-only text log at `./debug/agentickit-YYYY-MM-DD.log`
  *              (configurable directory). Opened via `node:fs/promises`, so
  *              it silently no-ops under edge runtimes that don't ship `fs`.
+ *   - Event:   in-process callback invoked with a structured {@link PilotLogEvent}
+ *              on every line. Consumers wire this to whatever transport they
+ *              want — SSE, WebSocket, EventEmitter — to visualize the
+ *              tool-calling loop live.
  *
- * Writes are fire-and-forget. The logger never throws — a full disk or a
- * denied path can't break a live chat. Secrets are never inspected or
- * logged; callers are expected to pass only presentational payloads.
+ * Writes and callback invocations are fire-and-forget. The logger never
+ * throws: a full disk, a denied path, or a subscriber that throws can't
+ * break a live chat. Secrets are never inspected or logged; callers are
+ * expected to pass only presentational payloads.
  */
 
 import { randomBytes } from "node:crypto";
+
+export type LogKind = "in" | "out" | "step" | "done" | "err" | "info";
+
+/**
+ * Structured log event emitted to the `onEvent` subscriber.
+ *
+ * `meta` is optional side-channel for richer payloads (tool call inputs,
+ * usage counts). The `message` field is always present and is exactly what
+ * the console / file sinks emit, so subscribers have a one-line fallback
+ * when `meta` isn't known.
+ */
+export interface PilotLogEvent {
+  /** ISO timestamp (millisecond precision). */
+  readonly ts: string;
+  /** 6-char hex id grouping lines from one request. */
+  readonly requestId: string;
+  readonly kind: LogKind;
+  readonly message: string;
+  readonly meta?: PilotLogEventMeta;
+}
+
+/**
+ * Optional structured extras attached to a log event. The handler attaches
+ * these for tool calls, usage summaries, and errors so a UI can render cards
+ * instead of grep-ing free text.
+ */
+export interface PilotLogEventMeta {
+  readonly toolName?: string;
+  readonly toolInput?: unknown;
+  readonly toolOutput?: unknown;
+  /** Names of client-declared tools advertised in the request. */
+  readonly toolNames?: ReadonlyArray<string>;
+  readonly finishReason?: string;
+  readonly steps?: number;
+  readonly usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+  readonly text?: string;
+  readonly errorMessage?: string;
+  /** Compact shape of a UI message logged on the "in" path. */
+  readonly uiMessage?: { readonly role: string; readonly summary: string };
+  /** Number of messages in the request body, logged at request start. */
+  readonly messageCount?: number;
+  /** The `model` string sent with the request (per-request override, if any). */
+  readonly model?: string;
+}
 
 export interface PilotLogger {
   /** A short 6-char hex id used to group lines from one request. */
   readonly requestId: string;
   /** Log a single line to all enabled sinks. */
-  line(kind: LogKind, message: string): void;
+  line(kind: LogKind, message: string, meta?: PilotLogEventMeta): void;
   /** Child logger with the same sinks but a fresh request id. */
   forRequest(): PilotLogger;
 }
-
-export type LogKind = "in" | "out" | "step" | "done" | "err" | "info";
 
 export interface LoggerConfig {
   console: boolean;
   /** Directory for append-only log files, or `null` to disable file output. */
   dir: string | null;
+  /**
+   * Optional structured-event subscriber. Called synchronously on every
+   * `line()`. Exceptions thrown by the subscriber are swallowed so a faulty
+   * integration can't crash the handler.
+   */
+  onEvent?: (event: PilotLogEvent) => void;
 }
 
 /**
@@ -40,20 +91,25 @@ export interface LoggerConfig {
  * - `log === "foo"` → directory `foo` (resolved relative to `process.cwd()`)
  * - `log === false` → no file output
  */
-export function buildLoggerConfig(debug: boolean, log: boolean | string | undefined): LoggerConfig {
+export function buildLoggerConfig(
+  debug: boolean,
+  log: boolean | string | undefined,
+  onEvent?: (event: PilotLogEvent) => void,
+): LoggerConfig {
   const dir = log === true ? "debug" : typeof log === "string" && log.length > 0 ? log : null;
-  return { console: Boolean(debug), dir };
+  return { console: Boolean(debug), dir, onEvent };
 }
 
-/** Returns the noop logger when both sinks are disabled. */
+/** Returns the noop logger when all sinks are disabled. */
 export function createPilotLogger(cfg: LoggerConfig): PilotLogger {
-  if (!cfg.console && cfg.dir === null) return NOOP_LOGGER;
+  if (!cfg.console && cfg.dir === null && !cfg.onEvent) return NOOP_LOGGER;
 
   const fileSink = cfg.dir !== null ? createFileSink(cfg.dir) : null;
 
   const makeLogger = (requestId: string): PilotLogger => ({
     requestId,
-    line(kind: LogKind, message: string): void {
+    line(kind: LogKind, message: string, meta?: PilotLogEventMeta): void {
+      const ts = new Date().toISOString();
       const prefix = `[agentickit:${requestId}]`;
       const symbol = KIND_SYMBOL[kind];
       const formatted = `${prefix} ${symbol} ${message}`;
@@ -62,8 +118,14 @@ export function createPilotLogger(cfg: LoggerConfig): PilotLogger {
         else console.log(formatted);
       }
       if (fileSink) {
-        const stamp = new Date().toISOString();
-        fileSink.append(`${stamp} ${formatted}\n`);
+        fileSink.append(`${ts} ${formatted}\n`);
+      }
+      if (cfg.onEvent) {
+        try {
+          cfg.onEvent({ ts, requestId, kind, message, ...(meta ? { meta } : {}) });
+        } catch {
+          // Subscriber must never break the handler.
+        }
       }
     },
     forRequest(): PilotLogger {
@@ -174,7 +236,10 @@ function summarizePart(part: unknown): string {
     return "(reasoning)";
   }
   if (type.startsWith("tool-")) {
-    const toolName = type === "dynamic-tool" ? String((part as { toolName?: unknown }).toolName ?? "?") : type.slice("tool-".length);
+    const toolName =
+      type === "dynamic-tool"
+        ? String((part as { toolName?: unknown }).toolName ?? "?")
+        : type.slice("tool-".length);
     const state = (part as { state?: unknown }).state;
     if (state === "output-available") {
       const output = truncate(safeJson((part as { output?: unknown }).output), 120);

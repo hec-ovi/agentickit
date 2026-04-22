@@ -13,8 +13,10 @@
  *   - `run()` is a pure function (argv + cwd → exit + output) so tests drive
  *     it without spawning child processes.
  */
+import { realpathSync } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** Result of a CLI invocation. Captured by tests; flushed to streams by the shell entrypoint. */
 export interface CliResult {
@@ -379,15 +381,27 @@ TODO — things not to do and why.
 // Shell entry point
 // ---------------------------------------------------------------------------
 
-// Run when invoked as a script (`node cli.js`, `npx agentickit`, ...). The
-// `import.meta.url` comparison is the ESM equivalent of `require.main === module`.
-const invokedAsScript =
-  typeof process !== "undefined" &&
-  typeof import.meta.url === "string" &&
-  process.argv[1] !== undefined &&
-  import.meta.url === `file://${process.argv[1]}`;
+// Run when invoked as a script (`node cli.js`, `npx agentickit`, `bin/agentickit`).
+//
+// Comparing `import.meta.url` directly to `process.argv[1]` fails under pnpm /
+// npm-workspaces because the CLI is reached through a symlink in
+// `node_modules/.bin/` → `node_modules/<pkg>` → the real package dir. The URL
+// is resolved to the real file; argv[1] stays the symlink path. Both sides
+// must go through `fs.realpathSync` before compare.
+function isScriptEntrypoint(): boolean {
+  if (typeof process === "undefined" || typeof import.meta.url !== "string") return false;
+  const argvEntry = process.argv[1];
+  if (!argvEntry) return false;
+  try {
+    const scriptReal = realpathSync(fileURLToPath(import.meta.url));
+    const argvReal = realpathSync(argvEntry);
+    return scriptReal === argvReal;
+  } catch {
+    return false;
+  }
+}
 
-if (invokedAsScript) {
+if (isScriptEntrypoint()) {
   run(process.argv, process.cwd()).then((result) => {
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);

@@ -9,3 +9,4 @@ export type {
 } from "./handler.js";
 export { loadPilotProtocol } from "./pilot-protocol-loader.js";
 export type { LoadPilotProtocolOptions } from "./pilot-protocol-loader.js";
+export type { LogKind, PilotLogEvent, PilotLogEventMeta } from "./debug-logger.js";

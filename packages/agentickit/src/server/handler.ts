@@ -12,6 +12,7 @@ import { z } from "zod";
 import {
   buildLoggerConfig,
   createPilotLogger,
+  type PilotLogEvent,
   type PilotLogger,
   summarizeUiMessage,
 } from "./debug-logger.js";
@@ -321,6 +322,17 @@ export interface CreatePilotHandlerOptions {
    * under edge runtimes where `fs` is unavailable.
    */
   log?: boolean | string;
+  /**
+   * Structured-event subscriber invoked on every log line. Independent from
+   * {@link debug} and {@link log} — enabling this alone (without `debug`
+   * or `log`) turns the logger on for the subscriber only.
+   *
+   * Consumers typically wire this to an SSE endpoint or EventEmitter so a
+   * dev UI can render the tool-calling loop live. Exceptions thrown by the
+   * subscriber are swallowed so a faulty integration can't crash the
+   * handler.
+   */
+  onLogEvent?: (event: PilotLogEvent) => void;
 }
 
 /**
@@ -870,7 +882,11 @@ export function createPilotHandler(
   const resolveString = buildStringModelResolver(initialStringModel);
   const resolved = resolveModelSpec(effectiveModel, resolveString);
 
-  const loggerConfig = buildLoggerConfig(options.debug === true, options.log);
+  const loggerConfig = buildLoggerConfig(
+    options.debug === true,
+    options.log,
+    options.onLogEvent,
+  );
   const baseLogger = createPilotLogger(loggerConfig);
 
   // Resolve the server-owned system prompt once, at factory time.
@@ -917,7 +933,9 @@ export function createPilotHandler(
 
     const parsed = requestBodySchema.safeParse(rawBody);
     if (!parsed.success) {
-      log.line("err", `invalid request body: ${parsed.error.message}`);
+      log.line("err", `invalid request body: ${parsed.error.message}`, {
+        errorMessage: parsed.error.message,
+      });
       return errorResponse(400, {
         error: `Invalid request body: ${parsed.error.message}`,
         code: "invalid_request",
@@ -925,16 +943,21 @@ export function createPilotHandler(
     }
     const body = parsed.data;
 
-    if (loggerConfig.console || loggerConfig.dir) {
+    if (loggerConfig.console || loggerConfig.dir || loggerConfig.onEvent) {
       const toolNames = body.tools ? Object.keys(body.tools) : [];
       log.line(
         "in",
         `POST /api/pilot — ${body.messages.length} message(s), ${toolNames.length} tool(s)${
           body.model ? `, model=${body.model}` : ""
         }${body.trigger ? `, trigger=${body.trigger}` : ""}`,
+        {
+          messageCount: body.messages.length,
+          toolNames,
+          ...(body.model ? { model: body.model } : {}),
+        },
       );
       if (toolNames.length > 0) {
-        log.line("info", `tools: ${toolNames.join(", ")}`);
+        log.line("info", `tools: ${toolNames.join(", ")}`, { toolNames });
       }
       // Log only the last 3 messages so long conversations don't spam; the
       // tool-calling loop resubmits every turn with the full history, so the
@@ -943,7 +966,11 @@ export function createPilotHandler(
       const skipped = body.messages.length - tail.length;
       if (skipped > 0) log.line("info", `(skipping ${skipped} older messages)`);
       for (const msg of tail) {
-        log.line("info", summarizeUiMessage(msg));
+        const summary = summarizeUiMessage(msg);
+        const role = typeof (msg as { role?: unknown }).role === "string"
+          ? ((msg as { role: string }).role)
+          : "?";
+        log.line("info", summary, { uiMessage: { role, summary } });
       }
     }
 
@@ -1051,7 +1078,38 @@ export function createPilotHandler(
       // client; client-derived sections are appended.
       const system = composeSystemPrompt(serverSystem, body.system, body.context);
 
-      const debugEnabled = loggerConfig.console || Boolean(loggerConfig.dir);
+      const debugEnabled =
+        loggerConfig.console || Boolean(loggerConfig.dir) || Boolean(loggerConfig.onEvent);
+
+      // Buffer per-call streaming JSON fragments so we can emit a single
+      // "call foo(args)" log line when the tool-input is complete. Scoped
+      // to this request so concurrent requests never cross-talk.
+      const toolInputBuffer = new Map<string, { name: string; json: string }>();
+      const flushToolCall = (callId: string, explicitInput?: unknown): void => {
+        const buf = toolInputBuffer.get(callId);
+        if (!buf && explicitInput === undefined) return;
+        const name = buf?.name ?? "?";
+        let parsedInput: unknown = explicitInput;
+        if (parsedInput === undefined && buf) {
+          try {
+            parsedInput = JSON.parse(buf.json);
+          } catch {
+            parsedInput = buf.json;
+          }
+        }
+        toolInputBuffer.delete(callId);
+        let inputStr: string;
+        try {
+          inputStr = JSON.stringify(parsedInput);
+        } catch {
+          inputStr = String(parsedInput);
+        }
+        const capped = inputStr.length > 160 ? `${inputStr.slice(0, 159)}…` : inputStr;
+        log.line("out", `call ${name}(${capped})`, {
+          toolName: name,
+          toolInput: parsedInput,
+        });
+      };
 
       const result = streamText({
         model: resolvedModel,
@@ -1064,37 +1122,82 @@ export function createPilotHandler(
         stopWhen: stepCountIs(options.maxSteps ?? 5),
         ...(debugEnabled
           ? {
+              // The provider's UI-message stream is the authoritative source
+              // of truth for tool calls because a few providers (notably
+              // vLLM's Responses API with gpt-oss-*) finish a step with
+              // `stop` *before* onStepFinish sees a tool-call in its
+              // `content[]`, even though the model emitted one. We buffer
+              // tool-input deltas here and flush a single log line once the
+              // call's input is complete, so the server log always includes
+              // every tool invocation regardless of provider quirks.
+              onChunk: ((event: { chunk: unknown }) => {
+                // AI SDK 6 uses two naming conventions across its version
+                // range for tool-input streaming chunks: an older one with
+                // `toolCallId` + `inputTextDelta` and a newer one with
+                // `id` + `delta`. We handle both so the logger keeps working
+                // across SDK minor bumps.
+                const chunk = event.chunk as {
+                  type?: string;
+                  id?: string;
+                  toolCallId?: string;
+                  toolName?: string;
+                  inputTextDelta?: string;
+                  delta?: string;
+                  input?: unknown;
+                };
+                if (!chunk || typeof chunk !== "object") return;
+                const callId = chunk.toolCallId ?? chunk.id;
+                if (!callId) return;
+                if (chunk.type === "tool-input-start") {
+                  toolInputBuffer.set(callId, {
+                    name: chunk.toolName ?? "?",
+                    json: "",
+                  });
+                  return;
+                }
+                if (chunk.type === "tool-input-delta") {
+                  const piece = chunk.inputTextDelta ?? chunk.delta ?? "";
+                  if (!piece) return;
+                  const entry = toolInputBuffer.get(callId);
+                  if (entry) entry.json += piece;
+                  return;
+                }
+                // Some providers (AI SDK's standard OpenAI adapter) emit an
+                // explicit `tool-call` chunk once the input has streamed in
+                // full. Others (vLLM's Responses API) end the step right
+                // after the last delta, leaving the buffer to be flushed on
+                // step finish. We log here when a `tool-call` chunk arrives
+                // so the log line lands as soon as the call is complete.
+                if (chunk.type === "tool-call") {
+                  flushToolCall(callId, chunk.input);
+                }
+              }) as Parameters<typeof streamText>[0]["onChunk"],
               onStepFinish: (step: {
                 text?: string;
-                toolCalls?: ReadonlyArray<{ toolName?: string; input?: unknown }>;
                 finishReason?: string;
                 usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
               }) => {
-                const calls = step.toolCalls ?? [];
+                // Flush any tool-input-delta buffers that never got a final
+                // `tool-call` chunk (the vLLM Responses API path). By the
+                // time onStepFinish fires, the step's stream is complete
+                // and whatever remains in the buffer is a finished call.
+                for (const callId of Array.from(toolInputBuffer.keys())) {
+                  flushToolCall(callId);
+                }
                 const usage = step.usage;
                 const usageStr = usage
                   ? ` (in:${usage.inputTokens ?? "?"} out:${usage.outputTokens ?? "?"} total:${
                       usage.totalTokens ?? "?"
                     })`
                   : "";
-                log.line(
-                  "step",
-                  `finish=${step.finishReason ?? "?"}${usageStr}, tool-calls=${calls.length}`,
-                );
+                log.line("step", `finish=${step.finishReason ?? "?"}${usageStr}`, {
+                  ...(step.finishReason ? { finishReason: step.finishReason } : {}),
+                  ...(usage ? { usage } : {}),
+                });
                 if (step.text && step.text.trim().length > 0) {
                   const preview =
                     step.text.length > 200 ? `${step.text.slice(0, 199)}…` : step.text;
-                  log.line("out", `text: ${preview}`);
-                }
-                for (const call of calls) {
-                  let inputStr: string;
-                  try {
-                    inputStr = JSON.stringify(call.input);
-                  } catch {
-                    inputStr = String(call.input);
-                  }
-                  const capped = inputStr.length > 160 ? `${inputStr.slice(0, 159)}…` : inputStr;
-                  log.line("out", `call ${call.toolName ?? "?"}(${capped})`);
+                  log.line("out", `text: ${preview}`, { text: step.text });
                 }
               },
               onFinish: (summary: {
@@ -1108,12 +1211,17 @@ export function createPilotHandler(
                   `finish=${summary.finishReason ?? "?"}, steps=${summary.steps?.length ?? "?"}${
                     typeof total === "number" ? `, total tokens=${total}` : ""
                   }`,
+                  {
+                    ...(summary.finishReason ? { finishReason: summary.finishReason } : {}),
+                    ...(summary.steps ? { steps: summary.steps.length } : {}),
+                    ...(summary.usage ? { usage: summary.usage } : {}),
+                  },
                 );
               },
               onError: (err: { error?: unknown } | unknown) => {
                 const raw = (err as { error?: unknown })?.error ?? err;
                 const message = raw instanceof Error ? raw.message : String(raw);
-                log.line("err", `stream error: ${message}`);
+                log.line("err", `stream error: ${message}`, { errorMessage: message });
               },
             }
           : {}),
@@ -1136,7 +1244,7 @@ export function createPilotHandler(
       // stable envelope to the client.
       console.error("agentickit handler error:", error);
       const message = error instanceof Error ? error.message : "Unknown server error.";
-      log.line("err", `handler error: ${message}`);
+      log.line("err", `handler error: ${message}`, { errorMessage: message });
       return errorResponse(500, {
         error: message,
         code: "internal_error",

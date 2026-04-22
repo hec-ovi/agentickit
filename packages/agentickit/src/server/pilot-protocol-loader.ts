@@ -26,7 +26,16 @@
  * inline `system` option is always the authoritative fallback.
  */
 
+import { createRequire } from "node:module";
 import { parseSkill } from "../protocol/skill.js";
+
+// Resolve Node built-ins once, at module load. `createRequire` against
+// `import.meta.url` is the ESM-canonical way to pull CJS built-ins; it
+// returns a synchronous, cached require that's safe to call later. If the
+// runtime doesn't ship `node:module` (edge / browser), the top-level import
+// throws and the whole server-only module fails to load — which is the
+// correct behavior because `fs` / `path` aren't available there anyway.
+const nodeRequire: NodeRequire = createRequire(import.meta.url);
 
 export interface LoadPilotProtocolOptions {
   /**
@@ -108,22 +117,20 @@ export function loadPilotProtocol(options: LoadPilotProtocolOptions = {}): strin
 }
 
 /**
- * Lazily require `node:fs` and `node:path`. `createRequire` is used so the
- * ESM build still resolves the built-ins at runtime; if require itself is
- * unavailable (edge runtime, browser), we return `null` and the caller
- * treats the `.pilot/` folder as absent.
+ * Resolve `node:fs` and `node:path` via the cached ESM-safe require built
+ * at module load. A failure here is exceptional (it means the Node runtime
+ * suddenly can't load its own built-ins) — we swallow it so the loader
+ * still returns `null` rather than throwing from a call site that asks a
+ * simple "does `.pilot/` exist?" question.
  */
 function loadNodeBuiltins(): {
   fs: typeof import("node:fs");
   path: typeof import("node:path");
 } | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { createRequire } = require("node:module") as typeof import("node:module");
-    const req = createRequire(import.meta.url);
     return {
-      fs: req("node:fs") as typeof import("node:fs"),
-      path: req("node:path") as typeof import("node:path"),
+      fs: nodeRequire("node:fs") as typeof import("node:fs"),
+      path: nodeRequire("node:path") as typeof import("node:path"),
     };
   } catch {
     return null;
