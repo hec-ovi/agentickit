@@ -64,21 +64,23 @@ The React AI stack in 2026 has two settled layers: Vercel AI SDK for streaming, 
 ## Install
 
 ```bash
-npm install @hec-ovi/agentickit ai @ai-sdk/react zod
+# That's the full install. `ai`, `@ai-sdk/react`, `zod`, and `nanoid`
+# are regular dependencies of the package and come down automatically.
+npm install @hec-ovi/agentickit
 
 # Plus exactly one provider adapter for your model choice. The free-tier
-# friendly default is OpenRouter. Sign up at https://openrouter.ai/keys:
+# friendly default is OpenRouter (https://openrouter.ai/keys):
 npm install @openrouter/ai-sdk-provider
-
-# Any of these also works, pick one:
+# …or one of:
 #   npm install @ai-sdk/openai       # OPENAI_API_KEY
 #   npm install @ai-sdk/anthropic    # ANTHROPIC_API_KEY
 #   npm install @ai-sdk/groq         # GROQ_API_KEY
 #   npm install @ai-sdk/google       # GOOGLE_GENERATIVE_AI_API_KEY
 #   npm install @ai-sdk/mistral      # MISTRAL_API_KEY
-# (or skip the adapter and set AI_GATEWAY_API_KEY to use the Vercel AI Gateway.)
+# (or skip the adapter entirely and set AI_GATEWAY_API_KEY to route
+#  through the Vercel AI Gateway.)
 
-# Optional, only if you want `usePilotForm`:
+# Optional, only needed for `usePilotForm`:
 npm install react-hook-form
 ```
 

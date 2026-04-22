@@ -49,8 +49,14 @@ first request. **Verify both before you claim the install is done.**
 ### Phase 1: install runtime deps
 
 ```bash
-npm install @hec-ovi/agentickit ai @ai-sdk/react zod
+npm install @hec-ovi/agentickit
 ```
+
+That single line is sufficient for the package's runtime graph — `ai`,
+`@ai-sdk/react`, `zod`, and `nanoid` are regular dependencies and get
+installed transitively. Do NOT instruct the consumer to install those
+four by name; it's redundant noise that makes the install look heavier
+than it is.
 
 Pick **one** provider. Free-tier-friendly is OpenRouter; zero-latency is
 Groq; widest model selection is the Vercel AI Gateway:

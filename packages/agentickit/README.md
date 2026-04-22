@@ -65,7 +65,9 @@ The AI now sees `cart_total` and can call `apply_discount`. `mutating: true` pop
 ## Install
 
 ```bash
-npm install @hec-ovi/agentickit ai @ai-sdk/react zod
+# One line. `ai`, `@ai-sdk/react`, `zod`, `nanoid` are regular deps of
+# the package and come along automatically — you don't need to list them.
+npm install @hec-ovi/agentickit
 
 # Plus exactly one provider adapter (optional peer deps — install what you use):
 npm install @openrouter/ai-sdk-provider    # free tier, no credit card
