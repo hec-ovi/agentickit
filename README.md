@@ -55,7 +55,7 @@ The React AI stack in 2026 has two settled layers: Vercel AI SDK for streaming, 
 - **Three hooks you can memorize.** `usePilotState`, `usePilotAction`, `usePilotForm`. Type-inferred through Zod. No `useCopilotReadable` / `useCopilotAction` / `useCopilotChat` / `useCopilotChatSuggestions` sprawl.
 - **AI SDK 6 native.** `streamText` underneath, tool-call streaming delegated, `UIMessage` on the wire. You keep every escape hatch the SDK already gives you.
 - **Optional `.pilot/` skills folder.** Ship capabilities as markdown. PMs edit `SKILL.md` files to change AI behavior without redeploying the prompt.
-- **Four runtime deps** (`ai`, `@ai-sdk/react`, `zod`, `nanoid`) and six **optional** peer adapters — you install exactly the one you need. MIT. Source tree is ~5 kLoC of implementation + CSS-in-JS + a CLI, small enough to read end-to-end in an afternoon.
+- **Four runtime deps** (`ai`, `@ai-sdk/react`, `zod`, `nanoid`) and six **optional** peer adapters, you install exactly the one you need. MIT. Source tree is ~5 kLoC of implementation + CSS-in-JS + a CLI, small enough to read end-to-end in an afternoon.
 
 **It is not:** a chatbot framework, a browser-use agent, a LangGraph runner, an MCP server, or an enterprise platform. If you need those, use the tool that specializes in them.
 
@@ -172,7 +172,7 @@ Open the sidebar, say *"add a todo to buy groceries."* The model calls `add_todo
 
 ### 4. Or clone the runnable example
 
-Want to poke at a working app before writing a line? The repo ships [`examples/todo`](./examples/todo) — a minimal Vite + Hono demo with three widgets (todo list, contact form, preferences) and a live log panel that streams every tool call and token count as it happens.
+Want to poke at a working app before writing a line? The repo ships [`examples/todo`](./examples/todo), a minimal Vite + Hono demo with three widgets (todo list, contact form, preferences) and a live log panel that streams every tool call and token count as it happens.
 
 ```bash
 git clone https://github.com/hec-ovi/agentickit
@@ -184,7 +184,7 @@ cp .env.example .env.local       # pick your provider; the default assumes a loc
 pnpm dev
 ```
 
-The `.pilot/` folder under `examples/todo/.pilot/` was scaffolded with `npx agentickit init` + three `add-skill` calls — the same flow the README walks you through, just already completed. Run it once, then read the widget code to see how every hook is wired.
+The `.pilot/` folder under `examples/todo/.pilot/` was scaffolded with `npx agentickit init` + three `add-skill` calls, the same flow the README walks you through, just already completed. Run it once, then read the widget code to see how every hook is wired.
 
 ---
 
@@ -306,7 +306,7 @@ export const POST = createPilotHandler({
 
 | Option               | Type                                | Default | Notes                                                                                      |
 | -------------------- | ----------------------------------- | ------- | ------------------------------------------------------------------------------------------ |
-| `model`              | `ModelSpec`                         | auto    | String (`"<provider>/<model>"`), `LanguageModel` instance, or a thunk returning one. When omitted (or set to `"auto"`) the handler walks the env and picks a provider — throws at startup if none is configured. Validated at startup. |
+| `model`              | `ModelSpec`                         | auto    | String (`"<provider>/<model>"`), `LanguageModel` instance, or a thunk returning one. When omitted (or set to `"auto"`) the handler walks the env and picks a provider, throws at startup if none is configured. Validated at startup. |
 | `system`             | `string \| false`                   | auto    | Server-owned system prompt. When omitted, the handler auto-loads `./.pilot/` from `process.cwd()`. Pass a string to use it verbatim, or `false` to disable both. Always prepended before any client-derived instructions. |
 | `pilotDir`           | `string`                            | `".pilot"` | Directory the `.pilot/` auto-load reads from. Relative to `process.cwd()`. No effect when `system` is a string or `false`. |
 | `maxSteps`           | `number`                            | `5`     | Upper bound on `call → result → follow-up` iterations per request.                         |
@@ -346,7 +346,7 @@ Most copilot libraries make you re-author AI behavior in TypeScript on every pro
 
 **Problem:** The rules your assistant should follow ("always confirm refunds over $100", "when the user says 'summarize' on a >50-card board, group by status") live in the system prompt. The system prompt lives inside your bundle, so a prompt change is a code change is a redeploy.
 
-**Fix:** a committed `.pilot/` folder with a routing file (`RESOLVER.md`) and one `SKILL.md` per capability. The server handler auto-loads it at startup and composes the system prompt from that markdown. Edit a file, restart the dev server, behavior changes — no TypeScript touched.
+**Fix:** a committed `.pilot/` folder with a routing file (`RESOLVER.md`) and one `SKILL.md` per capability. The server handler auto-loads it at startup and composes the system prompt from that markdown. Edit a file, restart the dev server, behavior changes; no TypeScript touched.
 
 ### The `agentickit` CLI
 
@@ -390,16 +390,16 @@ npx agentickit add-skill summarize-board
 
 Each call emits:
 
-- `.pilot/skills/<name>/SKILL.md` — `name:` and `description:` pre-filled, `tools:` / `triggers:` / body left as `TODO` markers you fill in.
-- One appended line to the `## Skills` table in `.pilot/RESOLVER.md`. Trigger text starts as `TODO: describe when to trigger <name>` — edit it to match the phrasings real users will type.
+- `.pilot/skills/<name>/SKILL.md`, `name:` and `description:` pre-filled, `tools:` / `triggers:` / body left as `TODO` markers you fill in.
+- One appended line to the `## Skills` table in `.pilot/RESOLVER.md`. Trigger text starts as `TODO: describe when to trigger <name>`, edit it to match the phrasings real users will type.
 
-Refuses a duplicate skill name (exit 2). Refuses kebab-case violations (`Chart`, `my_skill`, `1skill`, empty — exit 1). Refuses to run if there's no `.pilot/` folder in the current directory; tells you to run `init` first (exit 2).
+Refuses a duplicate skill name (exit 2). Refuses kebab-case violations (`Chart`, `my_skill`, `1skill`, empty: exit 1). Refuses to run if there's no `.pilot/` folder in the current directory; tells you to run `init` first (exit 2).
 
-After either command, restart your dev server — `createPilotHandler` auto-loads `.pilot/` at startup, so changes to these files only take effect on the next process boot.
+After either command, restart your dev server. `createPilotHandler` auto-loads `.pilot/` at startup, so changes to these files only take effect on the next process boot.
 
 #### When to hand-edit vs. use the CLI
 
-Use the CLI for the **shapes** — anything the parser reads: frontmatter, the `## Skills` table, the directory layout. Hand-edit for **prose** — skill descriptions, procedural bodies, anti-patterns, inline examples, any content inside a skill file. That's why `init` emits a canonical starting file rather than a magic registry: you own the markdown.
+Use the CLI for the **shapes** (anything the parser reads): frontmatter, the `## Skills` table, the directory layout. Hand-edit for the **prose**: skill descriptions, procedural bodies, anti-patterns, inline examples, any content inside a skill file. That's why `init` emits a canonical starting file rather than a magic registry: you own the markdown.
 
 The YAML mini-parser in `agentickit/protocol` only handles the shapes the CLI emits (scalar `key: value`, list items with `- `, `|`-style block scalars for descriptions, booleans). Anchors, flow-style lists, and nested maps are silently dropped. Start from a CLI-emitted file and you never bump against that.
 
@@ -573,25 +573,25 @@ Yes. Hector Oviedo, <hector.ernesto.oviedo@gmail.com>. This library is the portf
 
 `agentickit` ships **170 automated tests** across 15 files under `packages/agentickit/src/**/*.test.{ts,tsx}`, runnable with `pnpm test`. The suite includes:
 
-- 23 **component-level integration tests** (`pilot-integration.test.tsx`) that mount a real `<Pilot>` tree in `happy-dom`, install a scripted fetch mock that replays captured-from-real-providers SSE frames, simulate clicks via `@testing-library/react`, and assert on three observable surfaces: the DOM, the handler invocations, and the fetch call count. The last assertion — fetch count — is the one that catches the dangerous class of bugs: infinite resubmit loops that drain API credits. Every scenario asserts an exact POST count, so a regression in the lifecycle shows up as a red test before it ships.
+- 23 **component-level integration tests** (`pilot-integration.test.tsx`) that mount a real `<Pilot>` tree in `happy-dom`, install a scripted fetch mock that replays captured-from-real-providers SSE frames, simulate clicks via `@testing-library/react`, and assert on three observable surfaces: the DOM, the handler invocations, and the fetch call count. The last assertion (fetch count) is the one that catches the dangerous class of bugs: infinite resubmit loops that drain API credits. Every scenario asserts an exact POST count, so a regression in the lifecycle shows up as a red test before it ships.
 - Unit coverage for every public hook (`usePilotState` / `usePilotAction` / `usePilotForm`), the `<PilotSidebar>` and `<PilotConfirmModal>` surfaces, the server handler's provider-resolution + request-body validation + error envelope, the `.pilot/` protocol parsers, the `agentickit` CLI (17 tests covering init + add-skill with exit-code assertions), and the structured-event logger.
 
 ### Live verification against vLLM + `openai/gpt-oss-120b`
 
 Beyond the mocked suite, the whole package was exercised end-to-end against a real LLM using the bundled `examples/todo` Vite + Hono app pointed at a local vLLM server (`OPENAI_BASE_URL=http://127.0.0.1:8000/v1`, `PILOT_MODEL=openai/openai/gpt-oss-120b`). Verified user journeys:
 
-- **Multi-tool conversation turn.** User prompt *"Add three todos: buy milk, call mom, pay rent"* produces exactly four HTTP round-trips: three consecutive `add_todo` tool calls (one per item, model waits for each result before emitting the next) followed by a text confirmation. `finishReason` transitions from `tool-calls` on turns 1–3 to `stop` on turn 4, and `useChat` stops resubmitting after the text reply lands. Zero infinite loops.
-- **Mutating actions with confirm-modal approve + decline branches.** `delete_todo` and `clear_completed` are flagged `mutating: true`. Approving the modal runs the handler and feeds `{ ok: true }` back to the model; declining records `{ ok: false, reason: "User declined." }` — the model observes the decline on its next turn and asks before retrying rather than looping.
+- **Multi-tool conversation turn.** User prompt *"Add three todos: buy milk, call mom, pay rent"* produces exactly four HTTP round-trips: three consecutive `add_todo` tool calls (one per item, model waits for each result before emitting the next) followed by a text confirmation. `finishReason` transitions from `tool-calls` on turns 1-3 to `stop` on turn 4, and `useChat` stops resubmitting after the text reply lands. Zero infinite loops.
+- **Mutating actions with confirm-modal approve + decline branches.** `delete_todo` and `clear_completed` are flagged `mutating: true`. Approving the modal runs the handler and feeds `{ ok: true }` back to the model; declining records `{ ok: false, reason: "User declined." }`, the model observes the decline on its next turn and asks before retrying rather than looping.
 - **Progressive form fill.** *"Fill contact form, hector, hector@…, message 'how ya doing'"* produces three consecutive `set_contact_field` calls (one per field), then `submit_contact` (mutating → confirm modal → approve) which triggers the actual `react-hook-form` `handleSubmit` path with the exact typed values.
 - **State-setter round-trip.** `update_preferences` (auto-generated by `usePilotState` because the hook supplies a setter) writes the model's new `{ accent, density }` through to React state after the confirm-modal approve; the CSS variable behind the sidebar's accent recomputes immediately.
-- **Structured observability.** With `createPilotHandler({ debug: true, log: true, onLogEvent })` the server emits a request-scoped transcript of every tool call (with arguments), per-step token usage (input / output / total, split into reasoning + cached), finish reason, and errors — captured both to console, to `./debug/agentickit-YYYY-MM-DD.log`, and streamed live over SSE to the example's **Live log** tab. Every byte you see in the demo's log panel came from one of those three sinks.
+- **Structured observability.** With `createPilotHandler({ debug: true, log: true, onLogEvent })` the server emits a request-scoped transcript of every tool call (with arguments), per-step token usage (input / output / total, split into reasoning + cached), finish reason, and errors, captured both to console, to `./debug/agentickit-YYYY-MM-DD.log`, and streamed live over SSE to the example's **Live log** tab. Every byte you see in the demo's log panel came from one of those three sinks.
 
 Two real-world provider quirks surfaced during live testing and are fixed in shipped code:
 
-- vLLM's Responses API (via `@ai-sdk/openai`) streams tool-input JSON deltas but never emits the completion marker that `useChat` waits on, leaving the tool part stuck in "preparing" forever. The handler now auto-switches the OpenAI adapter to the Chat Completions path (`openai.chat(modelId)`) whenever `OPENAI_BASE_URL` is set — every major OpenAI-compatible server (vLLM, Ollama, LM Studio, Fireworks, Together, DeepInfra) works without code changes.
+- vLLM's Responses API (via `@ai-sdk/openai`) streams tool-input JSON deltas but never emits the completion marker that `useChat` waits on, leaving the tool part stuck in "preparing" forever. The handler now auto-switches the OpenAI adapter to the Chat Completions path (`openai.chat(modelId)`) whenever `OPENAI_BASE_URL` is set, every major OpenAI-compatible server (vLLM, Ollama, LM Studio, Fireworks, Together, DeepInfra) works without code changes.
 - The initial `sendAutomaticallyWhen` check returned `true` on any assistant message with a completed tool output, causing resubmit-after-text loops. The fix walks parts from the tail and stops as soon as it sees text or reasoning; there's a dedicated integration test (`loop prevention: 3 tool calls + text`) that asserts the fetch count stays at 4.
 
-**Not yet verified.** A live roundtrip against real OpenAI, Anthropic, Groq, OpenRouter, Google, or Mistral — those providers are covered by the mocked handler tests but not by a v0.1 live smoke. A Next.js App Router deployment (the documented happy path) is also mocked-only; the runnable example is Vite + Hono. These gaps are what keep this release v0.1, not v1.
+**Not yet verified.** A live roundtrip against real OpenAI, Anthropic, Groq, OpenRouter, Google, or Mistral, those providers are covered by the mocked handler tests but not by a v0.1 live smoke. A Next.js App Router deployment (the documented happy path) is also mocked-only; the runnable example is Vite + Hono. These gaps are what keep this release v0.1, not v1.
 
 ---
 
