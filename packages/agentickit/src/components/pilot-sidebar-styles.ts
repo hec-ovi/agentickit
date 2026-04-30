@@ -8,7 +8,7 @@
  *   2. The package stays a single JS artifact for both ESM and CJS consumers.
  *
  * Every class is prefixed with `pilot-` so we can't collide with the host app.
- * Theming is CSS-variable-driven — consumers override by setting the variables
+ * Theming is CSS-variable-driven, consumers override by setting the variables
  * on a parent scope (e.g., `:root` or `body`, or a wrapping div).
  *
  * We inject exactly once per document. StrictMode and multiple PilotSidebar
@@ -236,7 +236,7 @@ export const PILOT_SIDEBAR_CSS = `
 
 /* ---------------------------------------------------------------------------
  * Markdown output. Conservative sizes so assistant prose reads as one
- * continuous beat — not an article with section breaks. Headings are only
+ * continuous beat, not an article with section breaks. Headings are only
  * moderately larger than body text; lists are tight-spaced.
  * ------------------------------------------------------------------------- */
 .pilot-md-p {
@@ -409,7 +409,7 @@ export const PILOT_SIDEBAR_CSS = `
 }
 
 /*
- * Typing indicator — a slow opacity breathe instead of the old bounce.
+ * Typing indicator, a slow opacity breathe instead of the old bounce.
  * 1.5s loop, staggered by 150ms per dot, opacity-only so the baseline never
  * shifts. Lives inside the sidebar only; page-level work is surfaced through
  * ring pulses and tool-call chips, never through this indicator.
@@ -572,7 +572,7 @@ export const PILOT_SIDEBAR_CSS = `
 /*
  * Per-part enter. Runs once when a part first mounts; the stagger delay is
  * set inline by the renderer so each part slides in just after the one before
- * it. The transform is small (3px) on purpose — this is a "catch the eye"
+ * it. The transform is small (3px) on purpose, this is a "catch the eye"
  * hint, not a reveal animation.
  */
 .pilot-part-enter {
@@ -607,7 +607,7 @@ export const PILOT_SIDEBAR_CSS = `
 }
 
 /* ---------------------------------------------------------------------------
- * Skills panel — a dense, Raycast-style capability list. Closed by default,
+ * Skills panel, a dense, Raycast-style capability list. Closed by default,
  * opens inline between the message area and composer.
  * ------------------------------------------------------------------------- */
 .pilot-skills {
@@ -686,8 +686,115 @@ export const PILOT_SIDEBAR_CSS = `
   white-space: nowrap;
 }
 
+/* ---------------------------------------------------------------------------
+ * Chat view shell, used by sidebar, popup, and modal alike. The chrome
+ * around it differs per form factor; the body layout below is shared.
+ * ------------------------------------------------------------------------- */
+.pilot-chat-view {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* allow children with overflow to shrink in flex layout */
+}
+
+/* ---------------------------------------------------------------------------
+ * Popup form factor, floating button anchored to a corner that toggles a
+ * card-shaped chat panel. Different chrome than the sidebar (no slide-in,
+ * no full-height) but the same body via PilotChatView.
+ * ------------------------------------------------------------------------- */
+.pilot-popup-button {
+  position: fixed;
+  bottom: 20px;
+  z-index: 2147483600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  color: var(--pilot-accent-fg);
+  background: var(--pilot-accent);
+  border: 1px solid var(--pilot-accent);
+  border-radius: 999px;
+  box-shadow: var(--pilot-shadow);
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.pilot-popup-button:hover { transform: translateY(-1px); }
+.pilot-popup-button:active { transform: translateY(0); }
+.pilot-popup-button:focus-visible {
+  outline: 2px solid var(--pilot-accent);
+  outline-offset: 2px;
+}
+.pilot-popup-button[data-position="bottom-right"] { right: 20px; }
+.pilot-popup-button[data-position="bottom-left"] { left: 20px; }
+.pilot-popup-button[data-position="top-right"] { top: 20px; bottom: auto; right: 20px; }
+.pilot-popup-button[data-position="top-left"] { top: 20px; bottom: auto; left: 20px; }
+
+.pilot-popup-card {
+  position: fixed;
+  z-index: 2147483600;
+  width: var(--pilot-popup-width, 380px);
+  height: var(--pilot-popup-height, 560px);
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  background: var(--pilot-bg);
+  color: var(--pilot-fg);
+  font: 400 14px/1.5 var(--pilot-font);
+  border: 1px solid var(--pilot-border);
+  border-radius: var(--pilot-radius);
+  box-shadow: var(--pilot-shadow);
+  overflow: hidden;
+  animation: pilot-fade-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.pilot-popup-card[data-position="bottom-right"] { bottom: 84px; right: 20px; }
+.pilot-popup-card[data-position="bottom-left"] { bottom: 84px; left: 20px; }
+.pilot-popup-card[data-position="top-right"] { top: 84px; right: 20px; }
+.pilot-popup-card[data-position="top-left"] { top: 84px; left: 20px; }
+
+/* ---------------------------------------------------------------------------
+ * Modal form factor: centered backdrop dialog. Controlled by open and
+ * onOpenChange; portals to body; backdrop click and Escape close.
+ * ------------------------------------------------------------------------- */
+.pilot-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483600;
+  background: rgba(0, 0, 0, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: pilot-fade-in 160ms ease-out;
+}
+.pilot-modal-card {
+  width: var(--pilot-modal-width, 720px);
+  height: var(--pilot-modal-height, 80vh);
+  max-width: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--pilot-bg);
+  color: var(--pilot-fg);
+  font: 400 14px/1.5 var(--pilot-font);
+  border: 1px solid var(--pilot-border);
+  border-radius: var(--pilot-radius);
+  box-shadow: var(--pilot-shadow);
+  overflow: hidden;
+  animation: pilot-modal-rise 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes pilot-modal-rise {
+  from { transform: translateY(8px) scale(0.98); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pilot-sidebar,
+  .pilot-popup-card,
+  .pilot-modal-backdrop,
+  .pilot-modal-card,
   .pilot-message,
   .pilot-empty,
   .pilot-error,
@@ -701,7 +808,7 @@ export const PILOT_SIDEBAR_CSS = `
 `;
 
 /**
- * Inject the stylesheet once per document. Safe to call on every mount —
+ * Inject the stylesheet once per document. Safe to call on every mount ,
  * subsequent calls find the existing `<style>` and return without touching
  * the DOM.
  *

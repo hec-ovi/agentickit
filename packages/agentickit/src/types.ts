@@ -1,4 +1,43 @@
+import type { ReactNode } from "react";
 import type { z } from "zod";
+
+/**
+ * Arguments handed to a {@link PilotActionRegistration.renderAndWait} render
+ * prop while the model's tool call is suspended. The consumer's UI must
+ * eventually call exactly one of `respond` or `cancel` to release the
+ * suspended Promise inside the provider's `onToolCall` and let the model
+ * see the tool result.
+ *
+ * Calling neither leaves the tool call hanging indefinitely (the model
+ * stays "running"). Calling both is harmless, the second invocation is
+ * ignored because the resolver runs at most once.
+ */
+export interface PilotRenderAndWaitArgs<TParams = unknown, TResult = unknown> {
+  /** Parsed tool-call input (already validated against `parameters`). */
+  input: TParams;
+  /**
+   * Resolve with the value the model should observe as the tool's output.
+   * The shape must match `TResult`; the value is JSON-serialized into the
+   * `output-available` part on the wire.
+   */
+  respond: (value: TResult) => void;
+  /**
+   * Cancel the tool call. The model receives a standard
+   * `{ ok: false, reason }` payload so the conversation can continue
+   * gracefully rather than stall on an unresolved tool call.
+   */
+  cancel: (reason?: string) => void;
+}
+
+/**
+ * Render-prop signature for {@link PilotActionRegistration.renderAndWait}.
+ * Returns a React node that owns its own UI (form, picker, embedded card,
+ * portal, anything the consumer wants) and calls back via `respond` or
+ * `cancel` when the user has decided.
+ */
+export type PilotRenderAndWait<TParams = unknown, TResult = unknown> = (
+  args: PilotRenderAndWaitArgs<TParams, TResult>,
+) => ReactNode;
 
 /**
  * A registered piece of app state exposed to the AI.
@@ -28,6 +67,36 @@ export interface PilotActionRegistration<TParams = unknown, TResult = unknown> {
    * Mirrors the `mutating: true` flag from the SKILL.md convention.
    */
   mutating?: boolean;
+  /**
+   * Pause-and-resume render prop. When set, this REPLACES `handler`: the
+   * model's tool call is suspended; the provider renders the returned node
+   * inside its own tree (next to the confirm modal) and waits for the
+   * consumer to call `respond(value)` (which becomes the tool's output and
+   * the model resumes) or `cancel(reason)` (which returns the standard
+   * declined payload `{ ok: false, reason }` so the conversation continues).
+   *
+   * `handler` is still required by the type system but is ignored at
+   * dispatch time when `renderAndWait` is set. Idiomatic shape:
+   *
+   *   usePilotAction({
+   *     name: "pick_date",
+   *     parameters: z.object({ prompt: z.string() }),
+   *     handler: () => null as never,  // unused; renderAndWait responds
+   *     renderAndWait: ({ input, respond, cancel }) => (
+   *       <DatePicker
+   *         label={input.prompt}
+   *         onPick={(date) => respond({ date })}
+   *         onSkip={() => cancel("user skipped")}
+   *       />
+   *     ),
+   *   });
+   *
+   * If `mutating: true` is also set, the confirm modal appears first; if
+   * declined, the renderAndWait UI never shows and the standard cancelled
+   * sentinel is returned. This lets you compose "approve sending email" +
+   * "edit before sending" in one action.
+   */
+  renderAndWait?: PilotRenderAndWait<TParams, TResult>;
 }
 
 /**

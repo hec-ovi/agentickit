@@ -1,44 +1,56 @@
 "use client";
 
 /**
- * `<PilotSidebar>` — the package's default chat UI.
+ * `<PilotSidebar>`, the package's slide-in chat chrome.
  *
- * Consumers who want a working copilot with zero styling work drop this in
- * under `<Pilot>` and get a polished, accessible, themeable sidebar. Everyone
- * else can build their own UI from `PilotChatContext` and ignore this file.
+ * Composition:
+ *
+ *   - The body (messages, error banner, suggestions, skills panel, composer)
+ *     is delegated to `<PilotChatView>` so the sidebar, popup, and modal
+ *     form factors stay in sync without duplication.
+ *   - This file owns sidebar-specific chrome only: the toggle button, the
+ *     slide-in `<aside>`, the header with title and close button, position +
+ *     width handling, and the escape-to-close keyboard hook.
+ *
+ * Open-state model: uncontrolled with a transition callback. The component
+ * owns its own open state internally; `defaultOpen` sets the initial value
+ * and `onOpenChange` is called whenever the state flips. Consumers who need
+ * full controlled state can wrap a `<Pilot>` over a custom chrome built on
+ * `<PilotChatView>`.
  *
  * Architecture:
  *
  *   - Structural inspiration from assistant-ui's ThreadRoot / ThreadViewport /
  *     Composer primitives (MIT-licensed, credited in `NOTICE.md`). We do NOT
- *     copy their code — we wrote our own with a much smaller surface (~5 files
+ *     copy their code, we wrote our own with a much smaller surface (~5 files
  *     vs. their ~30 primitives). See `NOTICE.md` at the repo root.
  *
  *   - Styles are a self-contained CSS string injected into the document head
  *     on mount. No Tailwind, no design system, no side-effect imports.
  *     Consumers override via CSS variables (--pilot-bg, --pilot-accent, …).
  *
- *   - Messages, composer, and the toggle-to-open-button are split into sibling
- *     files so each stays testable and the top-level component reads like a
- *     layout declaration.
- *
  * Accessibility:
  *
  *   - The slide-in panel is a `<aside>` with `role="complementary"` and an
  *     `aria-label` consumers can override via `labels.title`.
  *   - The close button, suggestion chips, input, and send button all have
- *     explicit labels — no icon-only controls without accessible text.
- *   - `Escape` closes the sidebar; focus returns to the toggle button.
+ *     explicit labels, no icon-only controls without accessible text.
+ *   - `Escape` closes the sidebar; focus returns to whatever was focused
+ *     before the sidebar opened (the toggle button when the user clicked it,
+ *     or any other element when the sidebar was opened programmatically).
  *   - On open, focus lands on the input textarea so the user can type
  *     immediately.
  */
 
-import { type ReactNode, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import { PilotChatContext, type PilotChatContextValue } from "../context.js";
-import { PilotComposer, type PilotComposerHandle } from "./pilot-sidebar-composer.js";
-import { PilotMessageList } from "./pilot-sidebar-messages.js";
+import { PilotChatView, type PilotChatViewHandle } from "./pilot-chat-view.js";
+import {
+  type PilotChromeLabels,
+  PilotCloseIcon,
+  resolveChromeLabels,
+} from "./pilot-chrome.js";
 import { injectSidebarStyles } from "./pilot-sidebar-styles.js";
-import { PilotSkillsPanel } from "./pilot-skills-panel.js";
 
 export interface PilotSidebarProps {
   /** Open by default. Defaults to `false` (toggle button only). */
@@ -61,58 +73,19 @@ export interface PilotSidebarProps {
    */
   suggestions?: ReadonlyArray<string>;
   /**
-   * Optional controlled-open callback. When provided, the caller can still
-   * let the component manage state (we only call this when state flips) —
-   * pair with `defaultOpen` to set the initial value.
+   * Optional transition callback. Fired exactly when the open state flips ,
+   * not on initial mount. The component manages its own state; this is a
+   * notification, not a controlled API. Use it to drive analytics, hide a
+   * fab, or toggle related UI.
    */
   onOpenChange?: (open: boolean) => void;
-  /**
-   * Text overrides for every label rendered by the sidebar. Every key is
-   * optional — omitted keys use the built-in English defaults.
-   */
-  labels?: {
-    title?: string;
-    inputPlaceholder?: string;
-    sendButton?: string;
-    emptyState?: string;
-    openButton?: string;
-    closeButton?: string;
-  };
-}
-
-interface ResolvedLabels {
-  title: string;
-  inputPlaceholder: string;
-  sendButton: string;
-  emptyState: string;
-  openButton: string;
-  closeButton: string;
-}
-
-const DEFAULT_LABELS: ResolvedLabels = {
-  title: "Copilot",
-  inputPlaceholder: "Ask me anything...",
-  sendButton: "Send",
-  emptyState: "Hi! Ask me anything about this page.",
-  openButton: "Open copilot",
-  closeButton: "Close copilot",
-};
-
-function resolveLabels(input: PilotSidebarProps["labels"]): ResolvedLabels {
-  return {
-    title: input?.title ?? DEFAULT_LABELS.title,
-    inputPlaceholder: input?.inputPlaceholder ?? DEFAULT_LABELS.inputPlaceholder,
-    sendButton: input?.sendButton ?? DEFAULT_LABELS.sendButton,
-    emptyState: input?.emptyState ?? DEFAULT_LABELS.emptyState,
-    openButton: input?.openButton ?? DEFAULT_LABELS.openButton,
-    closeButton: input?.closeButton ?? DEFAULT_LABELS.closeButton,
-  };
+  /** Text overrides for built-in copy. Every key is optional. */
+  labels?: PilotChromeLabels;
 }
 
 /**
- * Top-level sidebar component. Composes the header, message list, suggestion
- * chips, optional error banner, and composer — plus a floating toggle button
- * when collapsed.
+ * Top-level sidebar component. Renders the toggle button when closed, or the
+ * slide-in `<aside>` chrome wrapping a `<PilotChatView>` when open.
  */
 export function PilotSidebar(props: PilotSidebarProps = {}): ReactNode {
   const {
@@ -126,20 +99,19 @@ export function PilotSidebar(props: PilotSidebarProps = {}): ReactNode {
     labels,
   } = props;
 
-  const resolvedLabels = resolveLabels(labels);
+  const resolvedLabels = resolveChromeLabels(labels);
   const titleId = useId();
 
-  // Inject styles once, on mount. Safe to call repeatedly — internally guarded.
+  // Inject styles once, on mount. Safe to call repeatedly, internally guarded.
   useEffect(() => {
     injectSidebarStyles();
   }, []);
 
   const [open, setOpen] = useState(defaultOpen);
-  const [errorDismissed, setErrorDismissed] = useState(false);
-  const composerRef = useRef<PilotComposerHandle>(null);
+  const chatViewRef = useRef<PilotChatViewHandle>(null);
   const toggleButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Notify the consumer on transitions only — not on initial mount.
+  // Notify the consumer on transitions only, not on initial mount.
   const lastReportedOpen = useRef(open);
   useEffect(() => {
     if (lastReportedOpen.current !== open) {
@@ -148,8 +120,20 @@ export function PilotSidebar(props: PilotSidebarProps = {}): ReactNode {
     }
   }, [open, onOpenChange]);
 
-  // Escape closes the sidebar and hands focus back to the toggle so keyboard
-  // users aren't stranded. We scope the listener to `open` so the key doesn't
+  // Return focus to the toggle button on close. The toggle is the only way
+  // to open the sidebar (the API is uncontrolled), so the toggle is the
+  // right re-anchor for keyboard users. The ref points at the freshly-
+  // remounted toggle by the time this effect fires (commit happens before
+  // effects, ref callback runs during commit).
+  const prevOpenRef = useRef(open);
+  useEffect(() => {
+    if (prevOpenRef.current && !open) {
+      toggleButtonRef.current?.focus();
+    }
+    prevOpenRef.current = open;
+  }, [open]);
+
+  // Escape closes the sidebar. Listener scoped to `open` so the key doesn't
   // leak behavior when the sidebar isn't visible.
   useEffect(() => {
     if (!open) return;
@@ -165,55 +149,7 @@ export function PilotSidebar(props: PilotSidebarProps = {}): ReactNode {
     };
   }, [open]);
 
-  // Return focus to the toggle button after a close transition so tab-users
-  // don't lose their place.
-  const prevOpenRef = useRef(open);
-  useEffect(() => {
-    if (prevOpenRef.current && !open) {
-      toggleButtonRef.current?.focus();
-    }
-    prevOpenRef.current = open;
-  }, [open]);
-
-  const chat = useContext(PilotChatContext);
-
-  const handleSend = useCallback(
-    (text: string): void => {
-      if (!chat) return;
-      // sendMessage returns a promise but we don't need to await — the UI
-      // updates via context when `status` flips.
-      void chat.sendMessage(text);
-    },
-    [chat],
-  );
-
-  const handleSuggestion = useCallback(
-    (text: string): void => {
-      handleSend(text);
-      composerRef.current?.focus();
-    },
-    [handleSend],
-  );
-
-  const handlePrefill = useCallback((text: string): void => {
-    composerRef.current?.prefill(text);
-  }, []);
-
-  const handleStop = useCallback((): void => {
-    if (!chat) return;
-    void chat.stop();
-  }, [chat]);
-
-  // Clear the error-dismissal state when a new error arrives so subsequent
-  // errors aren't swallowed by a stale dismiss.
-  const errorMessage = chat?.error?.message ?? null;
-  const prevErrorRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (errorMessage !== prevErrorRef.current) {
-      prevErrorRef.current = errorMessage;
-      setErrorDismissed(false);
-    }
-  }, [errorMessage]);
+  const handleClose = useCallback(() => setOpen(false), []);
 
   const widthCss = typeof width === "number" ? `${width}px` : width;
 
@@ -234,15 +170,6 @@ export function PilotSidebar(props: PilotSidebarProps = {}): ReactNode {
     );
   }
 
-  const messages = chat?.messages ?? EMPTY_MESSAGES;
-  const isLoading = chat?.isLoading ?? false;
-  const empty: ReactNode = greeting ?? (
-    <>
-      <span className="pilot-empty-title">{resolvedLabels.title}</span>
-      <span>{resolvedLabels.emptyState}</span>
-    </>
-  );
-
   const classes = ["pilot-sidebar", className].filter(Boolean).join(" ");
 
   return (
@@ -259,69 +186,28 @@ export function PilotSidebar(props: PilotSidebarProps = {}): ReactNode {
         <button
           type="button"
           className="pilot-icon-button"
-          onClick={() => setOpen(false)}
+          onClick={handleClose}
           aria-label={resolvedLabels.closeButton}
         >
-          <CloseIcon />
+          <PilotCloseIcon />
         </button>
       </header>
 
-      <PilotMessageList messages={messages} isLoading={isLoading} emptyState={empty} />
-
-      {errorMessage && !errorDismissed ? (
-        <div className="pilot-error" role="alert">
-          <span className="pilot-error-message">{errorMessage}</span>
-          <button
-            type="button"
-            className="pilot-error-dismiss"
-            onClick={() => setErrorDismissed(true)}
-            aria-label="Dismiss error"
-          >
-            {"×"}
-          </button>
-        </div>
-      ) : null}
-
-      {suggestions && suggestions.length > 0 && messages.length === 0 ? (
-        <div className="pilot-suggestions" aria-label="Suggested prompts">
-          {suggestions.map((text, index) => (
-            <button
-              key={text}
-              type="button"
-              className="pilot-suggestion"
-              // 60ms stagger, capped so a long suggestion list doesn't drag
-              // the UI; the suggestions only render on first-message state.
-              style={{ animationDelay: `${Math.min(index * 60, 360)}ms` }}
-              onClick={() => handleSuggestion(text)}
-              disabled={isLoading}
-            >
-              {text}
-            </button>
-          ))}
-        </div>
-      ) : null}
-
-      <PilotSkillsPanel onPickPrompt={handlePrefill} />
-
-      <PilotComposer
-        ref={composerRef}
-        onSubmit={handleSend}
-        onStop={handleStop}
-        isLoading={isLoading}
-        placeholder={resolvedLabels.inputPlaceholder}
-        sendLabel={resolvedLabels.sendButton}
+      <PilotChatView
+        ref={chatViewRef}
+        greeting={greeting}
+        suggestions={suggestions}
+        labels={{
+          title: resolvedLabels.title,
+          inputPlaceholder: resolvedLabels.inputPlaceholder,
+          sendButton: resolvedLabels.sendButton,
+          emptyState: resolvedLabels.emptyState,
+        }}
         autoFocus
       />
     </aside>
   );
 }
-
-/**
- * Stable empty array reference used when the sidebar is rendered outside a
- * `<Pilot>` provider. Keeping the reference stable avoids churning the
- * `PilotMessageList` memoized props across renders.
- */
-const EMPTY_MESSAGES: ReadonlyArray<unknown> = [];
 
 /**
  * Helper for tests and for rare integration paths that want to render the
@@ -336,25 +222,5 @@ export function PilotSidebarStandalone(
     <PilotChatContext.Provider value={value}>
       <PilotSidebar {...rest} />
     </PilotChatContext.Provider>
-  );
-}
-
-function CloseIcon(): ReactNode {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 14 14"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      <path
-        d="M3 3L11 11M11 3L3 11"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
   );
 }

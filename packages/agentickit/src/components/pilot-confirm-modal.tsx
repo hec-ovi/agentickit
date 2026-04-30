@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * `<PilotConfirmModal>` — themed replacement for `window.confirm`.
+ * `<PilotConfirmModal>`, themed replacement for `window.confirm`.
  *
  * Rendered by `<Pilot>` whenever the model calls an action flagged with
  * `mutating: true`. Blocks the `onToolCall` handler via a suspended promise
@@ -14,7 +14,7 @@
  *   - A portal-mounted card sits above the page content with a 60% black
  *     overlay. Click-outside, Escape, and the Cancel button all count as
  *     decline; Enter or the Confirm button approve. This is the Linear/Arc
- *     modal family — small, keyboard-first, zero chrome beyond what's
+ *     modal family, small, keyboard-first, zero chrome beyond what's
  *     required to name the action.
  *
  *   - Arguments render in a collapsed `<details>` block by default. Most
@@ -35,7 +35,7 @@
  *   - Consumers can override the whole chrome via
  *     `<Pilot renderConfirm={...} />`. The override receives `approve` and
  *     `cancel` callbacks plus the action metadata; we don't give them a
- *     thrown error or a ref wrapper — just the four args.
+ *     thrown error or a ref wrapper, just the four args.
  */
 
 import { type ReactElement, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
@@ -44,7 +44,7 @@ import { injectModalStyles } from "./pilot-confirm-modal-styles.js";
 
 /**
  * Public shape of the `renderConfirm` override. A consumer can render anything
- * — we only guarantee the four pieces of info plus the approve/cancel
+ *, we only guarantee the four pieces of info plus the approve/cancel
  * callbacks. Returning `null` is valid (the modal becomes invisible) but
  * ill-advised: the promise inside the provider stays suspended until one of
  * the callbacks fires.
@@ -54,11 +54,21 @@ export interface PilotConfirmRenderArgs {
   name: string;
   /** The action's `description` text. Used as the subtitle. */
   description: string;
-  /** The parsed tool-call input (raw JSON, not yet Zod-parsed). */
+  /**
+   * The tool-call input as the model emitted it, i.e., the raw JSON
+   * payload before Zod validation. This deliberately mirrors what the
+   * confirm modal has always shown so consumers' `renderConfirm` overrides
+   * stay backward-compatible. The HITL render-prop's `input` (in
+   * `PilotRenderAndWaitArgs`) is the *parsed* value because the HITL UI
+   * typically wants the typed shape; the confirm modal is a presentational
+   * approval gate that lives BEFORE Zod parsing in the dispatcher, so a
+   * parse failure surfaces as `output-error` after approval rather than
+   * blocking the modal from rendering.
+   */
   input: unknown;
-  /** Call to approve — runs the handler. */
+  /** Call to approve, runs the handler. */
   approve: () => void;
-  /** Call to decline — loop continues with a "user declined" result. */
+  /** Call to decline, loop continues with a "user declined" result. */
   cancel: () => void;
 }
 
@@ -83,14 +93,14 @@ export interface PilotConfirmModalProps extends PilotConfirmRenderArgs {
 export function PilotConfirmModal(props: PilotConfirmModalProps): ReactElement | null {
   const { open, name, description, input, approve, cancel } = props;
 
-  // Inject modal CSS lazily so the package stays zero-config — matching the
+  // Inject modal CSS lazily so the package stays zero-config, matching the
   // same pattern as `injectSidebarStyles`.
   useEffect(() => {
     if (open) injectModalStyles();
   }, [open]);
 
   // Track the element that had focus before the modal opened so we can
-  // restore it on close. Linear-style polish — keyboard users don't get
+  // restore it on close. Linear-style polish, keyboard users don't get
   // stranded back at `<body>`.
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -98,14 +108,14 @@ export function PilotConfirmModal(props: PilotConfirmModalProps): ReactElement |
   const cancelRef = useRef<HTMLButtonElement>(null);
   const [argsOpen, setArgsOpen] = useState(false);
 
-  // SSR guard — only try to portal when a document exists.
+  // SSR guard, only try to portal when a document exists.
   const canPortal = typeof document !== "undefined";
 
   useEffect(() => {
     if (!open) return;
     previousFocusRef.current = (document.activeElement as HTMLElement | null) ?? null;
     // Primary-action focus: the confirm button, not the cancel button. This is
-    // the Raycast/Arc convention — the safer default is Cancel, but defaulting
+    // the Raycast/Arc convention, the safer default is Cancel, but defaulting
     // *focus* to Confirm lets keyboard users execute with Enter-Enter after
     // they've read the card. Escape is always a one-key decline.
     const raf = window.requestAnimationFrame(() => {
@@ -140,7 +150,7 @@ export function PilotConfirmModal(props: PilotConfirmModalProps): ReactElement |
       }
       if (e.key === "Enter") {
         // If the user has focused the arguments `<summary>`, Enter toggles
-        // the disclosure — don't hijack that.
+        // the disclosure, don't hijack that.
         const active = document.activeElement;
         if (active && active.tagName === "SUMMARY") return;
         e.preventDefault();
@@ -171,7 +181,7 @@ export function PilotConfirmModal(props: PilotConfirmModalProps): ReactElement |
 
   const handleBackdropClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>): void => {
-      // Only count clicks that started *and* ended on the backdrop itself —
+      // Only count clicks that started *and* ended on the backdrop itself ,
       // drag-selecting text inside the card and releasing outside shouldn't
       // dismiss. We check both `target` and `currentTarget` so a stray click
       // on a child (e.g., the card) can't bubble up and close.
@@ -250,7 +260,7 @@ export function PilotConfirmModal(props: PilotConfirmModalProps): ReactElement |
 
 /**
  * Pretty-print the tool input. Returns `null` when the payload is empty or
- * un-rendersable so the modal can hide the Arguments section entirely —
+ * un-rendersable so the modal can hide the Arguments section entirely ,
  * otherwise `submit_detail({})` would show a lonely `{}` that reads as noise.
  */
 function formatJson(input: unknown): string | null {

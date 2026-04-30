@@ -15,6 +15,7 @@ import type {
   PilotActionRegistration,
   PilotConfig,
   PilotFormRegistration,
+  PilotRenderAndWait,
   PilotStateRegistration,
 } from "../types.js";
 import {
@@ -27,7 +28,7 @@ import {
 type ConfirmOutcome = "approved" | "cancelled";
 
 /**
- * Internal state for the currently-pending confirm dialog. A single slot —
+ * Internal state for the currently-pending confirm dialog. A single slot ,
  * mutating tool calls arrive serialized (the model emits them one by one via
  * `onToolCall`), so we never need to queue more than one card at a time.
  */
@@ -36,6 +37,25 @@ interface PendingConfirm {
   description: string;
   input: unknown;
   resolve: (outcome: ConfirmOutcome) => void;
+}
+
+/**
+ * Internal state for the currently-pending HITL render prop. Like
+ * `PendingConfirm`, only one slot is needed because tool calls arrive
+ * serialized.
+ *
+ * `resolve` is a tagged-union callback so `respond` and `cancel` map to the
+ * same suspended Promise: both fire `resolve({ kind, ... })` and the awaiting
+ * `onToolCall` branch dispatches accordingly.
+ */
+interface PendingHitl {
+  name: string;
+  description: string;
+  input: unknown;
+  render: PilotRenderAndWait;
+  resolve: (
+    outcome: { kind: "respond"; value: unknown } | { kind: "cancel"; reason: string },
+  ) => void;
 }
 
 /**
@@ -50,7 +70,7 @@ export interface PilotProps extends PilotConfig {
    * and `cancel` callbacks. When omitted, the package's default themed
    * modal is used.
    *
-   * Callers must invoke `approve` or `cancel` exactly once per render — the
+   * Callers must invoke `approve` or `cancel` exactly once per render, the
    * provider's `onToolCall` is suspended on a promise that only settles when
    * one of the two fires. Returning `null` is legal (the modal becomes
    * invisible) but will leave the tool call hanging forever.
@@ -69,7 +89,7 @@ export interface PilotProps extends PilotConfig {
  *      registry as a `body.tools` field on every send, via
  *      `prepareSendMessagesRequest`. The server consumes that list and wires
  *      it into `streamText({ tools })`.
- *   3. Intercept `onToolCall` — if the tool name matches a registered
+ *   3. Intercept `onToolCall`, if the tool name matches a registered
  *      action, run the handler locally and push the result back to the chat
  *      with `addToolOutput`. After the output lands the SDK resubmits so the
  *      model can continue.
@@ -103,11 +123,12 @@ export function Pilot(props: PilotProps): ReactNode {
   // confirms within 5 seconds skip the modal. A micro-UX win that matches
   // Arc/Raycast flows where "yes, yes, yes" is clearly the user's state.
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
+  const [pendingHitl, setPendingHitl] = useState<PendingHitl | null>(null);
   const recentApprovalsRef = useRef<Map<string, number>>(new Map());
   const AUTO_CONFIRM_WINDOW_MS = 5000;
 
   // ------------------------------------------------------------------
-  // Registry — mutable Map + subscription set.
+  // Registry, mutable Map + subscription set.
   // ------------------------------------------------------------------
 
   // A single source of truth that outlives renders; `useRef` guarantees
@@ -116,7 +137,7 @@ export function Pilot(props: PilotProps): ReactNode {
   const statesRef = useRef<Map<string, PilotStateRegistration>>(new Map());
   const formsRef = useRef<Map<string, PilotFormRegistration>>(new Map());
   const listenersRef = useRef<Set<() => void>>(new Set());
-  // Monotonic version bumped on every mutation — enables memoized snapshots.
+  // Monotonic version bumped on every mutation, enables memoized snapshots.
   const versionRef = useRef(0);
   // Cached snapshot (returned to consumers). Recomputed lazily when the
   // version changes, so `getSnapshot()` can be called repeatedly without
@@ -142,10 +163,10 @@ export function Pilot(props: PilotProps): ReactNode {
       );
       if (existing && isDev()) {
         console.warn(
-          `[agentickit] Duplicate action name "${registration.name}" — the second registration will override the first.`,
+          `[agentickit] Duplicate action name "${registration.name}", the second registration will override the first.`,
         );
       }
-      // Erase generics at the storage boundary — the registry stores a
+      // Erase generics at the storage boundary, the registry stores a
       // `PilotActionRegistration<unknown, unknown>` and each hook's
       // caller-side signature preserves the precise types for the consumer.
       actionsRef.current.set(id, {
@@ -160,7 +181,31 @@ export function Pilot(props: PilotProps): ReactNode {
 
   const deregisterAction = useCallback(
     (id: string) => {
-      if (actionsRef.current.delete(id)) notify();
+      const entry = actionsRef.current.get(id);
+      if (!entry) return;
+      actionsRef.current.delete(id);
+      notify();
+
+      // If this action is currently suspended in a HITL or confirm slot,
+      // auto-cancel so the model loop doesn't hang on a tool call whose
+      // owning component just unmounted. We match by name (not by id)
+      // because re-registration during a name change deliberately destroys
+      // the old id, so the slot's name is the only stable identifier.
+      // setState callbacks read `current` so we don't capture stale state.
+      setPendingHitl((current) => {
+        if (current && current.name === entry.name) {
+          current.resolve({ kind: "cancel", reason: "Action unmounted." });
+          return null;
+        }
+        return current;
+      });
+      setPendingConfirm((current) => {
+        if (current && current.name === entry.name) {
+          current.resolve("cancelled");
+          return null;
+        }
+        return current;
+      });
     },
     [notify],
   );
@@ -173,7 +218,7 @@ export function Pilot(props: PilotProps): ReactNode {
       );
       if (existing && isDev()) {
         console.warn(
-          `[agentickit] Duplicate state name "${registration.name}" — the second registration will override the first.`,
+          `[agentickit] Duplicate state name "${registration.name}", the second registration will override the first.`,
         );
       }
       statesRef.current.set(id, {
@@ -279,12 +324,12 @@ export function Pilot(props: PilotProps): ReactNode {
   // owns the system prompt (auto-loaded from `.pilot/` at handler startup).
   // ------------------------------------------------------------------
 
-  // Snapshot that's always current — avoids closure staleness in the
+  // Snapshot that's always current, avoids closure staleness in the
   // callbacks passed to useChat (which are captured once by the SDK).
   const liveSnapshotRef = useRef(getSnapshot);
   liveSnapshotRef.current = getSnapshot;
 
-  // Stable headers resolver — accepts static or function-valued headers.
+  // Stable headers resolver, accepts static or function-valued headers.
   const resolveHeaders = useCallback((): Record<string, string> => {
     const raw = props.headers;
     if (!raw) return {};
@@ -337,7 +382,7 @@ export function Pilot(props: PilotProps): ReactNode {
 
     // When the model emits a tool call, look up the registered handler and
     // execute it in the browser. The result is pushed with `addToolOutput`,
-    // which — combined with `sendAutomaticallyWhen` below — triggers the
+    // which, combined with `sendAutomaticallyWhen` below, triggers the
     // SDK to resubmit so the model can observe the tool result.
     onToolCall: async ({ toolCall }) => {
       const snapshot = liveSnapshotRef.current();
@@ -345,7 +390,7 @@ export function Pilot(props: PilotProps): ReactNode {
       // components register an action with the same name, the most-recent
       // registration is the one the model's tool list advertised, so it must
       // also be the one we execute. Using `find` (first match) would execute
-      // the older handler — potentially against the newer handler's schema.
+      // the older handler, potentially against the newer handler's schema.
       let action: PilotActionRegistration | undefined;
       for (const candidate of snapshot.actions) {
         if (candidate.name === toolCall.toolName) action = candidate;
@@ -365,14 +410,14 @@ export function Pilot(props: PilotProps): ReactNode {
       // the bottom of this component renders above the page; `onToolCall` is
       // suspended on the promise until the user clicks Confirm or Cancel
       // (or hits Enter/Escape, or clicks the backdrop). An optional
-      // `renderConfirm` prop lets consumers drop in a fully custom modal —
+      // `renderConfirm` prop lets consumers drop in a fully custom modal ,
       // the default implementation matches the sidebar's aesthetic.
       //
       // Auto-confirm window: if the user approved the same action within
       // AUTO_CONFIRM_WINDOW_MS, skip the modal. This is the "yes, yes, yes"
       // UX polish for tight multi-step loops (e.g., several submit_detail
       // calls in a row during a form fill). The window is intentionally
-      // short — long enough to feel responsive on a tight sequence, short
+      // short, long enough to feel responsive on a tight sequence, short
       // enough that a stale approval doesn't leak into a new context.
       if (action.mutating) {
         const now = Date.now();
@@ -404,6 +449,39 @@ export function Pilot(props: PilotProps): ReactNode {
 
       try {
         const parsed = action.parameters.parse(toolCall.input);
+
+        // renderAndWait branch: instead of running `handler`, mount the
+        // consumer's render-prop and await `respond` / `cancel`. Layered
+        // with `mutating`, the confirm gate above has already cleared.
+        if (action.renderAndWait) {
+          const render = action.renderAndWait;
+          const outcome = await new Promise<
+            { kind: "respond"; value: unknown } | { kind: "cancel"; reason: string }
+          >((resolve) => {
+            setPendingHitl({
+              name: action.name,
+              description: action.description,
+              input: parsed,
+              render,
+              resolve,
+            });
+          });
+          if (outcome.kind === "cancel") {
+            chatRef.current?.addToolOutput({
+              tool: toolCall.toolName,
+              toolCallId: toolCall.toolCallId,
+              output: { ok: false, reason: outcome.reason } as never,
+            });
+            return;
+          }
+          chatRef.current?.addToolOutput({
+            tool: toolCall.toolName,
+            toolCallId: toolCall.toolCallId,
+            output: outcome.value as never,
+          });
+          return;
+        }
+
         const result = await action.handler(parsed);
         chatRef.current?.addToolOutput({
           tool: toolCall.toolName,
@@ -430,7 +508,7 @@ export function Pilot(props: PilotProps): ReactNode {
   chatRef.current = chat;
 
   // ------------------------------------------------------------------
-  // PilotChatContext — slim, UI-friendly shape.
+  // PilotChatContext, slim, UI-friendly shape.
   // ------------------------------------------------------------------
 
   const sendMessage = useCallback(
@@ -498,18 +576,53 @@ export function Pilot(props: PilotProps): ReactNode {
     />
   );
 
+  // Stable respond / cancel callbacks bound to the currently-pending HITL.
+  // Mirror the confirm-modal pattern: whichever fires first settles the
+  // suspended promise inside `onToolCall` and clears the slot. We reset
+  // synchronously so the next tool call (which may arrive immediately after
+  // resubmit) lands in a clean slot rather than stacking on a stale render.
+  const handleHitlRespond = useCallback((value: unknown) => {
+    setPendingHitl((current) => {
+      if (current) current.resolve({ kind: "respond", value });
+      return null;
+    });
+  }, []);
+  const handleHitlCancel = useCallback((reason?: string) => {
+    setPendingHitl((current) => {
+      if (current)
+        current.resolve({
+          kind: "cancel",
+          reason: reason ?? "User cancelled.",
+        });
+      return null;
+    });
+  }, []);
+
+  // The HITL render prop runs on every provider re-render while pendingHitl
+  // is set. The consumer's UI (a date picker, an inline form, a portal,
+  // anything) owns its own rendering details. We only supply `input`,
+  // `respond`, and `cancel`.
+  const hitlNode: ReactNode = pendingHitl
+    ? pendingHitl.render({
+        input: pendingHitl.input,
+        respond: handleHitlRespond,
+        cancel: handleHitlCancel,
+      })
+    : null;
+
   return (
     <PilotRegistryContext.Provider value={registryValue}>
       <PilotChatContext.Provider value={chatValue}>
         {children}
         {confirmNode}
+        {hitlNode}
       </PilotChatContext.Provider>
     </PilotRegistryContext.Provider>
   );
 }
 
 // ----------------------------------------------------------------------
-// Helpers — pure functions that turn the registry into tool JSON.
+// Helpers, pure functions that turn the registry into tool JSON.
 // ----------------------------------------------------------------------
 
 /**
@@ -568,7 +681,7 @@ function buildStateContext(snapshot: PilotRegistrySnapshot): Record<string, unkn
  * model has not yet observed. The AI SDK calls this after every client-side
  * mutation so it can decide whether to resubmit.
  *
- * Correct behavior is "walk the parts from the tail — the first meaningful
+ * Correct behavior is "walk the parts from the tail, the first meaningful
  * part tells us the state":
  *   - If it's `text` or `reasoning`, the model has already responded after
  *     the tool results, the loop is done.
@@ -594,7 +707,7 @@ export function lastAssistantMessageNeedsContinuation(
     if (!part || typeof part.type !== "string") continue;
     const type = part.type;
     // `step-start` is a structural marker between model steps, not content
-    // the model has "emitted" in the answer sense — skip and keep walking.
+    // the model has "emitted" in the answer sense, skip and keep walking.
     if (type === "step-start") continue;
     if (type === "text" || type === "reasoning") return false;
     if (

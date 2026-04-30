@@ -7,6 +7,8 @@ export type {
   PilotFormRegistration,
   PilotMessage,
   PilotMessagePart,
+  PilotRenderAndWait,
+  PilotRenderAndWaitArgs,
   PilotStateRegistration,
 } from "./types.js";
 
@@ -17,6 +19,14 @@ export { usePilotState } from "./hooks/use-pilot-state.js";
 export { usePilotForm } from "./hooks/use-pilot-form.js";
 export { Pilot, type PilotProps } from "./components/pilot-provider.js";
 export { PilotSidebar, type PilotSidebarProps } from "./components/pilot-sidebar.js";
+export { PilotPopup, type PilotPopupProps, type PilotPopupPosition } from "./components/pilot-popup.js";
+export { PilotModal, type PilotModalProps } from "./components/pilot-modal.js";
+export {
+  PilotChatView,
+  type PilotChatViewProps,
+  type PilotChatViewHandle,
+  type PilotChatViewLabels,
+} from "./components/pilot-chat-view.js";
 export {
   PilotConfirmModal,
   type PilotConfirmModalProps,
