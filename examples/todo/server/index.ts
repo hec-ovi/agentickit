@@ -1,12 +1,18 @@
 /**
  * Tiny Hono server for the example.
  *
- * Two endpoints:
- *   POST /api/pilot        → createPilotHandler (the copilot stream)
- *   GET  /api/pilot-log    → SSE of structured log events for the live log panel
+ * Three endpoints:
+ *   POST /api/pilot        -> createPilotHandler (the localRuntime path; real LLM)
+ *   POST /api/agui         -> mock AG-UI server (the agUiRuntime path; scripted, no LLM)
+ *   GET  /api/pilot-log    -> SSE of structured log events for the live log panel
  *
  * The Vite dev server proxies /api/* to this process (see vite.config.ts).
  * Run with:  tsx watch --env-file=.env.local server/index.ts
+ *
+ * The /api/agui route is intentionally scripted (no LLM call) so the AG-UI
+ * runtime can be demoed end-to-end without burning credits and without a real
+ * LangGraph / CrewAI / Mastra backend. It emits AG-UI SSE events directly.
+ * In production you would point HttpAgent at a real AG-UI server URL.
  */
 
 import { serve } from "@hono/node-server";
@@ -80,6 +86,158 @@ app.get("/api/pilot-log", (c) =>
     });
   }),
 );
+
+// -- Mock AG-UI server ------------------------------------------------------
+// Streams AG-UI SSE events for a scripted assistant turn so agUiRuntime can
+// be exercised end-to-end without a real agent backend. Looks at the incoming
+// RunAgentInput's messages array to decide what to emit:
+//
+//   1. Last message is `role: "tool"`           -> acknowledge with text reply.
+//   2. Last user message mentions "todo"/"add"  -> emit a TOOL_CALL_END for
+//      the registered `add_todo` action so the runtime dispatches it locally.
+//   3. Otherwise                                -> emit a scripted text reply.
+//
+// Each event is SSE-framed (`data: <json>\n\n`) per AG-UI's parseSSEStream.
+
+interface AgUiUserMessage {
+  role: "user";
+  content: string | Array<{ type: string; text?: string }>;
+}
+interface AgUiToolMessage {
+  role: "tool";
+  toolCallId: string;
+  content: string;
+}
+interface AgUiAssistantMessage {
+  role: "assistant";
+  content?: string;
+  toolCalls?: Array<{ id: string; function: { name: string; arguments: string } }>;
+}
+type AgUiMessage = AgUiUserMessage | AgUiToolMessage | AgUiAssistantMessage | { role: string };
+
+interface AgUiRunInput {
+  threadId: string;
+  runId: string;
+  messages: AgUiMessage[];
+  tools?: Array<{ name: string }>;
+}
+
+function extractText(content: AgUiUserMessage["content"]): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((p) => p?.type === "text" && typeof p.text === "string")
+    .map((p) => p.text as string)
+    .join("");
+}
+
+function extractTodoText(userText: string): string {
+  // Best-effort: pull the part after "todo" or "add" until end of sentence.
+  const match = userText.match(/(?:todo|add)\s*(?:to|:|-)?\s*(.+?)(?:[.!?]|$)/i);
+  return match?.[1]?.trim() || "buy milk";
+}
+
+function scriptedReply(userText: string): string {
+  // Word-boundary checks so substrings ("this" containing "hi") don't fire
+  // the wrong branch.
+  const t = userText.toLowerCase();
+  const matches = (re: RegExp): boolean => re.test(t);
+  if (matches(/\b(hi|hello|hey)\b/)) {
+    return "Hi! I am the scripted demo agent for `agUiRuntime`. Try saying 'add a todo to call mom' to see a tool call routed through the registry.";
+  }
+  if (matches(/\b(about|what|who|how)\b/)) {
+    return "I am a mock AG-UI server emitting scripted SSE events. In production, `agUiRuntime` points at a real LangGraph CoAgents, CrewAI, or Mastra endpoint.";
+  }
+  if (matches(/\b(thanks|thank|thx)\b/)) {
+    return "You're welcome.";
+  }
+  return "Got it. Try asking me to add a todo, or ask me about the demo.";
+}
+
+function scriptEvents(input: AgUiRunInput): Array<Record<string, unknown>> {
+  const last = input.messages[input.messages.length - 1];
+  const events: Array<Record<string, unknown>> = [];
+  events.push({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });
+
+  if (last?.role === "tool") {
+    // Acknowledge the tool result with a text reply.
+    const messageId = `m-${Date.now()}`;
+    events.push({ type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
+    events.push({
+      type: "TEXT_MESSAGE_CONTENT",
+      messageId,
+      delta: "Done! Added that todo for you.",
+    });
+    events.push({ type: "TEXT_MESSAGE_END", messageId });
+  } else if (last?.role === "user") {
+    const text = extractText((last as AgUiUserMessage).content);
+    const t = text.toLowerCase();
+    const wantsTool = (t.includes("todo") || t.includes("add")) &&
+      input.tools?.some((tool) => tool.name === "add_todo");
+
+    if (wantsTool) {
+      // Emit a tool-call. The agUiRuntime will dispatch through the local
+      // registry; on the next run, we see a `role: "tool"` message in
+      // `messages[]` and acknowledge it (branch above).
+      const toolCallId = `tc-${Date.now()}`;
+      const messageId = `m-${Date.now()}`;
+      const todoText = extractTodoText(text);
+      events.push({
+        type: "TOOL_CALL_START",
+        toolCallId,
+        toolCallName: "add_todo",
+        parentMessageId: messageId,
+      });
+      events.push({
+        type: "TOOL_CALL_ARGS",
+        toolCallId,
+        delta: JSON.stringify({ text: todoText }),
+      });
+      events.push({ type: "TOOL_CALL_END", toolCallId });
+    } else {
+      const messageId = `m-${Date.now()}`;
+      events.push({ type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
+      events.push({
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId,
+        delta: scriptedReply(text),
+      });
+      events.push({ type: "TEXT_MESSAGE_END", messageId });
+    }
+  } else {
+    // No prior context: greet.
+    const messageId = `m-${Date.now()}`;
+    events.push({ type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
+    events.push({
+      type: "TEXT_MESSAGE_CONTENT",
+      messageId,
+      delta: "Hi! I am the scripted demo agent. Ask me to add a todo.",
+    });
+    events.push({ type: "TEXT_MESSAGE_END", messageId });
+  }
+
+  events.push({ type: "RUN_FINISHED", threadId: input.threadId, runId: input.runId });
+  return events;
+}
+
+app.post("/api/agui", async (c) => {
+  let input: AgUiRunInput;
+  try {
+    input = (await c.req.json()) as AgUiRunInput;
+  } catch {
+    return c.json({ error: "invalid_json" }, 400);
+  }
+  const events = scriptEvents(input);
+  // Stream events as SSE so AG-UI's parseSSEStream consumes them naturally.
+  // We yield a 30 ms beat between events so the streaming UI animates rather
+  // than landing in one frame.
+  return streamSSE(c, async (stream) => {
+    for (const event of events) {
+      await stream.writeSSE({ data: JSON.stringify(event) });
+      await new Promise((r) => setTimeout(r, 30));
+    }
+  });
+});
 
 app.get("/api/health", (c) => c.json({ ok: true, model: MODEL, port: PORT }));
 

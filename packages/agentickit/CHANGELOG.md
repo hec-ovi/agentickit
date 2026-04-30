@@ -121,6 +121,29 @@ Items deliberately deferred to a follow-up (low value or not needed for v3b):
 
 Before phase: 234 passing across 21 files. After phase: **266 passing across 22 files. Zero regressions. `pnpm typecheck` clean across the workspace, `pnpm build` succeeds, runtime bundle is `@ag-ui/client`-free.**
 
+### Phase 3b polish (2026-04-30)
+
+Two follow-ups after the initial Phase 3b ship:
+
+- **`PilotRuntimeBridge` extracted** (`src/components/pilot-provider.tsx`). The bug: `runtime.useRuntime(config)` was called directly in the `<Pilot>` body. `localRuntime`'s `useLocalRuntimeImpl` and `agUiRuntime`'s `useAgUiRuntimeImpl` have different hook signatures (different `useState` / `useRef` / `useCallback` sequences), so swapping the `runtime` prop mid-mount triggered a Rules-of-Hooks violation. React caught it: "change in the order of Hooks called by Pilot." The fix: extract the runtime hook call into a child component keyed by runtime identity (`WeakMap<PilotRuntime, string>` + auto-incrementing id), so a runtime swap = clean unmount + remount of the runtime's hooks. Confirm-modal and HITL state still live in the outer `<Pilot>` so they survive registry mutations; chat context comes from the bridge so it resets correctly when the runtime changes. New regression test in `runtime/runtime-swap.test.tsx` mounts the provider with two intentionally-different-hook-shape runtimes and asserts no React error fires across three swaps.
+
+- **`examples/todo` extended with chrome picker + AG-UI demo route.** The example now lets you toggle between `<PilotSidebar>` / `<PilotPopup>` / `<PilotModal>` and between `localRuntime` / `agUiRuntime` at runtime. The AG-UI route is backed by a tiny scripted Hono endpoint at `/api/agui` that emits AG-UI SSE events (RUN_STARTED, TEXT_MESSAGE_*, TOOL_CALL_*, RUN_FINISHED) without an LLM call, so the AG-UI runtime can be exercised end-to-end without burning credits and without a real LangGraph / CrewAI / Mastra backend. The mock recognizes "add a todo" patterns and emits a TOOL_CALL_END for `add_todo`, exercising the registry-bridge path; on the second turn it acknowledges with a text reply.
+
+### Real-browser smoke (2026-04-30)
+
+`examples/todo` booted with the chrome picker + AG-UI route, driven via agent-browser CDP automation. Screenshots captured at `.research/agentickit-phases/screenshots/01-...11-*.png`.
+
+Verified end-to-end:
+
+- **Sidebar + localRuntime**: default state renders, suggestion chips show, dark-mode CSS variables apply (1).
+- **Sidebar + agUiRuntime**: runtime swap from local to AG-UI re-renders the chat surface with the AG-UI suggestion chips (2). User types "Hi" and clicks send, scripted server replies, message appears in the message list (3).
+- **AG-UI tool-call dispatch**: User types "Add a todo to call mom" and clicks send. Server emits TOOL_CALL_START / TOOL_CALL_ARGS / TOOL_CALL_END for `add_todo`. Runtime dispatches through the local registry. The registered React handler (`usePilotAction({ name: "add_todo", handler: ({text}) => setTodos(...) })`) runs. Todo "a todo to call mom" visibly appears in the todo widget. Runtime appends a `role: "tool"` message and re-runs. Server emits text acknowledgment ("Done! Added that todo for you."). Tool-call chip renders inline in the message list with `state="output-available"` (4). Full screenshot: `.research/agentickit-phases/screenshots/04-sidebar-agui-tool-call.png`.
+- **Popup**: chrome swap from sidebar to popup preserves agent messages (single source of truth via stable agent ref). `defaultOpen` shows the popup card; toggle is hidden while open (Intercom convention) (5). Header X click closes the popup, toggle reappears. Re-clicking toggle reopens the popup AND moves focus to the textarea inside the popup card (11).
+- **Modal**: chrome swap to modal hides any visible chat surface and shows only the "Open chat modal" launcher button (6). Clicking the launcher (with focus on the launcher first) opens the modal AND moves focus to the textarea inside the modal card (7). Sending a message goes through, scripted reply appears (8). Escape closes the modal AND restores focus to the launcher (verified via `document.activeElement` check). Backdrop click closes the modal too.
+- **Runtime swap stability**: three consecutive swaps (local -> agUi -> local -> agUi) produce zero React errors in the console. Messages persist across chrome swaps because the `aguiAgent` reference and the `aguiRuntimeInstance` are memoized at App level. Final state returns to sidebar + localRuntime cleanly (9).
+
+These flows close every "real-browser TODO" item from the original Phase 3b ship.
+
 ### End-to-end verification status (Phases 1 + 2 + 3a + 3b)
 
 **AG-UI runtime, what was verified:**
@@ -131,8 +154,7 @@ Before phase: 234 passing across 21 files. After phase: **266 passing across 22 
 
 **Still pending for AG-UI runtime (deferred to a follow-up session):**
 
-- **Real-server smoke** against a live AG-UI server (e.g. a LangGraph CoAgents endpoint or `@copilotkit/runtime`'s AG-UI route). The runtime has only been exercised against scripted events; an actual SSE response from a real agent server may surface event-shape mismatches, retry semantics, or middleware ordering issues we haven't reproduced.
-- **`HttpAgent` constructor smoke**. We import `HttpAgent` only in the dev tarball check; consumers will write `new HttpAgent({ url, headers, agentId })` and our docs assume it works as documented. No example in `examples/todo` uses it yet.
+- **Real-server smoke** against a live AG-UI server (e.g. a LangGraph CoAgents endpoint or `@copilotkit/runtime`'s AG-UI route). The runtime has been exercised end-to-end in real browser against the in-process scripted Hono mock at `/api/agui` (Phase 3b polish), which exercises real `parseSSEStream` -> apply pipeline -> subscribers -> Pilot bridge. An actual hosted SSE response from a production agent server may still surface event-shape edge cases or middleware ordering quirks we haven't reproduced.
 - **Multi-agent flows** are out of scope for Phase 3b; that's Phase 7. The runtime supports a single agent per `<Pilot>` provider.
 
 

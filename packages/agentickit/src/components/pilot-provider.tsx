@@ -10,7 +10,11 @@ import {
 } from "../context.js";
 import { isDev } from "../env.js";
 import { localRuntime } from "../runtime/local-runtime.js";
-import type { PilotIncomingToolCall, PilotRuntime } from "../runtime/types.js";
+import type {
+  PilotIncomingToolCall,
+  PilotRuntime,
+  PilotRuntimeConfig,
+} from "../runtime/types.js";
 import type {
   PilotActionRegistration,
   PilotConfig,
@@ -459,16 +463,15 @@ export function Pilot(props: PilotProps): ReactNode {
     return typeof raw === "function" ? raw() : raw;
   }, [props.headers]);
 
-  // Wire up the runtime. The runtime captures `getSnapshot`, `headers`,
-  // and `handleToolCall` via internal refs so a fresh config object on
-  // every render doesn't re-create the chat lifecycle. URL / model id
-  // are runtime-construction details, not part of this seam, the
-  // runtime captured them when it was instantiated above.
-  const chatValue = runtime.useRuntime({
-    headers: resolveHeaders,
-    getSnapshot,
-    onToolCall: handleToolCall,
-  });
+  // The runtime hook is called inside <PilotRuntimeBridge> below, keyed by
+  // runtime identity. This is critical: localRuntime and agUiRuntime have
+  // different hook signatures (different useState / useRef / useCallback
+  // sequences), so calling them from the SAME component instance across
+  // renders would violate the Rules of Hooks. By extracting the call into
+  // a child component keyed by runtime identity, swapping runtimes triggers
+  // a clean unmount + remount of the runtime's hooks, which is what we
+  // want anyway: the chat lifecycle (transport, subscriber, message buffer)
+  // belongs to the runtime, not to a continuous Pilot render.
 
   // Stable approve / cancel callbacks bound to the currently pending confirm.
   // Whichever fires first settles the suspended promise inside `onToolCall`
@@ -552,12 +555,64 @@ export function Pilot(props: PilotProps): ReactNode {
 
   return (
     <PilotRegistryContext.Provider value={registryValue}>
-      <PilotChatContext.Provider value={chatValue}>
+      <PilotRuntimeBridge
+        key={getRuntimeKey(runtime)}
+        runtime={runtime}
+        config={{
+          headers: resolveHeaders,
+          getSnapshot,
+          onToolCall: handleToolCall,
+        }}
+      >
         {children}
         {confirmNode}
         {hitlNode}
-      </PilotChatContext.Provider>
+      </PilotRuntimeBridge>
     </PilotRegistryContext.Provider>
+  );
+}
+
+/**
+ * Stable, identity-based key for `<PilotRuntimeBridge>`. We can't use the
+ * runtime object as a React key (must be string/number), so we assign each
+ * distinct runtime an auto-incrementing id once and remember it in a
+ * `WeakMap` keyed by runtime identity. Two consecutive renders with the
+ * same runtime get the same key (no remount); a runtime swap produces a
+ * different key (forces remount, which is exactly the point).
+ */
+let runtimeIdCounter = 0;
+const runtimeIds = new WeakMap<PilotRuntime, string>();
+function getRuntimeKey(runtime: PilotRuntime): string {
+  let id = runtimeIds.get(runtime);
+  if (!id) {
+    runtimeIdCounter += 1;
+    id = `r${runtimeIdCounter}`;
+    runtimeIds.set(runtime, id);
+  }
+  return id;
+}
+
+/**
+ * Bridge that calls `runtime.useRuntime(config)` and provides the resulting
+ * `PilotChatContextValue` to descendants. Must be a child component (rather
+ * than an inline call inside <Pilot>) so the parent can key it by runtime
+ * identity and React unmounts the old runtime cleanly when the prop swaps.
+ *
+ * Without this indirection, swapping `runtime={localRuntime()}` for
+ * `runtime={agUiRuntime({ agent })}` mid-mount would call two different
+ * hook sequences from the same component instance and React would throw
+ * "change in the order of Hooks called by Pilot."
+ */
+function PilotRuntimeBridge(props: {
+  runtime: PilotRuntime;
+  config: PilotRuntimeConfig;
+  children: ReactNode;
+}): ReactNode {
+  const chatValue = props.runtime.useRuntime(props.config);
+  return (
+    <PilotChatContext.Provider value={chatValue}>
+      {props.children}
+    </PilotChatContext.Provider>
   );
 }
 

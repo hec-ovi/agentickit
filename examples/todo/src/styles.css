@@ -91,6 +91,77 @@ body {
   font-size: 14px;
 }
 
+.control-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.control-row fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px 12px;
+  margin: 0;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: var(--surface-muted);
+  flex: 1 1 auto;
+  min-width: 240px;
+}
+
+.control-row legend {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  padding: 0 6px;
+}
+
+.control-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: color 120ms ease-out, background-color 120ms ease-out;
+}
+
+.control-row label.active {
+  color: var(--text);
+  background: var(--accent-soft);
+  font-weight: 500;
+}
+
+.control-row label input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.modal-launch {
+  align-self: flex-start;
+  padding: 10px 18px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: opacity 120ms ease-out;
+}
+
+.modal-launch:hover {
+  opacity: 0.92;
+}
+
 .tabs {
   display: flex;
   gap: 4px;

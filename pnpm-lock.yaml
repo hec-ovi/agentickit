@@ -17,6 +17,12 @@ importers:
 
   examples/todo:
     dependencies:
+      '@ag-ui/client':
+        specifier: 0.0.53
+        version: 0.0.53
+      '@ag-ui/core':
+        specifier: 0.0.53
+        version: 0.0.53
       '@ai-sdk/openai':
         specifier: ^3.0.53
         version: 3.0.53(zod@3.25.76)

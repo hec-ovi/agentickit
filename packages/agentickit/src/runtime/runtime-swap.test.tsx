@@ -410,6 +410,65 @@ describe("<Pilot runtime={...}> swap", () => {
     expect(outputSpy).toHaveBeenCalledWith({ letter: "A" });
   });
 
+  it("hot-swapping the runtime prop unmounts the old runtime hook and mounts the new one (no Rules-of-Hooks violation)", () => {
+    // Two runtimes with INTENTIONALLY different hook signatures. Without
+    // the PilotRuntimeBridge keyed by runtime identity, switching from
+    // runtimeA to runtimeB mid-render would call useRef then useState in
+    // hook slot N, which React rejects with "change in the order of Hooks
+    // called by Pilot." This test mounts the provider with runtimeA, swaps
+    // to runtimeB, and asserts no error fires.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const runtimeA: PilotRuntime = {
+      useRuntime: () => {
+        useRef(0);
+        useRef(0);
+        return {
+          messages: [],
+          status: "ready" as const,
+          error: undefined,
+          isLoading: false,
+          sendMessage: vi.fn(async () => {}),
+          stop: vi.fn(async () => {}),
+        };
+      },
+    };
+    const runtimeB: PilotRuntime = {
+      useRuntime: () => {
+        useState(0);
+        useState(0);
+        useState(0);
+        return {
+          messages: [],
+          status: "ready" as const,
+          error: undefined,
+          isLoading: false,
+          sendMessage: vi.fn(async () => {}),
+          stop: vi.fn(async () => {}),
+        };
+      },
+    };
+
+    function Harness({ runtime }: { runtime: PilotRuntime }) {
+      return (
+        <Pilot apiUrl="/api/pilot" runtime={runtime}>
+          <PilotChatView autoFocus={false} />
+        </Pilot>
+      );
+    }
+
+    const { rerender } = render(<Harness runtime={runtimeA} />);
+    rerender(<Harness runtime={runtimeB} />);
+    rerender(<Harness runtime={runtimeA} />);
+
+    // No "change in the order of Hooks" error should have been logged.
+    const calls = errorSpy.mock.calls.map((args) => String(args[0] ?? ""));
+    const hookOrderErr = calls.find((m) => m.includes("order of Hooks"));
+    expect(hookOrderErr).toBeUndefined();
+
+    errorSpy.mockRestore();
+  });
+
   it("falls back to localRuntime when no runtime prop is supplied", () => {
     // The provider's existing tests already verify localRuntime behavior
     // end-to-end through the integration suite. This is the explicit
