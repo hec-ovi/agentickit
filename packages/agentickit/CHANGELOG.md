@@ -121,6 +121,33 @@ Items deliberately deferred to a follow-up (low value or not needed for v3b):
 
 Before phase: 234 passing across 21 files. After phase: **266 passing across 22 files. Zero regressions. `pnpm typecheck` clean across the workspace, `pnpm build` succeeds, runtime bundle is `@ag-ui/client`-free.**
 
+### Added, Phase 5: Generative UI
+
+- **`<PilotAgentStateView>`** (`src/components/pilot-agent-state-view.tsx`), JSX-friendly wrapper around `usePilotAgentState`. Takes `agent` and `render(state)` props; subscribes to the agent's per-agent state store and re-renders the consumer's render function whenever STATE_SNAPSHOT or STATE_DELTA arrives. Generic `T` flows through to the render callback so consumers get typed access to their state shape. `usePilotAgentState` remains the primary hook API; this component is sugar for declarative JSX.
+- **6 new tests** in `pilot-agent-state-view.test.tsx`: undefined-state-before-mount, initial-state-seeded-on-mount, STATE_SNAPSHOT propagation, STATE_DELTA via JSON Patch reduces correctly, multi-consumer-single-source-of-truth, identity-stable updates do not churn renders. Pattern uses a `FakeAgent extends AbstractAgent` whose `run()` emits scripted `BaseEvent` arrays via rxjs `Observable`, so the apply pipeline reduces JSON Patches identically to a real `HttpAgent` connection.
+- **`examples/todo` extended** with a `<TimelineWidget>` (`examples/todo/src/widgets/timeline.tsx`) using `<PilotAgentStateView>`. Renders a 3-step timeline (`Fetching context`, `Analyzing`, `Summarizing`) with `pending` / `active` / `done` status indicators. Visible when `agUiRuntime` is selected. Driven by the mock server: when the user message contains `process` / `research` / `analyze` / `think`, `/api/agui` emits `STATE_SNAPSHOT` (initial state) followed by 3 `STATE_DELTA` events (JSON Patch) that walk each step from `pending` -> `active` -> `done`, then a final text acknowledgment. STATE frames stream at 350 ms so the animation is humanly visible; text frames stay at 30 ms.
+
+### Public API additions, Phase 5
+
+`src/index.ts` adds:
+- `PilotAgentStateView` (component)
+- `PilotAgentStateViewProps<T>` (type)
+
+### Test status, Phase 5
+
+Before phase: 267 passing across 22 files. After phase: **273 passing across 23 files. Zero regressions. `pnpm typecheck` clean across the workspace, `pnpm build` succeeds.**
+
+### Real-browser smoke, Phase 5 (2026-04-30)
+
+`examples/todo` booted with the timeline widget enabled, driven via agent-browser CDP automation. Screenshots captured at `.research/agentickit-phases/screenshots/12-13-14-*.png`.
+
+Verified end-to-end:
+
+- **Empty state.** With `agUiRuntime` selected and no workflow yet triggered, the timeline widget renders its empty state with the prompt instructions (12).
+- **Streaming UI updates.** User types "Process my data" and clicks send. The mock server emits `STATE_SNAPSHOT` -> 3 x `STATE_DELTA` -> text. Each step transitions visibly: `Fetching context` `active` -> `done`, `Analyzing` `pending` -> `active` -> `done`, `Summarizing` `pending` -> `active` -> `done`. The mid-flight screenshot captured the moment when steps 1-2 are `done` and step 3 is `active` (14). Final state has all three `done` plus the assistant's text reply in the chat (13).
+- **Multi-run idempotency.** Second workflow trigger ("Run a workflow") replays the same state transitions correctly: STATE_SNAPSHOT replaces the prior state, deltas walk the same path, terminal state matches the first run.
+- **Console clean.** Zero React warnings, zero error messages. The Phase 3b runtime-bridge fix continues to hold under STATE event traffic.
+
 ### Phase 3b polish (2026-04-30)
 
 Two follow-ups after the initial Phase 3b ship:

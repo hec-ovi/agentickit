@@ -383,6 +383,31 @@ function StatusBar({ agent }: { agent: AbstractAgent }) {
 
 `agUiRuntime({ agent })` returns a stable runtime instance per agent reference (cached in a `WeakMap`), so consumers don't have to memoize the factory call themselves. `@ag-ui/client` and `@ag-ui/core` are optional peer dependencies; install them only if you use the AG-UI runtime.
 
+### Generative UI: render components from streamed agent state
+
+When the agent emits structured state via `STATE_SNAPSHOT` and `STATE_DELTA` events (JSON Patch RFC 6902), the runtime applies them and any subscribed component re-renders. Use `<PilotAgentStateView>` for declarative JSX:
+
+```tsx
+import { PilotAgentStateView } from "@hec-ovi/agentickit";
+
+interface ResearchState {
+  steps: Array<{ id: string; label: string; status: "pending" | "active" | "done" }>;
+}
+
+<PilotAgentStateView<ResearchState>
+  agent={agent}
+  render={(state) => (
+    <ol>
+      {state?.steps?.map((s) => (
+        <li key={s.id} data-state={s.status}>{s.label}</li>
+      ))}
+    </ol>
+  )}
+/>
+```
+
+The component is sugar over `usePilotAgentState`; pick whichever feels right. Multiple subscribers against the same agent share one store (single source of truth). The runnable `examples/todo` ships a "Thinking timeline" widget driven this way: switch to `agUiRuntime` and ask "process my data" to watch step transitions stream in.
+
 ---
 
 ## `<Pilot>` provider
@@ -629,12 +654,13 @@ Yes. Hector Oviedo, <hector.ernesto.oviedo@gmail.com>. This library is the portf
 
 ## Testing
 
-`agentickit` ships **266 automated tests** across 22 files under `packages/agentickit/src/**/*.test.{ts,tsx}`, runnable with `pnpm test`. Coverage at a glance:
+`agentickit` ships **273 automated tests** across 23 files under `packages/agentickit/src/**/*.test.{ts,tsx}`, runnable with `pnpm test`. Coverage at a glance:
 
 - **23 component-level integration tests** (`pilot-integration.test.tsx`) that mount a real `<Pilot>` tree in `happy-dom`, install a scripted fetch mock that replays captured-from-real-providers SSE frames, simulate clicks via `@testing-library/react`, and assert on three observable surfaces: the DOM, the handler invocations, and the fetch call count. The fetch-count assertion catches the dangerous class of bugs: infinite resubmit loops that drain API credits.
 - **52 chat-surface tests** across `pilot-chat-view.test.tsx`, `pilot-sidebar.test.tsx`, `pilot-popup.test.tsx`, `pilot-modal.test.tsx`. Real `fireEvent` user simulation: type into the composer, click send, click backdrop, press Escape, Tab through the focus trap. DOM-shape inline snapshots catch silent rename / wrapper-drift regressions.
 - **8 renderAndWait HITL tests** covering respond/cancel paths, mutating + approve combo, mutating + decline (HITL never mounts), respond-twice idempotency, action-unmounted-mid-suspension auto-cancel.
-- **23 runtime-swap + AG-UI tests** verifying the `PilotRuntime` seam contract, the `agUiRuntime` event-stream adapter, tool-call bridging through the registry gate, mutating + confirm gate composition under AG-UI, `usePilotAgentState` / `usePilotAgentActivity` hooks, factory stability via `WeakMap`, the 16-iteration continuation cap, the re-entry guard.
+- **24 runtime-swap + AG-UI tests** verifying the `PilotRuntime` seam contract, the `agUiRuntime` event-stream adapter, tool-call bridging through the registry gate, mutating + confirm gate composition under AG-UI, `usePilotAgentState` / `usePilotAgentActivity` hooks, factory stability via `WeakMap`, the 16-iteration continuation cap, the re-entry guard, and the runtime-swap regression test (Rules-of-Hooks safety across runtime prop changes).
+- **6 generative-UI tests** for `<PilotAgentStateView>`: undefined-state-before-mount, initial-state-seeded, STATE_SNAPSHOT propagation, STATE_DELTA via JSON Patch, multi-consumer-single-source-of-truth, identity-stable updates do not churn renders.
 - Unit coverage for every public hook (`usePilotState` / `usePilotAction` / `usePilotForm`), the server handler's provider-resolution + request-body validation + error envelope, the `.pilot/` protocol parsers, the `agentickit` CLI (init + add-skill with exit-code assertions), and the structured-event logger.
 
 ### Live verification against vLLM + `openai/gpt-oss-120b`
@@ -671,6 +697,7 @@ These gaps are what keep this release pre-1.0.
 - **Provider** wiring AI SDK 6's `useChat` with a dynamic tool registry, mutating-action confirm modal, HITL pause-and-resume, focus restoration.
 - **Runtime abstraction**: `localRuntime()` (default, AI SDK 6 over HTTP) and `agUiRuntime({ agent })` (AG-UI agents). Swap via `<Pilot runtime={...}>`.
 - **AG-UI hooks**: `usePilotAgentState<T>(agent)`, `usePilotAgentActivity(agent)` for STATE_*, ACTIVITY_*, REASONING_* streams.
+- **Generative UI**: `<PilotAgentStateView>` declarative wrapper for rendering components from streamed agent state.
 - **`createPilotHandler`** for Next.js / Bun / Workers, with direct adapters for `openai/*`, `anthropic/*`, `groq/*`, `openrouter/*`, `google/*`, `mistral/*`, plus Vercel AI Gateway fallback and a `LanguageModel`-instance escape hatch.
 - **`.pilot/` markdown protocol**: `RESOLVER.md` + `skills/<name>/SKILL.md`, auto-loaded by `createPilotHandler` at startup.
 - **`agentickit` CLI**: `init` + `add-skill` scaffold and grow `.pilot/` without hand-writing markdown.
@@ -679,7 +706,6 @@ These gaps are what keep this release pre-1.0.
 ### Planned
 
 - **Server-side AG-UI emitter**: optional adapter so agentickit's own server route can be consumed by external AG-UI clients (`@ag-ui/vercel-ai-sdk`).
-- **Generative UI**: render UI components from streamed agent state via `usePilotAgentState`.
 - **MCP tool activity rendering**: sandboxed iframe + JSON-RPC bridge for MCP-supplied UI.
 - **Multi-agent**: registered `Map<agentId, Agent>`, per-agent registry namespacing, programmatic `runAgent(agent, input)`.
 - **Resolver validator**: startup health check that flags orphan skills, missing files, and drift between `RESOLVER.md` and the filesystem.

@@ -154,6 +154,57 @@ function scriptedReply(userText: string): string {
   return "Got it. Try asking me to add a todo, or ask me about the demo.";
 }
 
+/**
+ * Step-timeline events for the generative-UI demo. Emits a STATE_SNAPSHOT
+ * with three pending steps, then four STATE_DELTA events that walk each
+ * step from `pending` -> `active` -> `done` interleaved with text. The
+ * runtime applies the JSON Patch deltas through fast-json-patch and
+ * surfaces the post-patch state via usePilotAgentState. Consumer renders
+ * the steps list in <PilotAgentStateView>.
+ */
+function timelineEvents(threadId: string): Array<Record<string, unknown>> {
+  const messageId = `m-${Date.now()}`;
+  return [
+    {
+      type: "STATE_SNAPSHOT",
+      snapshot: {
+        steps: [
+          { id: "fetch", label: "Fetching context", status: "active" },
+          { id: "analyze", label: "Analyzing", status: "pending" },
+          { id: "summarize", label: "Summarizing", status: "pending" },
+        ],
+      },
+    },
+    {
+      type: "STATE_DELTA",
+      delta: [
+        { op: "replace", path: "/steps/0/status", value: "done" },
+        { op: "replace", path: "/steps/1/status", value: "active" },
+      ],
+    },
+    {
+      type: "STATE_DELTA",
+      delta: [
+        { op: "replace", path: "/steps/1/status", value: "done" },
+        { op: "replace", path: "/steps/2/status", value: "active" },
+      ],
+    },
+    {
+      type: "STATE_DELTA",
+      delta: [{ op: "replace", path: "/steps/2/status", value: "done" }],
+    },
+    { type: "TEXT_MESSAGE_START", messageId, role: "assistant" },
+    {
+      type: "TEXT_MESSAGE_CONTENT",
+      messageId,
+      delta:
+        "All three steps complete. The thinking-timeline widget below was driven by STATE_SNAPSHOT then three STATE_DELTA events (JSON Patch).",
+    },
+    { type: "TEXT_MESSAGE_END", messageId },
+    void threadId,
+  ].filter(Boolean) as Array<Record<string, unknown>>;
+}
+
 function scriptEvents(input: AgUiRunInput): Array<Record<string, unknown>> {
   const last = input.messages[input.messages.length - 1];
   const events: Array<Record<string, unknown>> = [];
@@ -172,10 +223,18 @@ function scriptEvents(input: AgUiRunInput): Array<Record<string, unknown>> {
   } else if (last?.role === "user") {
     const text = extractText((last as AgUiUserMessage).content);
     const t = text.toLowerCase();
-    const wantsTool = (t.includes("todo") || t.includes("add")) &&
+    const wantsTimeline =
+      /\b(think|process|research|analyze|run\s+a?\s*workflow|step)\b/.test(t);
+    const wantsTool =
+      !wantsTimeline &&
+      (t.includes("todo") || t.includes("add")) &&
       input.tools?.some((tool) => tool.name === "add_todo");
 
-    if (wantsTool) {
+    if (wantsTimeline) {
+      // Generative UI demo: emit STATE_SNAPSHOT + STATE_DELTA events that
+      // drive the timeline widget rendered via <PilotAgentStateView>.
+      events.push(...timelineEvents(input.threadId));
+    } else if (wantsTool) {
       // Emit a tool-call. The agUiRuntime will dispatch through the local
       // registry; on the next run, we see a `role: "tool"` message in
       // `messages[]` and acknowledge it (branch above).
@@ -232,9 +291,13 @@ app.post("/api/agui", async (c) => {
   // We yield a 30 ms beat between events so the streaming UI animates rather
   // than landing in one frame.
   return streamSSE(c, async (stream) => {
+    // STATE events get a longer beat (350 ms) so the timeline animation
+    // is humanly visible. Text message frames stay snappy at 30 ms.
     for (const event of events) {
       await stream.writeSSE({ data: JSON.stringify(event) });
-      await new Promise((r) => setTimeout(r, 30));
+      const isStateFrame =
+        event.type === "STATE_SNAPSHOT" || event.type === "STATE_DELTA";
+      await new Promise((r) => setTimeout(r, isStateFrame ? 350 : 30));
     }
   });
 });

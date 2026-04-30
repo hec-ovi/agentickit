@@ -10,6 +10,7 @@ import { HttpAgent } from "@ag-ui/client";
 import { TodoWidget } from "./widgets/todo";
 import { ContactWidget } from "./widgets/contact";
 import { PreferencesWidget } from "./widgets/preferences";
+import { TimelineWidget } from "./widgets/timeline";
 import { LogPanel } from "./log-panel";
 
 type Tab = "todo" | "contact" | "preferences" | "logs";
@@ -62,7 +63,11 @@ export function App() {
   };
   const suggestions =
     runtimeChoice === "agui"
-      ? ["Hi", "What is this demo about?", "Add a todo to buy groceries"]
+      ? [
+          "Hi",
+          "Process my data",
+          "Add a todo to buy groceries",
+        ]
       : [
           "Add three todos: buy milk, call mom, pay rent",
           "Fill the contact form with plausible sample data and submit it",
@@ -151,6 +156,12 @@ export function App() {
         <section hidden={tab !== "logs"}>
           <LogPanel />
         </section>
+
+        {/* Generative-UI demo (Phase 5). Visible only when agUiRuntime is
+            active so the widget actually has a state stream to subscribe to.
+            With localRuntime, the agent reference exists but never receives
+            STATE events, so the widget would render its empty state. */}
+        {runtimeChoice === "agui" ? <TimelineWidget agent={aguiAgent} /> : null}
 
         {chrome === "modal" ? (
           <button

@@ -28,6 +28,10 @@ export {
   type PilotChatViewLabels,
 } from "./components/pilot-chat-view.js";
 export {
+  PilotAgentStateView,
+  type PilotAgentStateViewProps,
+} from "./components/pilot-agent-state-view.js";
+export {
   PilotConfirmModal,
   type PilotConfirmModalProps,
   type PilotConfirmRender,
