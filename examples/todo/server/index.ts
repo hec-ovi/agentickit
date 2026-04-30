@@ -16,7 +16,7 @@
  */
 
 import { serve } from "@hono/node-server";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { createPilotHandler, type PilotLogEvent } from "@hec-ovi/agentickit/server";
 
@@ -205,94 +205,233 @@ function timelineEvents(threadId: string): Array<Record<string, unknown>> {
   ].filter(Boolean) as Array<Record<string, unknown>>;
 }
 
-function scriptEvents(input: AgUiRunInput): Array<Record<string, unknown>> {
+/**
+ * Per-agent scripted behavior. Phase 7 demo wires three agents at three
+ * distinct URLs (`/api/agui-research`, `/api/agui-code`, `/api/agui-writing`)
+ * so the consumer can register them under separate ids in the
+ * `<PilotAgentRegistry>` and switch between them at runtime. Each agent
+ * has a distinct personality so the demo visibly shows multi-agent
+ * specialization:
+ *
+ *   - **research**: emits STATE_SNAPSHOT + STATE_DELTA events for any
+ *     incoming message (always streams the thinking-timeline). Best
+ *     suited to demo the generative-UI surface.
+ *   - **code**: replies with code-flavored text wrapped in a markdown
+ *     code block.
+ *   - **writing**: replies with a creative-prose passage.
+ *
+ * All three agents respect:
+ *   - `add_todo` tool calls when the user message contains "todo" / "add"
+ *     and the registry advertises the tool. The runtime bridges through
+ *     the active Pilot's registry, so any agent can drive a registered
+ *     local tool.
+ *   - The `role: "tool"` continuation: when the next run sees a tool
+ *     result message, the agent acknowledges it.
+ */
+type AgentKind = "research" | "code" | "writing";
+
+function researchEvents(input: AgUiRunInput): Array<Record<string, unknown>> {
   const last = input.messages[input.messages.length - 1];
-  const events: Array<Record<string, unknown>> = [];
-  events.push({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });
-
   if (last?.role === "tool") {
-    // Acknowledge the tool result with a text reply.
     const messageId = `m-${Date.now()}`;
-    events.push({ type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
-    events.push({
-      type: "TEXT_MESSAGE_CONTENT",
-      messageId,
-      delta: "Done! Added that todo for you.",
-    });
-    events.push({ type: "TEXT_MESSAGE_END", messageId });
-  } else if (last?.role === "user") {
-    const text = extractText((last as AgUiUserMessage).content);
-    const t = text.toLowerCase();
-    const wantsTimeline =
-      /\b(think|process|research|analyze|run\s+a?\s*workflow|step)\b/.test(t);
-    const wantsTool =
-      !wantsTimeline &&
-      (t.includes("todo") || t.includes("add")) &&
-      input.tools?.some((tool) => tool.name === "add_todo");
-
-    if (wantsTimeline) {
-      // Generative UI demo: emit STATE_SNAPSHOT + STATE_DELTA events that
-      // drive the timeline widget rendered via <PilotAgentStateView>.
-      events.push(...timelineEvents(input.threadId));
-    } else if (wantsTool) {
-      // Emit a tool-call. The agUiRuntime will dispatch through the local
-      // registry; on the next run, we see a `role: "tool"` message in
-      // `messages[]` and acknowledge it (branch above).
-      const toolCallId = `tc-${Date.now()}`;
-      const messageId = `m-${Date.now()}`;
-      const todoText = extractTodoText(text);
-      events.push({
+    return [
+      { type: "TEXT_MESSAGE_START", messageId, role: "assistant" },
+      {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId,
+        delta: "Got it. Added the todo to your list.",
+      },
+      { type: "TEXT_MESSAGE_END", messageId },
+    ];
+  }
+  if (last?.role !== "user") {
+    const messageId = `m-${Date.now()}`;
+    return [
+      { type: "TEXT_MESSAGE_START", messageId, role: "assistant" },
+      {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId,
+        delta:
+          "I am the research agent. I emit STATE_SNAPSHOT plus STATE_DELTA events for every prompt so you can see the thinking-timeline animate. Try anything.",
+      },
+      { type: "TEXT_MESSAGE_END", messageId },
+    ];
+  }
+  const text = extractText((last as AgUiUserMessage).content);
+  const t = text.toLowerCase();
+  const wantsTool =
+    (t.includes("todo") || t.includes("add")) &&
+    input.tools?.some((tool) => tool.name === "add_todo");
+  if (wantsTool) {
+    const toolCallId = `tc-${Date.now()}`;
+    const messageId = `m-${Date.now()}`;
+    return [
+      {
         type: "TOOL_CALL_START",
         toolCallId,
         toolCallName: "add_todo",
         parentMessageId: messageId,
-      });
-      events.push({
+      },
+      {
         type: "TOOL_CALL_ARGS",
         toolCallId,
-        delta: JSON.stringify({ text: todoText }),
-      });
-      events.push({ type: "TOOL_CALL_END", toolCallId });
-    } else {
-      const messageId = `m-${Date.now()}`;
-      events.push({ type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
-      events.push({
+        delta: JSON.stringify({ text: extractTodoText(text) }),
+      },
+      { type: "TOOL_CALL_END", toolCallId },
+    ];
+  }
+  // Default: stream the thinking-timeline.
+  return timelineEvents(input.threadId);
+}
+
+function codeEvents(input: AgUiRunInput): Array<Record<string, unknown>> {
+  const last = input.messages[input.messages.length - 1];
+  const messageId = `m-${Date.now()}`;
+  if (last?.role === "tool") {
+    return [
+      { type: "TEXT_MESSAGE_START", messageId, role: "assistant" },
+      {
         type: "TEXT_MESSAGE_CONTENT",
         messageId,
-        delta: scriptedReply(text),
-      });
-      events.push({ type: "TEXT_MESSAGE_END", messageId });
-    }
-  } else {
-    // No prior context: greet.
-    const messageId = `m-${Date.now()}`;
-    events.push({ type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
-    events.push({
+        delta: "Logged. Anything else you want me to look at?",
+      },
+      { type: "TEXT_MESSAGE_END", messageId },
+    ];
+  }
+  if (last?.role !== "user") {
+    return [
+      { type: "TEXT_MESSAGE_START", messageId, role: "assistant" },
+      {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId,
+        delta: "I am the code agent. Ask me anything code-flavored.",
+      },
+      { type: "TEXT_MESSAGE_END", messageId },
+    ];
+  }
+  const text = extractText((last as AgUiUserMessage).content);
+  const t = text.toLowerCase();
+  const wantsTool =
+    (t.includes("todo") || t.includes("add")) &&
+    input.tools?.some((tool) => tool.name === "add_todo");
+  if (wantsTool) {
+    const toolCallId = `tc-${Date.now()}`;
+    return [
+      {
+        type: "TOOL_CALL_START",
+        toolCallId,
+        toolCallName: "add_todo",
+        parentMessageId: messageId,
+      },
+      {
+        type: "TOOL_CALL_ARGS",
+        toolCallId,
+        delta: JSON.stringify({ text: extractTodoText(text) }),
+      },
+      { type: "TOOL_CALL_END", toolCallId },
+    ];
+  }
+  return [
+    { type: "TEXT_MESSAGE_START", messageId, role: "assistant" },
+    {
       type: "TEXT_MESSAGE_CONTENT",
       messageId,
-      delta: "Hi! I am the scripted demo agent. Ask me to add a todo.",
-    });
-    events.push({ type: "TEXT_MESSAGE_END", messageId });
-  }
+      delta:
+        "Here is one approach in TypeScript:\n\n```ts\nfunction greet(name: string) {\n  return `hi, ${name}`;\n}\n```\n\nThat is the smallest possible illustration. Tell me more about the actual problem and I can adapt.",
+    },
+    { type: "TEXT_MESSAGE_END", messageId },
+  ];
+}
 
+function writingEvents(input: AgUiRunInput): Array<Record<string, unknown>> {
+  const last = input.messages[input.messages.length - 1];
+  const messageId = `m-${Date.now()}`;
+  if (last?.role === "tool") {
+    return [
+      { type: "TEXT_MESSAGE_START", messageId, role: "assistant" },
+      {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId,
+        delta: "Filed. Now, where were we in the draft?",
+      },
+      { type: "TEXT_MESSAGE_END", messageId },
+    ];
+  }
+  if (last?.role !== "user") {
+    return [
+      { type: "TEXT_MESSAGE_START", messageId, role: "assistant" },
+      {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId,
+        delta: "I am the writing agent. Tell me what you are drafting.",
+      },
+      { type: "TEXT_MESSAGE_END", messageId },
+    ];
+  }
+  const text = extractText((last as AgUiUserMessage).content);
+  const t = text.toLowerCase();
+  const wantsTool =
+    (t.includes("todo") || t.includes("add")) &&
+    input.tools?.some((tool) => tool.name === "add_todo");
+  if (wantsTool) {
+    const toolCallId = `tc-${Date.now()}`;
+    return [
+      {
+        type: "TOOL_CALL_START",
+        toolCallId,
+        toolCallName: "add_todo",
+        parentMessageId: messageId,
+      },
+      {
+        type: "TOOL_CALL_ARGS",
+        toolCallId,
+        delta: JSON.stringify({ text: extractTodoText(text) }),
+      },
+      { type: "TOOL_CALL_END", toolCallId },
+    ];
+  }
+  return [
+    { type: "TEXT_MESSAGE_START", messageId, role: "assistant" },
+    {
+      type: "TEXT_MESSAGE_CONTENT",
+      messageId,
+      delta:
+        "Here is a draft opening: she put down the cup before she answered, and the kitchen light caught the rim. Send me a direction and I will keep going.",
+    },
+    { type: "TEXT_MESSAGE_END", messageId },
+  ];
+}
+
+function scriptEvents(
+  kind: AgentKind,
+  input: AgUiRunInput,
+): Array<Record<string, unknown>> {
+  const events: Array<Record<string, unknown>> = [];
+  events.push({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });
+  switch (kind) {
+    case "research":
+      events.push(...researchEvents(input));
+      break;
+    case "code":
+      events.push(...codeEvents(input));
+      break;
+    case "writing":
+      events.push(...writingEvents(input));
+      break;
+  }
   events.push({ type: "RUN_FINISHED", threadId: input.threadId, runId: input.runId });
   return events;
 }
 
-app.post("/api/agui", async (c) => {
+async function streamAgent(c: Context, kind: AgentKind): Promise<Response> {
   let input: AgUiRunInput;
   try {
     input = (await c.req.json()) as AgUiRunInput;
   } catch {
     return c.json({ error: "invalid_json" }, 400);
   }
-  const events = scriptEvents(input);
-  // Stream events as SSE so AG-UI's parseSSEStream consumes them naturally.
-  // We yield a 30 ms beat between events so the streaming UI animates rather
-  // than landing in one frame.
+  const events = scriptEvents(kind, input);
   return streamSSE(c, async (stream) => {
-    // STATE events get a longer beat (350 ms) so the timeline animation
-    // is humanly visible. Text message frames stay snappy at 30 ms.
     for (const event of events) {
       await stream.writeSSE({ data: JSON.stringify(event) });
       const isStateFrame =
@@ -300,7 +439,17 @@ app.post("/api/agui", async (c) => {
       await new Promise((r) => setTimeout(r, isStateFrame ? 350 : 30));
     }
   });
-});
+}
+
+// Single-agent endpoint, kept for backward-compat with any existing
+// consumers wiring against /api/agui directly. Routes to the research
+// agent so the timeline demo continues to work.
+app.post("/api/agui", (c) => streamAgent(c, "research"));
+
+// Per-agent endpoints for the multi-agent demo.
+app.post("/api/agui-research", (c) => streamAgent(c, "research"));
+app.post("/api/agui-code", (c) => streamAgent(c, "code"));
+app.post("/api/agui-writing", (c) => streamAgent(c, "writing"));
 
 app.get("/api/health", (c) => c.json({ ok: true, model: MODEL, port: PORT }));
 

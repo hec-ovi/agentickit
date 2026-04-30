@@ -19,6 +19,7 @@
  * `<Pilot>`) or no-op (optional integrations).
  */
 
+import type { AbstractAgent } from "@ag-ui/client";
 import { createContext } from "react";
 import type {
   PilotActionRegistration,
@@ -101,3 +102,72 @@ PilotRegistryContext.displayName = "PilotRegistryContext";
 
 export const PilotChatContext = createContext<PilotChatContextValue | null>(null);
 PilotChatContext.displayName = "PilotChatContext";
+
+/**
+ * Multi-agent registry surface (Phase 7). The provider owns a
+ * `Map<agentId, AbstractAgent>` and exposes register / unregister methods
+ * plus a `useSyncExternalStore`-compatible subscribe / getSnapshot pair.
+ *
+ * Why a separate context (not the existing `PilotRegistryContext`):
+ *
+ *   - `PilotRegistryContext` owns actions / state / forms (per-Pilot-tree
+ *     concepts that namespace by `<Pilot>`). The agent registry is at a
+ *     LARGER scope: typically a single root provider holds every agent
+ *     the app might mount, and individual `<Pilot>` trees consume from
+ *     it. Mixing them would force every Pilot to re-publish the agent
+ *     map.
+ *   - The registry can be mounted ABOVE one or more Pilots, so multiple
+ *     surfaces (sidebar + popup + inline) can each look up the same
+ *     agent by id without duplicating construction.
+ *   - Default `null` means "no agent registry mounted"; consumer hooks
+ *     return `undefined` / empty list gracefully so an app without
+ *     multi-agent support never crashes.
+ */
+export interface PilotAgentRegistryContextValue {
+  /**
+   * Register an agent under `id`. Last-wins on duplicate id (matches the
+   * action registry's last-wins semantics so component remounts under
+   * `id` replace cleanly). Returns the registration's internal handle so
+   * `unregister` can target the exact registration even when the same
+   * `id` has been replaced.
+   */
+  register: (id: string, agent: AbstractAgent) => RegistrationHandle;
+  /** Remove a specific registration by handle. No-op if already removed. */
+  unregister: (handle: RegistrationHandle) => void;
+  /**
+   * `useSyncExternalStore`-compatible subscribe. Fires whenever the
+   * registry mutates (register / unregister / replace).
+   */
+  subscribe: (listener: () => void) => () => void;
+  /**
+   * Read the agent registered under `id`, or `undefined` if none. The
+   * agent reference under a given `id` is stable until a new
+   * registration replaces it (or the id is unregistered); each call to
+   * `getAgent` performs a fresh lookup.
+   */
+  getAgent: (id: string) => AbstractAgent | undefined;
+  /**
+   * Snapshot of every registered agent in registration order. The
+   * returned array reference changes on every mutation, so consumers can
+   * memoize on it for `useSyncExternalStore` correctness.
+   */
+  list: () => ReadonlyArray<{ readonly id: string; readonly agent: AbstractAgent }>;
+}
+
+/**
+ * Handle returned by `register`. Opaque to consumers; the registry uses
+ * it internally to identify a specific registration when deregistering,
+ * so a stale `useEffect` cleanup from a remounted hook can't accidentally
+ * deregister a fresh agent that was registered under the same `id` after
+ * the prior one unmounted.
+ */
+export interface RegistrationHandle {
+  /** Internal monotonic id, opaque to consumers. */
+  readonly token: number;
+  /** The registry id this handle was created for. */
+  readonly id: string;
+}
+
+export const PilotAgentRegistryContext =
+  createContext<PilotAgentRegistryContextValue | null>(null);
+PilotAgentRegistryContext.displayName = "PilotAgentRegistryContext";

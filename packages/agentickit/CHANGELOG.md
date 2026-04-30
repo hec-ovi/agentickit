@@ -121,6 +121,60 @@ Items deliberately deferred to a follow-up (low value or not needed for v3b):
 
 Before phase: 234 passing across 21 files. After phase: **266 passing across 22 files. Zero regressions. `pnpm typecheck` clean across the workspace, `pnpm build` succeeds, runtime bundle is `@ag-ui/client`-free.**
 
+### Added, Phase 7: Multi-agent registry (Agent Lock Mode)
+
+A multi-agent registry so consumers can publish several `AbstractAgent` instances under stable ids and switch between them at runtime via the existing runtime-swap mechanism. Composes naturally with everything from prior phases: hot-swappable runtime, generative UI, `usePilotAgentState`, the chat surfaces. No new APIs in `<Pilot>`; the consumer threads `useAgent(id)` into `agUiRuntime({ agent })`.
+
+- **`<PilotAgentRegistry>`** (`src/components/pilot-agent-registry.tsx`), top-level provider that owns a `Map<string, AbstractAgent>` plus `useSyncExternalStore`-compatible subscribe / getSnapshot. Cached snapshot for `list()` so consumers reading via `useAgents()` see a stable reference between mutations. Last-wins on duplicate id with a dev-mode `console.warn` (mirrors the action / state registry's diagnostic behavior).
+- **`useRegisterAgent(id, factory)`** (`src/hooks/use-register-agent.ts`), publishes an agent under a stable id. Constructs the agent exactly once via `useState`'s lazy initializer, registers on mount, deregisters on unmount via a `RegistrationHandle` carrying a monotonic token. The token disambiguates "stale cleanup from an unmounted instance" vs. "remove a fresh registration that took the same id", so a remount-under-replacement sequence converges correctly under React StrictMode and any other dev double-invocation.
+- **`useAgent(id)`** (`src/hooks/use-agent.ts`), reads a registered agent by id via `useSyncExternalStore`. Returns `undefined` for unknown ids (or when no provider is mounted) and re-renders the calling component when the id is registered, replaced, or unregistered.
+- **`useAgents()`** (`src/hooks/use-agents.ts`), lists every agent currently in the registry in registration order. Useful for picker UIs. Stable empty-array fallback when no provider is mounted so pickers can render in either context.
+- **No `agent.abortRun()` in `useRegisterAgent` cleanup.** Aborting a run is a runtime-layer concern (the runtime owns the in-flight stream and exposes its own `stop` callback). If multiple `useRegisterAgent` calls share the same agent reference under different ids, an unmount-time abort on one would tear down a run the other registration's runtime is mid-stream on; the registry stays out of the way. Documented in the hook header.
+- **20 new tests** across two files:
+  - `src/hooks/use-register-agent.test.tsx` (14 unit tests): empty-mount, no-provider fallback, register-on-mount, factory-called-once-across-renders, deregister-on-unmount-without-abort, last-wins, stale-token-cleanup-safety, StrictMode convergence, undefined-then-registered-then-unregistered, list-in-registration-order, snapshot-reference-stability for `useAgents`, agent-reference-stability for `useAgent`.
+  - `src/runtime/multi-agent.test.tsx` (7 integration tests): two-agent swap routes runs correctly, separate messages history per agent (preserved on swap-back), independent `usePilotAgentState` stores, registered actions dispatch only to the active agent's runtime, picker UI driven by `useAgents` stays in sync, zero React errors during rapid swaps (regression for Phase 3b polish runtime-bridge fix), AND a StrictMode variant of the rapid-swap test so the dev double-invocation can't break in a future refactor.
+- **Example demo**: `examples/todo` extended with three agents (`research` / `code` / `writing`), each at its own URL (`/api/agui-research`, `/api/agui-code`, `/api/agui-writing`). The mock server has distinct scripted behaviors per agent (research streams the timeline; code returns a code-block; writing returns prose). The agent picker UI appears below the runtime picker when AG-UI is active. Switching agents demonstrates per-agent message history isolation.
+
+### Public API additions, Phase 7
+
+`src/index.ts` adds:
+- `PilotAgentRegistry` (component)
+- `useRegisterAgent`, `useAgent`, `useAgents` (hooks)
+- `PilotAgentRegistryProps` (type)
+
+`src/context.ts` adds:
+- `PilotAgentRegistryContext` (context)
+- `PilotAgentRegistryContextValue`, `RegistrationHandle` (types)
+
+### Phase 7 review applied
+
+A `general-purpose` review agent audited the diff. Findings applied:
+- **M1 (must fix)**: `useRegisterAgent`'s cleanup no longer calls `agent.abortRun()`. Original behavior was unsafe for the shared-agent case (different `useRegisterAgent` calls aliasing the same agent under different ids); the runtime layer already handles run abort via its own `stop` callback. Test renamed accordingly and asserts `abortRun` is NOT called on unmount.
+- **S1 (should fix)**: Provider's `register` now logs `console.warn` on duplicate-id replacement in dev, matching the action / state registry convention.
+- **S3 (should fix)**: Added test for `useAgent(id)` reference stability between unrelated re-renders (no torn reads).
+- **S4 (should fix)**: Added a StrictMode variant of the multi-agent rapid-swap integration test.
+- **N1 (nit applied)**: `useRegisterAgent` switched from `useRef(null) + lazy init + null check` to `useState(factory)` for the more idiomatic React 19 pattern.
+- **N3 (nit applied)**: Tightened `getAgent`'s docstring to clarify "agent reference under id is stable until replaced; each call performs a fresh lookup."
+
+Items deliberately deferred:
+- N2 (EMPTY constant for useAgent return) - not needed; primitives don't tear.
+- N5 (accessibility on agent picker) - already correct (fieldset/legend/label-wraps-input).
+
+### Test status, Phase 7
+
+Before phase: 273 passing across 23 files. After phase: **294 passing across 25 files. Zero regressions. `pnpm typecheck` clean across the workspace, `pnpm build` succeeds.**
+
+### Real-browser smoke, Phase 7 (2026-04-30)
+
+`examples/todo` booted with multi-agent registry, driven via agent-browser CDP automation. Screenshots captured at `.research/agentickit-phases/screenshots/15-19-*.png`.
+
+Verified end-to-end:
+
+- **Three agents registered.** Switching the runtime picker to "agUiRuntime" reveals the agent picker (research / code / writing) below it. All three are registered via `useRegisterAgent` against three distinct mock-server URLs.
+- **Per-agent message isolation.** User sends "Process my data" to research -> timeline animates through STATE_DELTA events, "All three steps complete" reply lands. Switch to code -> empty-state caption updates to "Scripted 'code' agent...", chat history is empty. Send "Show me a TS function" -> code-block reply lands. Switch to writing -> empty state again, send "Draft a paragraph" -> prose reply. Switch back to research -> previous research conversation history reappears in the chat (proven by the surviving "Process my data" + "All three steps complete" exchange).
+- **Tool-call dispatch through active agent.** Research agent emits `TOOL_CALL_END` for `add_todo` when prompted, runtime dispatches through the active Pilot's registry, todo "a todo to call dad" appears in the visible todo widget, agent acknowledges via text. Same `add_todo` registration is visible to whichever agent is currently active.
+- **Console clean.** Zero React warnings, zero errors across the full multi-agent swap sequence. Phase 3b runtime-bridge fix continues to hold under multi-agent traffic.
+
 ### Added, Phase 5: Generative UI
 
 - **`<PilotAgentStateView>`** (`src/components/pilot-agent-state-view.tsx`), JSX-friendly wrapper around `usePilotAgentState`. Takes `agent` and `render(state)` props; subscribes to the agent's per-agent state store and re-renders the consumer's render function whenever STATE_SNAPSHOT or STATE_DELTA arrives. Generic `T` flows through to the render callback so consumers get typed access to their state shape. `usePilotAgentState` remains the primary hook API; this component is sugar for declarative JSX.

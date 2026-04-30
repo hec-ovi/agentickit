@@ -12,7 +12,7 @@ Three hooks, four chat surfaces (sidebar, popup, modal, headless), swappable run
 > Sits in the gap between Vercel AI SDK's primitives and CopilotKit's enterprise framework: small, typed, opinionated on the integration layer. Optional AG-UI runtime lets you mount the same chat surfaces on top of LangGraph CoAgents, CrewAI, Mastra, or any `AbstractAgent`.
 
 - 📦 [Full documentation + roadmap + FAQ on GitHub](https://github.com/hec-ovi/agentickit)
-- 🧪 [Testing notes (273 automated tests + vLLM e2e)](https://github.com/hec-ovi/agentickit#testing)
+- 🧪 [Testing notes (294 automated tests + vLLM e2e)](https://github.com/hec-ovi/agentickit#testing)
 - 📜 [CHANGELOG](./CHANGELOG.md)
 - 🎮 [Runnable demo: `examples/todo`](https://github.com/hec-ovi/agentickit/tree/master/examples/todo)
 - 🐛 [Report an issue](https://github.com/hec-ovi/agentickit/issues)
@@ -163,6 +163,15 @@ See the "At a glance" snippet above, or the [runnable demo](https://github.com/h
 | `usePilotAgentState<T>(agent)` | Subscribe to the agent's state via STATE_SNAPSHOT / STATE_DELTA |
 | `usePilotAgentActivity(agent)` | Subscribe to ACTIVITY_* and REASONING_* streams |
 
+### Multi-agent registry (Agent Lock Mode)
+
+| Export | Purpose |
+| --- | --- |
+| `<PilotAgentRegistry>` | Top-level provider holding a `Map<agentId, AbstractAgent>`. Optional; only needed for multi-agent setups |
+| `useRegisterAgent(id, factory)` | Construct an agent once and publish under `id`. Returns the agent reference |
+| `useAgent(id)` | Read a registered agent by id. Returns `undefined` for unknown ids; re-renders on registry changes |
+| `useAgents()` | List every registered agent for picker UIs |
+
 ### Server
 
 ```ts
@@ -241,7 +250,7 @@ Full comparison table: [alternatives on GitHub](https://github.com/hec-ovi/agent
 
 ## Testing
 
-Ships with **273 automated tests** across 23 files (`pnpm test`). The suite includes 23 component-level integration scenarios that mount a real `<Pilot>` tree in `happy-dom`, replay scripted SSE frames, simulate user clicks, and assert on exact HTTP fetch counts so the dangerous class of bugs (infinite resubmit loops that drain API credits) fails CI before it ships. Plus 52 chat-surface tests with real `fireEvent` user simulation, 8 renderAndWait HITL tests, 24 runtime-swap + AG-UI tests against a fake AG-UI agent that exercises the real `defaultApplyEvents` apply pipeline, 6 generative-UI tests for `<PilotAgentStateView>`, and unit coverage for every public hook + the server handler + the `.pilot/` parsers + the CLI.
+Ships with **294 automated tests** across 25 files (`pnpm test`). The suite includes 23 component-level integration scenarios that mount a real `<Pilot>` tree in `happy-dom`, replay scripted SSE frames, simulate user clicks, and assert on exact HTTP fetch counts so the dangerous class of bugs (infinite resubmit loops that drain API credits) fails CI before it ships. Plus 52 chat-surface tests with real `fireEvent` user simulation, 8 renderAndWait HITL tests, 24 runtime-swap + AG-UI tests against a fake AG-UI agent that exercises the real `defaultApplyEvents` apply pipeline, 6 generative-UI tests for `<PilotAgentStateView>`, 21 multi-agent registry tests covering registration lifecycle and per-agent state isolation under Pilot, and unit coverage for every public hook + the server handler + the `.pilot/` parsers + the CLI.
 
 Beyond the mocked suite, `v0.1.0` was verified end-to-end against a local **vLLM** server running `openai/gpt-oss-120b` via the bundled `examples/todo` app: multi-tool conversation turns, confirm-modal approve + decline branches, progressive form fill + submit, auto-generated `update_<name>` state setters, and the full structured observability path through `debug` / `log` / `onLogEvent`.
 
@@ -259,6 +268,7 @@ import {
   PilotModal,
   PilotChatView,
   PilotAgentStateView,
+  PilotAgentRegistry,
   PilotConfirmModal,
   usePilotState,
   usePilotAction,
@@ -267,6 +277,9 @@ import {
   agUiRuntime,
   usePilotAgentState,
   usePilotAgentActivity,
+  useRegisterAgent,
+  useAgent,
+  useAgents,
   type PilotProps,
   type PilotSidebarProps,
   type PilotPopupProps,
@@ -276,6 +289,7 @@ import {
   type PilotChatViewHandle,
   type PilotChatViewLabels,
   type PilotAgentStateViewProps,
+  type PilotAgentRegistryProps,
   type PilotConfig,
   type PilotActionRegistration,
   type PilotStateRegistration,

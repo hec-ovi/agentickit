@@ -53,3 +53,16 @@ export type {
   PilotRuntimeConfig,
   PilotIncomingToolCall,
 } from "./runtime/types.js";
+
+// Multi-agent registry (Phase 7, Agent Lock Mode). Wrap your app in
+// <PilotAgentRegistry> and use useRegisterAgent / useAgent / useAgents
+// to publish and read AbstractAgent instances by id. Then drive any
+// <Pilot> tree with the agent of your choice via
+// `agUiRuntime({ agent: useAgent("my-agent") })`.
+export {
+  PilotAgentRegistry,
+  type PilotAgentRegistryProps,
+} from "./components/pilot-agent-registry.js";
+export { useRegisterAgent } from "./hooks/use-register-agent.js";
+export { useAgent } from "./hooks/use-agent.js";
+export { useAgents } from "./hooks/use-agents.js";

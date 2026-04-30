@@ -383,6 +383,61 @@ function StatusBar({ agent }: { agent: AbstractAgent }) {
 
 `agUiRuntime({ agent })` returns a stable runtime instance per agent reference (cached in a `WeakMap`), so consumers don't have to memoize the factory call themselves. `@ag-ui/client` and `@ag-ui/core` are optional peer dependencies; install them only if you use the AG-UI runtime.
 
+### Multi-agent: register and switch between AG-UI agents
+
+Wrap your app in `<PilotAgentRegistry>` and publish each agent under a stable id. `<Pilot>` drives whichever agent is currently active; switching the active id remounts the runtime cleanly without losing per-agent message history (each agent's `messages` array is preserved across swaps).
+
+```tsx
+import {
+  PilotAgentRegistry,
+  Pilot,
+  PilotSidebar,
+  agUiRuntime,
+  useAgent,
+  useAgents,
+  useRegisterAgent,
+} from "@hec-ovi/agentickit";
+import { HttpAgent } from "@ag-ui/client";
+import { useMemo, useState } from "react";
+
+function RegisterAgents() {
+  useRegisterAgent("research", () => new HttpAgent({ url: "/agents/research" }));
+  useRegisterAgent("code", () => new HttpAgent({ url: "/agents/code" }));
+  return null;
+}
+
+function ActiveChat({ activeId }: { activeId: string }) {
+  const agent = useAgent(activeId);
+  const runtime = useMemo(() => (agent ? agUiRuntime({ agent }) : undefined), [agent]);
+  if (!runtime) return null;
+  return <Pilot runtime={runtime}><PilotSidebar /></Pilot>;
+}
+
+function AgentPicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const agents = useAgents();
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)}>
+      {agents.map(({ id }) => <option key={id} value={id}>{id}</option>)}
+    </select>
+  );
+}
+
+export default function App() {
+  const [activeId, setActiveId] = useState("research");
+  return (
+    <PilotAgentRegistry>
+      <RegisterAgents />
+      <AgentPicker value={activeId} onChange={setActiveId} />
+      <ActiveChat activeId={activeId} />
+    </PilotAgentRegistry>
+  );
+}
+```
+
+`useRegisterAgent` constructs the agent once via the factory, registers under the id, and deregisters on unmount. Last-wins on duplicate ids (with a dev-mode warning). `useAgent(id)` re-renders the consumer when the id is registered, replaced, or unregistered. `useAgents()` lists every registered agent for picker UIs. `<PilotAgentRegistry>` is OPTIONAL: single-agent apps don't need to mount it.
+
+The runnable `examples/todo` ships a three-agent demo (research / code / writing), each with distinct scripted behavior on its own mock server endpoint.
+
 ### Generative UI: render components from streamed agent state
 
 When the agent emits structured state via `STATE_SNAPSHOT` and `STATE_DELTA` events (JSON Patch RFC 6902), the runtime applies them and any subscribed component re-renders. Use `<PilotAgentStateView>` for declarative JSX:
@@ -654,13 +709,14 @@ Yes. Hector Oviedo, <hector.ernesto.oviedo@gmail.com>. This library is the portf
 
 ## Testing
 
-`agentickit` ships **273 automated tests** across 23 files under `packages/agentickit/src/**/*.test.{ts,tsx}`, runnable with `pnpm test`. Coverage at a glance:
+`agentickit` ships **294 automated tests** across 25 files under `packages/agentickit/src/**/*.test.{ts,tsx}`, runnable with `pnpm test`. Coverage at a glance:
 
 - **23 component-level integration tests** (`pilot-integration.test.tsx`) that mount a real `<Pilot>` tree in `happy-dom`, install a scripted fetch mock that replays captured-from-real-providers SSE frames, simulate clicks via `@testing-library/react`, and assert on three observable surfaces: the DOM, the handler invocations, and the fetch call count. The fetch-count assertion catches the dangerous class of bugs: infinite resubmit loops that drain API credits.
 - **52 chat-surface tests** across `pilot-chat-view.test.tsx`, `pilot-sidebar.test.tsx`, `pilot-popup.test.tsx`, `pilot-modal.test.tsx`. Real `fireEvent` user simulation: type into the composer, click send, click backdrop, press Escape, Tab through the focus trap. DOM-shape inline snapshots catch silent rename / wrapper-drift regressions.
 - **8 renderAndWait HITL tests** covering respond/cancel paths, mutating + approve combo, mutating + decline (HITL never mounts), respond-twice idempotency, action-unmounted-mid-suspension auto-cancel.
 - **24 runtime-swap + AG-UI tests** verifying the `PilotRuntime` seam contract, the `agUiRuntime` event-stream adapter, tool-call bridging through the registry gate, mutating + confirm gate composition under AG-UI, `usePilotAgentState` / `usePilotAgentActivity` hooks, factory stability via `WeakMap`, the 16-iteration continuation cap, the re-entry guard, and the runtime-swap regression test (Rules-of-Hooks safety across runtime prop changes).
 - **6 generative-UI tests** for `<PilotAgentStateView>`: undefined-state-before-mount, initial-state-seeded, STATE_SNAPSHOT propagation, STATE_DELTA via JSON Patch, multi-consumer-single-source-of-truth, identity-stable updates do not churn renders.
+- **21 multi-agent registry tests**: 14 unit tests for `<PilotAgentRegistry>` + `useRegisterAgent` / `useAgent` / `useAgents` (registration lifecycle, last-wins, stale-token-safety, StrictMode convergence, snapshot stability, register/unregister roundtrip), plus 7 integration tests covering multi-agent + Pilot + agUiRuntime composition (per-agent message isolation, separate state stores, tool-call dispatch through active agent only, picker UI sync, zero React errors during rapid swaps with and without StrictMode).
 - Unit coverage for every public hook (`usePilotState` / `usePilotAction` / `usePilotForm`), the server handler's provider-resolution + request-body validation + error envelope, the `.pilot/` protocol parsers, the `agentickit` CLI (init + add-skill with exit-code assertions), and the structured-event logger.
 
 ### Live verification against vLLM + `openai/gpt-oss-120b`
@@ -698,6 +754,7 @@ These gaps are what keep this release pre-1.0.
 - **Runtime abstraction**: `localRuntime()` (default, AI SDK 6 over HTTP) and `agUiRuntime({ agent })` (AG-UI agents). Swap via `<Pilot runtime={...}>`.
 - **AG-UI hooks**: `usePilotAgentState<T>(agent)`, `usePilotAgentActivity(agent)` for STATE_*, ACTIVITY_*, REASONING_* streams.
 - **Generative UI**: `<PilotAgentStateView>` declarative wrapper for rendering components from streamed agent state.
+- **Multi-agent registry**: `<PilotAgentRegistry>`, `useRegisterAgent`, `useAgent`, `useAgents` to publish multiple AG-UI agents under stable ids and switch between them at runtime (Agent Lock Mode).
 - **`createPilotHandler`** for Next.js / Bun / Workers, with direct adapters for `openai/*`, `anthropic/*`, `groq/*`, `openrouter/*`, `google/*`, `mistral/*`, plus Vercel AI Gateway fallback and a `LanguageModel`-instance escape hatch.
 - **`.pilot/` markdown protocol**: `RESOLVER.md` + `skills/<name>/SKILL.md`, auto-loaded by `createPilotHandler` at startup.
 - **`agentickit` CLI**: `init` + `add-skill` scaffold and grow `.pilot/` without hand-writing markdown.
@@ -707,7 +764,6 @@ These gaps are what keep this release pre-1.0.
 
 - **Server-side AG-UI emitter**: optional adapter so agentickit's own server route can be consumed by external AG-UI clients (`@ag-ui/vercel-ai-sdk`).
 - **MCP tool activity rendering**: sandboxed iframe + JSON-RPC bridge for MCP-supplied UI.
-- **Multi-agent**: registered `Map<agentId, Agent>`, per-agent registry namespacing, programmatic `runAgent(agent, input)`.
 - **Resolver validator**: startup health check that flags orphan skills, missing files, and drift between `RESOLVER.md` and the filesystem.
 
 ### Out of scope
