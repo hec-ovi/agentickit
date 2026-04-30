@@ -36,8 +36,14 @@ export {
 
 // Runtime abstraction. The default `<Pilot>` ships with `localRuntime()`
 // (AI SDK 6 over HTTP/SSE); consumers can swap in any implementation of
-// `PilotRuntime`, e.g. a future `agUiRuntime({ runtimeUrl, agentId })`.
+// `PilotRuntime`, e.g. `agUiRuntime({ agent })` for AG-UI agents.
 export { localRuntime } from "./runtime/local-runtime.js";
+export {
+  agUiRuntime,
+  usePilotAgentState,
+  usePilotAgentActivity,
+  type AgUiRuntimeOptions,
+} from "./runtime/ag-ui-runtime.js";
 export type {
   PilotRuntime,
   PilotRuntimeConfig,

@@ -2,19 +2,19 @@
 
 **Wire an AI copilot into your React app's state, actions, and forms.**
 
-Three hooks, one sidebar, an optional `.pilot/` skills folder, and a one-line server handler. Built on the [Vercel AI SDK 6](https://ai-sdk.dev). MIT.
+Three hooks, four chat surfaces (sidebar, popup, modal, headless), swappable runtime (default AI SDK 6, optional AG-UI), an optional `.pilot/` skills folder, and a one-line server handler. Built on the [Vercel AI SDK 6](https://ai-sdk.dev). MIT.
 
 [![npm version](https://img.shields.io/npm/v/%40hec-ovi%2Fagentickit.svg?color=black&label=npm)](https://www.npmjs.com/package/@hec-ovi/agentickit)
 [![license: MIT](https://img.shields.io/badge/license-MIT-black.svg)](https://github.com/hec-ovi/agentickit/blob/master/LICENSE)
 [![built on AI SDK 6](https://img.shields.io/badge/built%20on-AI%20SDK%206-black.svg)](https://ai-sdk.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-ready-black.svg)](https://www.typescriptlang.org/)
 
-> Sits in the gap between Vercel AI SDK's primitives and CopilotKit's enterprise framework: small, typed, opinionated on the integration layer. Not a chatbot framework, not a browser-use agent, not a LangGraph runner.
+> Sits in the gap between Vercel AI SDK's primitives and CopilotKit's enterprise framework: small, typed, opinionated on the integration layer. Optional AG-UI runtime lets you mount the same chat surfaces on top of LangGraph CoAgents, CrewAI, Mastra, or any `AbstractAgent`.
 
 - 📦 [Full documentation + roadmap + FAQ on GitHub](https://github.com/hec-ovi/agentickit)
-- 🧪 [Testing notes (170 automated tests + vLLM e2e)](https://github.com/hec-ovi/agentickit#testing)
+- 🧪 [Testing notes (266 automated tests + vLLM e2e)](https://github.com/hec-ovi/agentickit#testing)
 - 📜 [CHANGELOG](./CHANGELOG.md)
-- 🎮 [Runnable demo: `examples/todo`](https://github.com/hec-ovi/agentickit/tree/master/examples/todo) — Vite + Hono with three widgets and a live tool-call log panel
+- 🎮 [Runnable demo: `examples/todo`](https://github.com/hec-ovi/agentickit/tree/master/examples/todo)
 - 🐛 [Report an issue](https://github.com/hec-ovi/agentickit/issues)
 
 ---
@@ -66,10 +66,10 @@ The AI now sees `cart_total` and can call `apply_discount`. `mutating: true` pop
 
 ```bash
 # One line. `ai`, `@ai-sdk/react`, `zod`, `nanoid` are regular deps of
-# the package and come along automatically — you don't need to list them.
+# the package and come along automatically (you don't need to list them).
 npm install @hec-ovi/agentickit
 
-# Plus exactly one provider adapter (optional peer deps — install what you use):
+# Plus exactly one provider adapter (optional peer deps, install what you use):
 npm install @openrouter/ai-sdk-provider    # free tier, no credit card
 #   or: npm install @ai-sdk/openai         # OPENAI_API_KEY
 #   or: npm install @ai-sdk/anthropic      # ANTHROPIC_API_KEY
@@ -137,7 +137,7 @@ See the "At a glance" snippet above, or the [runnable demo](https://github.com/h
 | Hook | Purpose | Auto-registers |
 | --- | --- | --- |
 | `usePilotState({ name, description, value, schema, setValue? })` | Expose React state to the AI | `update_<name>` tool when `setValue` is supplied |
-| `usePilotAction({ name, description, parameters, handler, mutating? })` | Register a typed, AI-callable tool. Handler runs in the browser | — |
+| `usePilotAction({ name, description, parameters, handler, mutating?, renderAndWait? })` | Register a typed, AI-callable tool. Handler runs in the browser. `renderAndWait` mounts a custom UI and pauses until the user resolves it | (none) |
 | `usePilotForm(form, { name?, ghostFill? })` | Attach a `react-hook-form` instance | `set_<name>_field`, `submit_<name>`, `reset_<name>` |
 
 `mutating: true` on any action (or via `usePilotState`'s auto-registered update tool) triggers a themed confirm modal before the handler fires. Override the modal via `<Pilot renderConfirm={…} />`.
@@ -146,9 +146,21 @@ See the "At a glance" snippet above, or the [runnable demo](https://github.com/h
 
 | Component | Purpose |
 | --- | --- |
-| `<Pilot apiUrl? model? headers? renderConfirm?>` | Top-level provider. Owns the tool / state / form registry and drives AI SDK 6's `useChat` |
+| `<Pilot apiUrl? model? headers? runtime? renderConfirm?>` | Top-level provider. Owns the tool / state / form registry and drives the runtime (`localRuntime` by default, swappable) |
 | `<PilotSidebar />` | Slide-in chat panel. Dark mode, CSS-variable theming, suggestion chips, keyboard-accessible |
+| `<PilotPopup />` | Floating chat bubble anchored to a corner. Toggle hides while open (Intercom convention) |
+| `<PilotModal />` | Centered backdrop dialog. Controlled-only, focus trap, Escape and backdrop-click close, focus restoration |
+| `<PilotChatView />` | Headless chat body the others wrap. Mount inside any custom chrome |
 | `<PilotConfirmModal />` | Themed confirm modal for mutating actions. Re-exported for custom layouts |
+
+### Runtimes
+
+| Function | Purpose |
+| --- | --- |
+| `localRuntime({ apiUrl?, model? })` | Default. Drives `useChat` from `@ai-sdk/react` against the HTTP route created by `createPilotHandler` |
+| `agUiRuntime({ agent })` | Drives an AG-UI `AbstractAgent` from `@ag-ui/client`. Optional peer dep; install `@ag-ui/client` + `@ag-ui/core` to use |
+| `usePilotAgentState<T>(agent)` | Subscribe to the agent's state via STATE_SNAPSHOT / STATE_DELTA |
+| `usePilotAgentActivity(agent)` | Subscribe to ACTIVITY_* and REASONING_* streams |
 
 ### Server
 
@@ -167,19 +179,19 @@ import { createPilotHandler } from "@hec-ovi/agentickit/server";
 | `getProviderOptions` | none | Per-request provider tuning (caching hints, thinking budgets) |
 | `debug` | `false` | Stream a compact per-request transcript to the server console |
 | `log` | `false` | Append the same lines to `./debug/agentickit-YYYY-MM-DD.log` (pass a string for a custom dir) |
-| `onLogEvent` | none | Structured `PilotLogEvent` subscriber — wire to SSE / EventEmitter for live observability |
+| `onLogEvent` | none | Structured `PilotLogEvent` subscriber. Wire to SSE / EventEmitter for live observability |
 
 Full options reference, security notes, and runtime matrix: [server-handler docs on GitHub](https://github.com/hec-ovi/agentickit#server-handler).
 
 ### `.pilot/` skills folder
 
-Ship capabilities as markdown. The server reads `RESOLVER.md` plus every `skills/<name>/SKILL.md` at startup and composes the system prompt from them. Edit markdown, restart the dev server, behavior changes — no TypeScript touched. Frontmatter is a strict superset of Anthropic's Agent Skills spec and Garry Tan's gbrain SKILL.md convention.
+Ship capabilities as markdown. The server reads `RESOLVER.md` plus every `skills/<name>/SKILL.md` at startup and composes the system prompt from them. Edit markdown, restart the dev server, behavior changes (no TypeScript touched). Frontmatter is a strict superset of Anthropic's Agent Skills spec and Garry Tan's gbrain SKILL.md convention.
 
 Full spec + interop notes (Claude Code, Cursor, MCP): [`.pilot/` docs on GitHub](https://github.com/hec-ovi/agentickit#the-pilot-skills-folder).
 
 ### CLI
 
-Ships as the `agentickit` bin (no extra install — it's a transitive bin once you install the package).
+Ships as the `agentickit` bin (no extra install; it's a transitive bin once you install the package).
 
 ```bash
 npx agentickit init                 # create .pilot/ with one example skill
@@ -188,7 +200,7 @@ npx agentickit --help               # usage + exit codes
 npx agentickit --version            # current package version
 ```
 
-Skill names must be kebab-case. `init` refuses to overwrite an existing folder; `add-skill` refuses duplicates and requires `.pilot/` to exist first. Both commands emit the canonical markdown shape the parser accepts — hand-edit the prose, leave the frontmatter keys alone. Full reference: [CLI docs on GitHub](https://github.com/hec-ovi/agentickit#the-agentickit-cli).
+Skill names must be kebab-case. `init` refuses to overwrite an existing folder; `add-skill` refuses duplicates and requires `.pilot/` to exist first. Both commands emit the canonical markdown shape the parser accepts (hand-edit the prose, leave the frontmatter keys alone). Full reference: [CLI docs on GitHub](https://github.com/hec-ovi/agentickit#the-agentickit-cli).
 
 ### Protocol parsers (advanced)
 
@@ -210,17 +222,17 @@ import { parseResolver, parseSkill } from "@hec-ovi/agentickit/protocol";
 | `openrouter/` | `OPENROUTER_API_KEY` | `@openrouter/ai-sdk-provider` | `openrouter/qwen/qwen3-coder:free` |
 | `google/` | `GOOGLE_GENERATIVE_AI_API_KEY` | `@ai-sdk/google` | `google/gemini-2.5-flash` |
 | `mistral/` | `MISTRAL_API_KEY` | `@ai-sdk/mistral` | `mistral/mistral-small-latest` |
-| _any of the above_ | `AI_GATEWAY_API_KEY` | none — routes through [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) | `openai/gpt-4o-mini` |
+| _any of the above_ | `AI_GATEWAY_API_KEY` | none, routes through [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) | `openai/gpt-4o-mini` |
 
-OpenAI-compatible local servers (vLLM, Ollama, LM Studio, Fireworks, Together, DeepInfra) work via `OPENAI_BASE_URL` — the handler automatically switches the adapter to Chat Completions mode so tool-calling stays wired. For anything not in this list, pass a `LanguageModel` instance.
+OpenAI-compatible local servers (vLLM, Ollama, LM Studio, Fireworks, Together, DeepInfra) work via `OPENAI_BASE_URL`. The handler automatically switches the adapter to Chat Completions mode so tool-calling stays wired. For anything not in this list, pass a `LanguageModel` instance.
 
 ---
 
 ## Why `@hec-ovi/agentickit`?
 
-- **vs CopilotKit** — CopilotKit is the Fortune-500 choice (AG-UI, CoAgents, managed cloud, ~60 kLoC). agentickit is ~5 % of that surface, for solo devs and small teams who want the integration layer without the platform.
-- **vs assistant-ui** — assistant-ui ships 30+ chat primitives for you to assemble. agentickit ships one opinionated sidebar plus the state/actions/forms wiring assistant-ui leaves to you.
-- **vs raw AI SDK** — `useChat` + `streamText` is the right call if you want to write the integration layer yourself. agentickit *is* that layer.
+- **vs CopilotKit:** CopilotKit is the Fortune-500 choice (CoAgents, managed cloud, ~60 kLoC). agentickit is ~10% of that surface, for solo devs and small teams who want the integration layer without the platform. We do speak AG-UI via the optional `agUiRuntime` so you can drop us in front of any AG-UI agent without their full runtime.
+- **vs assistant-ui:** assistant-ui ships 30+ chat primitives for you to assemble. agentickit ships four opinionated chat surfaces plus the state/actions/forms wiring assistant-ui leaves to you.
+- **vs raw AI SDK:** `useChat` + `streamText` is the right call if you want to write the integration layer yourself. agentickit *is* that layer.
 
 Full comparison table: [alternatives on GitHub](https://github.com/hec-ovi/agentickit#compared-to-alternatives).
 
@@ -228,7 +240,7 @@ Full comparison table: [alternatives on GitHub](https://github.com/hec-ovi/agent
 
 ## Testing
 
-Ships with **170 automated tests** across 15 files (`pnpm test`). The suite includes 23 component-level integration scenarios that mount a real `<Pilot>` tree in `happy-dom`, replay scripted SSE frames, simulate user clicks, and assert on exact HTTP fetch counts — so the dangerous class of bugs (infinite resubmit loops that drain API credits) fails CI before it ships.
+Ships with **266 automated tests** across 22 files (`pnpm test`). The suite includes 23 component-level integration scenarios that mount a real `<Pilot>` tree in `happy-dom`, replay scripted SSE frames, simulate user clicks, and assert on exact HTTP fetch counts so the dangerous class of bugs (infinite resubmit loops that drain API credits) fails CI before it ships. Plus 52 chat-surface tests with real `fireEvent` user simulation, 8 renderAndWait HITL tests, 23 runtime-swap + AG-UI tests against a fake AG-UI agent that exercises the real `defaultApplyEvents` apply pipeline, and unit coverage for every public hook + the server handler + the `.pilot/` parsers + the CLI.
 
 Beyond the mocked suite, `v0.1.0` was verified end-to-end against a local **vLLM** server running `openai/gpt-oss-120b` via the bundled `examples/todo` app: multi-tool conversation turns, confirm-modal approve + decline branches, progressive form fill + submit, auto-generated `update_<name>` state setters, and the full structured observability path through `debug` / `log` / `onLogEvent`.
 
@@ -242,11 +254,25 @@ Full testing notes + verified flows + known gaps: [Testing section on GitHub](ht
 import {
   Pilot,
   PilotSidebar,
+  PilotPopup,
+  PilotModal,
+  PilotChatView,
   PilotConfirmModal,
   usePilotState,
   usePilotAction,
   usePilotForm,
+  localRuntime,
+  agUiRuntime,
+  usePilotAgentState,
+  usePilotAgentActivity,
+  type PilotProps,
   type PilotSidebarProps,
+  type PilotPopupProps,
+  type PilotPopupPosition,
+  type PilotModalProps,
+  type PilotChatViewProps,
+  type PilotChatViewHandle,
+  type PilotChatViewLabels,
   type PilotConfig,
   type PilotActionRegistration,
   type PilotStateRegistration,
@@ -255,6 +281,12 @@ import {
   type PilotMessagePart,
   type PilotConfirmRender,
   type PilotConfirmRenderArgs,
+  type PilotRenderAndWait,
+  type PilotRenderAndWaitArgs,
+  type PilotRuntime,
+  type PilotRuntimeConfig,
+  type PilotIncomingToolCall,
+  type AgUiRuntimeOptions,
 } from "@hec-ovi/agentickit";
 
 import {

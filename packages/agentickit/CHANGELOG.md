@@ -68,7 +68,74 @@ Pushback from the user on the testing bar. Three follow-ups:
 
 Test status after hardening: **234 passing across 21 files**. Net +11 tests since Phase 3a sealed (5 user-flow + 4 inline snapshots, plus 2 portaling/empty-state assertions on the modal).
 
-### End-to-end verification status (Phases 1 + 2 + 3a)
+### Added, Phase 3b: AG-UI runtime
+
+Phase 3b ships a second `PilotRuntime` implementation, `agUiRuntime({ agent })`, that drives an AG-UI `AbstractAgent` from `@ag-ui/client@0.0.53`. Mounting `<Pilot runtime={agUiRuntime({ agent })}>` reuses every existing chrome (`<PilotSidebar>`, `<PilotPopup>`, `<PilotModal>`), the registry, the confirm-modal gate, and the `renderAndWait` HITL primitive on top of an AG-UI agent (LangGraph, CrewAI, Mastra, Pydantic AI, or any custom `AbstractAgent` subclass).
+
+- **`agUiRuntime(options): PilotRuntime`** (`src/runtime/ag-ui-runtime.ts`), event-stream-to-`PilotChatContextValue` adapter. Subscribes to the agent via `agent.subscribe(subscriber)`, converts AG-UI's discriminated-union `Message[]` into the AI SDK 6 `UIMessage` shape `<PilotChatView>` consumes, maps lifecycle events (RUN_STARTED, TEXT_MESSAGE_*, TOOL_CALL_*, RUN_FINISHED, RUN_ERROR) onto `submitted | streaming | ready | error` status, and bridges client-side tool calls. Returns a stable runtime instance per agent reference (cached in a `WeakMap`) so `<Pilot>`'s memoization sees stable identity without consumer-side `useMemo`.
+- **`usePilotAgentState<T>(agent): T | undefined`** (`src/runtime/ag-ui-runtime.ts`), reads the agent's current state via `useSyncExternalStore`. Re-renders the calling component whenever STATE_SNAPSHOT or STATE_DELTA arrives. Per-agent stores keyed by `WeakMap<AbstractAgent, AgentStore>` so multiple consumers share a single source of truth and stores get GC'd when their agent does.
+- **`usePilotAgentActivity(agent): { activities, reasoning }`** (`src/runtime/ag-ui-runtime.ts`), surfaces the agent's activity messages and reasoning blocks (filtered out of the chat list) as separate streams for consumer rendering.
+- **Optional peer dependencies.** `@ag-ui/client@^0.0.53` and `@ag-ui/core@^0.0.53` are declared with `peerDependenciesMeta.optional`. agentickit imports types from them via `import type` only; verified via `grep -c '@ag-ui/client' dist/index.cjs` returns 0. Consumers who only use `localRuntime` pay zero bundle cost.
+- **Tool-call bridge with registry gate.** `onToolCallEndEvent` only dispatches if the tool is in the local registry (matching by name in `getSnapshot().actions`). Server-side tools that resolve via inline `TOOL_CALL_RESULT` are left to the server, no duplicate `role: "tool"` message is appended. Mutating actions still gate behind the confirm modal, `renderAndWait` still mounts HITL UI.
+- **Continuation loop with safety cap.** After every `agent.runAgent()` resolves, the runtime checks whether any client tool was dispatched in the run; if so, it re-runs with the new `role: "tool"` message included in the agent's messages. Capped at 16 iterations; on overflow the runtime surfaces a chat error and stops the loop (also logs `console.warn`). Re-entry guard on `sendMessage` prevents two concurrent runs from interleaving when a programmatic caller bypasses the chat view's loading-state gate.
+- **`prepareRunParameters` extension hook.** Optional callback on `AgUiRuntimeOptions` for injecting `forwardedProps` or extra tools/context per run. Tools and context CONCATENATE with the registry-derived defaults rather than replacing them, so `prepareRunParameters: () => ({ tools: [extra] })` adds an extra tool instead of nuking the registry's tools.
+- **32 new tests** in `src/runtime/ag-ui-runtime.test.tsx` across 8 buckets:
+  - `convertMessages` pure unit tests (8): user, assistant, tool fold, error fold, orphan tool calls, activity/reasoning filter, multimodal collapse, JSON parse fallback.
+  - `<Pilot runtime={agUiRuntime}>` integration (6): empty-state, type+send happy path, immediate user-message render, RUN_ERROR banner, Observable-throw banner, registered-action tool list forwarded to runs.
+  - Tool-call bridging (5): client-side dispatch + continuation, server-side tool not dispatched (registry gate), mutating + confirm gate, mutating + decline produces `ok:false` message, renderAndWait + respond.
+  - State + activity hooks (5): seeds initial state, STATE_SNAPSHOT propagates, STATE_DELTA via JSON Patch, ACTIVITY_SNAPSHOT surfaces, multi-consumer single source of truth.
+  - Stop / lifecycle (1): clicking 'Stop generating' aborts the run AND re-enables Send button.
+  - Factory stability (4): same agent returns same runtime, different agents return different runtimes, `prepareRunParameters` bypasses cache, tools/context concatenate with overrides.
+  - Continuation cap (1): 20-iteration tool-loop stops at 16, error surfaces in chat banner.
+  - Re-entry guard (1): two concurrent `sendMessage` calls; only the first runs.
+
+  All 32 tests use a `FakeAgent extends AbstractAgent` whose `run(input)` emits scripted events via rxjs `Observable` (`Promise.resolve().then(...)` for queue ordering). Real `fireEvent.change` on the composer + `fireEvent.click` on send / confirm / HITL respond throughout. No `fetch` mock needed; no API credit consumed.
+
+### Changed, Phase 3b
+
+- **`packages/agentickit/package.json`** declares `@ag-ui/client` and `@ag-ui/core` as optional peer dependencies plus matching dev dependencies (with `rxjs@7.8.1`). Both also added to `peerDependenciesMeta` with `optional: true`.
+- **`packages/agentickit/src/index.ts`** exports `agUiRuntime`, `usePilotAgentState`, `usePilotAgentActivity`, `AgUiRuntimeOptions`.
+
+### Phase 3b review applied
+
+A `general-purpose` review agent audited the diff. MUST_FIX items applied:
+- M1: Status now seeded from `agent.isRunning` so a remount mid-run reflects the agent's actual streaming state instead of falsely showing "ready".
+- M2: `onToolCallEndEvent` gates on the tool being in the local registry. Server-side tools with inline `TOOL_CALL_RESULT` no longer get a duplicate client tool message + redundant follow-up run.
+- M3: Factory caches the runtime per agent reference (`WeakMap<AbstractAgent, PilotRuntime>`). Consumers who write `<Pilot runtime={agUiRuntime({ agent })}>` without a `useMemo` get a stable identity by default.
+
+SHOULD_FIX items applied:
+- S1: Removed dead `headersRef`. AG-UI agents own their own headers at construction.
+- S2: `stop()` resets `toolDispatchedRef` so the loop won't trigger a follow-up run after the user explicitly aborts.
+- S3: `sendMessage` re-entry guard via `runningRef`.
+- S5: 16-iteration cap surfaces an error and `console.warn`s the agent details.
+- S6: `prepareRunParameters` tools and context CONCATENATE with the registry-derived defaults rather than replacing them.
+- S4: Stop test now also asserts the Send button reappears after abort, not just that `abortRun` was called.
+- N4: Dropped the `as AgUiTool` assertion in `buildTools`; the structural assignment passes the typechecker.
+
+Items deliberately deferred to a follow-up (low value or not needed for v3b):
+- N1 (extractActivity memoization) - cheap fix, defer until profiling shows churn.
+- N5 (test event types tightened from `BaseEvent` to specific event types) - significant churn for marginal benefit; the apply pipeline runtime-validates so a typo in a test surfaces as a behavior failure anyway.
+- Review notes confirmed by reviewer: type-only imports ARE tree-shaken (verified `grep -c '@ag-ui/client' dist/index.cjs` returns 0), `convertMessages` covers all seven AG-UI message roles, mutation-from-subscriber composes correctly with the apply pipeline, WeakMap stores have no leak path.
+
+### Test status, Phase 3b
+
+Before phase: 234 passing across 21 files. After phase: **266 passing across 22 files. Zero regressions. `pnpm typecheck` clean across the workspace, `pnpm build` succeeds, runtime bundle is `@ag-ui/client`-free.**
+
+### End-to-end verification status (Phases 1 + 2 + 3a + 3b)
+
+**AG-UI runtime, what was verified:**
+
+- All 32 happy-dom tests pass against a `FakeAgent` whose `run()` emits scripted AG-UI events through the real `defaultApplyEvents` pipeline. Tool-call bridging, mutating-action confirm gating, renderAndWait HITL composition, JSON-Patch `STATE_DELTA` reduction, ACTIVITY_SNAPSHOT propagation, RUN_ERROR surfacing, `Observable.error()` (run() throws) surfacing, factory stability, continuation cap, re-entry guard.
+- The `@ag-ui/client` apply pipeline is exercised end-to-end via real rxjs `Observable` emissions; we don't fake the AG-UI internals, only the event source.
+- `convertMessages` covered against all seven AG-UI message roles plus orphan tool calls, error tool results, and multimodal user content.
+
+**Still pending for AG-UI runtime (deferred to a follow-up session):**
+
+- **Real-server smoke** against a live AG-UI server (e.g. a LangGraph CoAgents endpoint or `@copilotkit/runtime`'s AG-UI route). The runtime has only been exercised against scripted events; an actual SSE response from a real agent server may surface event-shape mismatches, retry semantics, or middleware ordering issues we haven't reproduced.
+- **`HttpAgent` constructor smoke**. We import `HttpAgent` only in the dev tarball check; consumers will write `new HttpAgent({ url, headers, agentId })` and our docs assume it works as documented. No example in `examples/todo` uses it yet.
+- **Multi-agent flows** are out of scope for Phase 3b; that's Phase 7. The runtime supports a single agent per `<Pilot>` provider.
+
+
 
 **Verified in a real browser (2026-04-27):** Booted `examples/todo` against the freshly-built `@hec-ovi/agentickit` dist via Vite + agent-browser CDP automation:
 

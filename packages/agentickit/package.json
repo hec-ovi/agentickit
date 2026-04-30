@@ -45,7 +45,12 @@
       "require": "./dist/protocol/index.cjs"
     }
   },
-  "files": ["dist", "README.md", "LICENSE", "CHANGELOG.md"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "bin": {
     "agentickit": "./dist/cli.js"
   },
@@ -57,6 +62,8 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
+    "@ag-ui/client": "^0.0.53",
+    "@ag-ui/core": "^0.0.53",
     "@ai-sdk/anthropic": "^3.0.0",
     "@ai-sdk/google": "^3.0.0",
     "@ai-sdk/groq": "^3.0.0",
@@ -68,6 +75,12 @@
     "react-hook-form": "^7.0.0"
   },
   "peerDependenciesMeta": {
+    "@ag-ui/client": {
+      "optional": true
+    },
+    "@ag-ui/core": {
+      "optional": true
+    },
     "@ai-sdk/anthropic": {
       "optional": true
     },
@@ -97,6 +110,8 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@ag-ui/client": "0.0.53",
+    "@ag-ui/core": "0.0.53",
     "@ai-sdk/anthropic": "^3.0.0",
     "@ai-sdk/groq": "^3.0.0",
     "@ai-sdk/openai": "^3.0.0",
@@ -109,6 +124,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.53.2",
+    "rxjs": "7.8.1",
     "tsup": "^8.3.5",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"
