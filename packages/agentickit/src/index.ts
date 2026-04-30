@@ -33,3 +33,13 @@ export {
   type PilotConfirmRender,
   type PilotConfirmRenderArgs,
 } from "./components/pilot-confirm-modal.js";
+
+// Runtime abstraction. The default `<Pilot>` ships with `localRuntime()`
+// (AI SDK 6 over HTTP/SSE); consumers can swap in any implementation of
+// `PilotRuntime`, e.g. a future `agUiRuntime({ runtimeUrl, agentId })`.
+export { localRuntime } from "./runtime/local-runtime.js";
+export type {
+  PilotRuntime,
+  PilotRuntimeConfig,
+  PilotIncomingToolCall,
+} from "./runtime/types.js";

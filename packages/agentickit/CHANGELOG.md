@@ -35,6 +35,29 @@ Baseline before phase: 170 passing across 15 files. After phase: **206 passing a
 
 Before phase: 206 passing across 18 files. After phase: **214 passing across 19 files. Zero regressions. `pnpm typecheck` clean. `pnpm build` succeeds.**
 
+### Added, Phase 3a: runtime abstraction
+
+Phase 3a extracts the chat-stream layer beneath `<Pilot>` into a swappable `PilotRuntime` interface. The default behavior is unchanged; a future `agUiRuntime({ runtimeUrl, agentId })` (Phase 3b) can drop in next to `localRuntime()` without touching the provider.
+
+- **`PilotRuntime` interface** (`src/runtime/types.ts`): a `{ useRuntime }` hook factory. `PilotRuntimeConfig` carries the protocol-agnostic seam: `headers`, `getSnapshot`, `onToolCall`. Connection-shaped fields (URL, agent id, model id) live on the runtime's CONSTRUCTOR rather than per-render config so AG-UI runtimes don't have to pretend to have an `apiUrl`.
+- **`PilotIncomingToolCall`** (`src/runtime/types.ts`): the runtime-to-provider tool-call shape. The provider settles a dispatch via terminal `output(value)` or `outputError(text)` callbacks; the runtime is responsible for getting the result onto its own wire (LocalRuntime calls `chat.addToolOutput`; AgUiRuntime will emit a `TOOL_CALL_RESULT` event).
+- **`localRuntime(options?)`** (`src/runtime/local-runtime.ts`): construct the default AI-SDK-6-over-HTTP runtime. `options.apiUrl` defaults to `"/api/pilot"`. Calling with no args returns a stable module-level singleton, custom options create fresh wrappers (memoize per-render). Owns `DefaultChatTransport`, `useChat`, the SDK-shape-to-runtime-shape adapter in `onToolCall`, and `lastAssistantMessageNeedsContinuation`.
+- **`<Pilot runtime={...}>` prop**: when supplied, replaces the auto-constructed default. The provider memoizes over `[props.runtime, apiUrl, model]` so identity is stable across unrelated parent re-renders.
+- **`<Pilot>` refactored** (`src/components/pilot-provider.tsx`): the provider keeps the registry, the pendingConfirm and pendingHitl slots, the confirm/HITL render output, and the dispatcher (now `handleToolCall`, which receives a `PilotIncomingToolCall` and resolves via `call.output` / `call.outputError` instead of poking `chatRef.current.addToolOutput`). `useChat`, `DefaultChatTransport`, `zodSchema`, `buildToolsPayload`, `buildStateContext`, and `lastAssistantMessageNeedsContinuation` all moved to `runtime/local-runtime.ts`.
+- **17 new tests across two files:**
+  - `src/runtime/local-runtime.test.ts` (8 tests): unit tests for `lastAssistantMessageNeedsContinuation` against scripted message arrays.
+  - `src/runtime/runtime-swap.test.tsx` (9 tests): the swap path is exercised end-to-end. Stub runtime captures the provider's seam config; messages from a custom runtime flow into a `<PilotChatView>`; the dispatcher receives runtime-emitted tool calls; unknown tools route to `outputError`; the registry is live-visible through `getSnapshot`; `chat.error` from a custom runtime surfaces in the UI; **`mutating` and `renderAndWait` actions still gate correctly when a custom runtime drives the dispatch**, the seam doesn't bypass the provider's HITL primitives.
+- **Public API additions** (`src/index.ts`): `localRuntime` (function), `PilotRuntime` / `PilotRuntimeConfig` / `PilotIncomingToolCall` (types).
+
+### Changed, Phase 3a
+
+- **`PilotConfig.apiUrl` is now optional** (no behavioral default at the type level). When omitted and no `runtime` prop is supplied, `localRuntime()` defaults internally to `"/api/pilot"`. Behavior is unchanged for existing consumers.
+- **`lastAssistantMessageNeedsContinuation` moved** from `pilot-provider.tsx` to `runtime/local-runtime.ts` and is no longer re-exported from the provider. The function is package-internal (never in `index.ts`); test imports were updated to point at the new home.
+
+### Test status, Phase 3a
+
+Before phase: 214 passing across 19 files. After phase: **223 passing across 21 files. Zero behavioral regressions.** The net delta is +9 tests (lost 8 duplicate `lastAssistantMessageNeedsContinuation` cases that moved between files, gained 17 new ones across the two new test files). `pnpm typecheck` clean (including the `examples/todo` workspace). `pnpm build` succeeds.
+
 ### Not yet verified end-to-end (Phases 1 + 2)
 
 Phases 1 and 2 ship with vitest + happy-dom + scripted-SSE coverage only. The following are **not** verified and are pending a real-browser smoke pass before a 0.2.0 release tag:

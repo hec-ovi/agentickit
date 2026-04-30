@@ -1,16 +1,16 @@
 "use client";
 
-import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, generateId, zodSchema } from "ai";
+import { generateId } from "ai";
 import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import {
   PilotChatContext,
-  type PilotChatContextValue,
   PilotRegistryContext,
   type PilotRegistryContextValue,
   type PilotRegistrySnapshot,
 } from "../context.js";
 import { isDev } from "../env.js";
+import { localRuntime } from "../runtime/local-runtime.js";
+import type { PilotIncomingToolCall, PilotRuntime } from "../runtime/types.js";
 import type {
   PilotActionRegistration,
   PilotConfig,
@@ -23,6 +23,10 @@ import {
   type PilotConfirmRender,
   type PilotConfirmRenderArgs,
 } from "./pilot-confirm-modal.js";
+
+// `lastAssistantMessageNeedsContinuation` previously lived here; it
+// moved to `runtime/local-runtime.ts` next to its caller during Phase
+// 3a. Internal callers should import it from the new home.
 
 /** Approval outcome from the themed modal or consumer override. */
 type ConfirmOutcome = "approved" | "cancelled";
@@ -76,6 +80,19 @@ export interface PilotProps extends PilotConfig {
    * invisible) but will leave the tool call hanging forever.
    */
   renderConfirm?: PilotConfirmRender;
+  /**
+   * Override the chat runtime. When omitted, the package's built-in
+   * `localRuntime()` is used (the AI SDK 6 `useChat`-driven HTTP/SSE
+   * default). Pass a different `PilotRuntime` (for example a future
+   * `agUiRuntime({ runtimeUrl, agentId })`) to swap the chat backend
+   * without changing any UI components.
+   *
+   * The runtime instance must be stable across renders. Define it at
+   * module scope or memoize via `useMemo` in the consumer; passing a new
+   * runtime literal each render would invalidate the chat lifecycle and
+   * tear down the message stream on every parent re-render.
+   */
+  runtime?: PilotRuntime;
 }
 
 /**
@@ -106,7 +123,21 @@ export function Pilot(props: PilotProps): ReactNode {
   // `model` is intentionally undefined by default: when omitted the server
   // handler's own model (or its auto-detection) picks the provider. Pass a
   // string to override per-request from the client.
-  const { children, apiUrl = "/api/pilot", model, renderConfirm } = props;
+  const { children, apiUrl, model, renderConfirm } = props;
+  // The runtime is the swappable chat-stream layer. When the consumer
+  // passes one, it's used as-is and `apiUrl` / `model` are ignored
+  // (the consumer's runtime owns its own connection details). When
+  // the consumer doesn't pass one, we auto-construct a `localRuntime`
+  // with the provider's `apiUrl` / `model` props.
+  //
+  // Memoized over the relevant inputs so identity is stable across
+  // unrelated parent re-renders. With default options, `localRuntime()`
+  // returns its module-level singleton; with custom options, this
+  // useMemo prevents per-render churn that would re-mount the chat.
+  const runtime = useMemo(() => {
+    if (props.runtime) return props.runtime;
+    return localRuntime({ apiUrl, model });
+  }, [props.runtime, apiUrl, model]);
 
   // ------------------------------------------------------------------
   // Confirm-modal state.
@@ -319,98 +350,38 @@ export function Pilot(props: PilotProps): ReactNode {
   );
 
   // ------------------------------------------------------------------
-  // useChat wiring. Tools + state are injected into the request body via
-  // `prepareSendMessagesRequest`, recomputed on every send. The server
-  // owns the system prompt (auto-loaded from `.pilot/` at handler startup).
+  // Tool-call dispatcher. The runtime invokes this whenever the model
+  // emits a client-dispatched tool call. We run the confirm gate, the
+  // HITL gate, and the handler call here, then settle the result via
+  // the runtime-supplied `output` / `outputError` callbacks. The
+  // runtime owns how those callbacks reach the wire (LocalRuntime
+  // funnels through `chat.addToolOutput`; AgUiRuntime will emit a
+  // `TOOL_CALL_RESULT` AG-UI event back upstream).
   // ------------------------------------------------------------------
 
-  // Snapshot that's always current, avoids closure staleness in the
-  // callbacks passed to useChat (which are captured once by the SDK).
-  const liveSnapshotRef = useRef(getSnapshot);
-  liveSnapshotRef.current = getSnapshot;
-
-  // Stable headers resolver, accepts static or function-valued headers.
-  const resolveHeaders = useCallback((): Record<string, string> => {
-    const raw = props.headers;
-    if (!raw) return {};
-    return typeof raw === "function" ? raw() : raw;
-  }, [props.headers]);
-
-  // Stable refs so the transport closure (captured once) can see live values
-  // without us recreating the transport on every render.
-  const modelRef = useRef<string | undefined>(model);
-  modelRef.current = model;
-  const resolveHeadersRef = useRef(resolveHeaders);
-  resolveHeadersRef.current = resolveHeaders;
-
-  // Transport is built exactly once per mount. `apiUrl` is captured on first
-  // render; changing it post-mount is not supported (AI SDK limitation, not ours).
-  const transport = useMemo(
-    () =>
-      new DefaultChatTransport({
-        api: apiUrl,
-        headers: () => resolveHeadersRef.current(),
-        // Every send recomputes the tool list + state snapshot so the server
-        // sees exactly what's registered right now.
-        prepareSendMessagesRequest: ({ messages, body }) => {
-          const snapshot = liveSnapshotRef.current();
-          const tools = buildToolsPayload(snapshot);
-          const context = buildStateContext(snapshot);
-          return {
-            body: {
-              ...(body ?? {}),
-              // Only forward `model` when the consumer supplied one. Omitting
-              // it lets the server handler's own (possibly auto-detected)
-              // default take effect.
-              ...(modelRef.current ? { model: modelRef.current } : {}),
-              messages,
-              tools,
-              context,
-            },
-          };
-        },
-      }),
-    // We intentionally capture `apiUrl` on first mount only; changing it at
-    // runtime would orphan the existing stream.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [apiUrl],
-  );
-
-  const chat = useChat({
-    id: "agentickit-default",
-    transport,
-
-    // When the model emits a tool call, look up the registered handler and
-    // execute it in the browser. The result is pushed with `addToolOutput`,
-    // which, combined with `sendAutomaticallyWhen` below, triggers the
-    // SDK to resubmit so the model can observe the tool result.
-    onToolCall: async ({ toolCall }) => {
-      const snapshot = liveSnapshotRef.current();
-      // Match the last-wins semantics of `buildToolsPayload`: when two
+  const handleToolCall = useCallback(
+    async (call: PilotIncomingToolCall): Promise<void> => {
+      const snapshot = getSnapshot();
+      // Match the last-wins semantics of the registry: when two
       // components register an action with the same name, the most-recent
-      // registration is the one the model's tool list advertised, so it must
-      // also be the one we execute. Using `find` (first match) would execute
-      // the older handler, potentially against the newer handler's schema.
+      // registration is the one the runtime advertised to the model, so
+      // it must also be the one we execute. Using `find` (first match)
+      // would execute the older handler against the newer handler's
+      // schema.
       let action: PilotActionRegistration | undefined;
       for (const candidate of snapshot.actions) {
-        if (candidate.name === toolCall.toolName) action = candidate;
+        if (candidate.name === call.toolName) action = candidate;
       }
       if (!action) {
-        // Unknown tool. Report an error result so the loop doesn't stall.
-        chatRef.current?.addToolOutput({
-          tool: toolCall.toolName,
-          toolCallId: toolCall.toolCallId,
-          state: "output-error",
-          errorText: `Unknown tool: ${toolCall.toolName}`,
-        });
+        call.outputError(`Unknown tool: ${call.toolName}`);
         return;
       }
 
       // Mutating actions require explicit confirmation. The themed modal at
-      // the bottom of this component renders above the page; `onToolCall` is
-      // suspended on the promise until the user clicks Confirm or Cancel
+      // the bottom of this component renders above the page; `handleToolCall`
+      // is suspended on the promise until the user clicks Confirm or Cancel
       // (or hits Enter/Escape, or clicks the backdrop). An optional
-      // `renderConfirm` prop lets consumers drop in a fully custom modal ,
+      // `renderConfirm` prop lets consumers drop in a fully custom modal,
       // the default implementation matches the sidebar's aesthetic.
       //
       // Auto-confirm window: if the user approved the same action within
@@ -428,7 +399,7 @@ export function Pilot(props: PilotProps): ReactNode {
             setPendingConfirm({
               name: action.name,
               description: action.description,
-              input: toolCall.input,
+              input: call.input,
               resolve,
             });
           });
@@ -436,11 +407,7 @@ export function Pilot(props: PilotProps): ReactNode {
             // Loop-friendly decline: `ok: false` returned as a normal output,
             // not an error, so the model can react conversationally rather
             // than surfacing a red error banner in the sidebar.
-            chatRef.current?.addToolOutput({
-              tool: toolCall.toolName,
-              toolCallId: toolCall.toolCallId,
-              output: { ok: false, reason: "User declined." } as never,
-            });
+            call.output({ ok: false, reason: "User declined." });
             return;
           }
         }
@@ -448,7 +415,7 @@ export function Pilot(props: PilotProps): ReactNode {
       }
 
       try {
-        const parsed = action.parameters.parse(toolCall.input);
+        const parsed = action.parameters.parse(call.input);
 
         // renderAndWait branch: instead of running `handler`, mount the
         // consumer's render-prop and await `respond` / `cancel`. Layered
@@ -467,68 +434,41 @@ export function Pilot(props: PilotProps): ReactNode {
             });
           });
           if (outcome.kind === "cancel") {
-            chatRef.current?.addToolOutput({
-              tool: toolCall.toolName,
-              toolCallId: toolCall.toolCallId,
-              output: { ok: false, reason: outcome.reason } as never,
-            });
+            call.output({ ok: false, reason: outcome.reason });
             return;
           }
-          chatRef.current?.addToolOutput({
-            tool: toolCall.toolName,
-            toolCallId: toolCall.toolCallId,
-            output: outcome.value as never,
-          });
+          call.output(outcome.value);
           return;
         }
 
         const result = await action.handler(parsed);
-        chatRef.current?.addToolOutput({
-          tool: toolCall.toolName,
-          toolCallId: toolCall.toolCallId,
-          output: result as never,
-        });
+        call.output(result);
       } catch (err) {
-        chatRef.current?.addToolOutput({
-          tool: toolCall.toolName,
-          toolCallId: toolCall.toolCallId,
-          state: "output-error",
-          errorText: err instanceof Error ? err.message : String(err),
-        });
+        call.outputError(err instanceof Error ? err.message : String(err));
       }
     },
+    [getSnapshot],
+  );
 
-    // Resubmit after every tool result so the model keeps going.
-    sendAutomaticallyWhen: ({ messages }) => lastAssistantMessageNeedsContinuation(messages),
+  // Resolve consumer-supplied headers (object or function form). Memoized
+  // so the runtime sees a stable reference across renders unless the
+  // consumer's prop actually changes.
+  const resolveHeaders = useCallback((): Record<string, string> => {
+    const raw = props.headers;
+    if (!raw) return {};
+    return typeof raw === "function" ? raw() : raw;
+  }, [props.headers]);
+
+  // Wire up the runtime. The runtime captures `getSnapshot`, `headers`,
+  // and `handleToolCall` via internal refs so a fresh config object on
+  // every render doesn't re-create the chat lifecycle. URL / model id
+  // are runtime-construction details, not part of this seam, the
+  // runtime captured them when it was instantiated above.
+  const chatValue = runtime.useRuntime({
+    headers: resolveHeaders,
+    getSnapshot,
+    onToolCall: handleToolCall,
   });
-
-  // Stable ref to the chat helpers so onToolCall (captured once) can reach
-  // the latest `addToolOutput` without re-registering the handler.
-  const chatRef = useRef<typeof chat | null>(null);
-  chatRef.current = chat;
-
-  // ------------------------------------------------------------------
-  // PilotChatContext, slim, UI-friendly shape.
-  // ------------------------------------------------------------------
-
-  const sendMessage = useCallback(
-    async (text: string) => {
-      await chat.sendMessage({ text });
-    },
-    [chat],
-  );
-
-  const chatValue = useMemo<PilotChatContextValue>(
-    () => ({
-      messages: chat.messages,
-      status: chat.status,
-      error: chat.error,
-      isLoading: chat.status === "submitted" || chat.status === "streaming",
-      sendMessage,
-      stop: chat.stop,
-    }),
-    [chat.messages, chat.status, chat.error, sendMessage, chat.stop],
-  );
 
   // Stable approve / cancel callbacks bound to the currently pending confirm.
   // Whichever fires first settles the suspended promise inside `onToolCall`
@@ -621,104 +561,8 @@ export function Pilot(props: PilotProps): ReactNode {
   );
 }
 
-// ----------------------------------------------------------------------
-// Helpers, pure functions that turn the registry into tool JSON.
-// ----------------------------------------------------------------------
-
-/**
- * Opaque shape of an outgoing tool definition. We keep this loose on
- * purpose; the server's `streamText` call reconstitutes proper `Tool`
- * objects from `{ description, inputSchema }` entries.
- */
-interface OutgoingToolSpec {
-  description: string;
-  inputSchema: unknown;
-  mutating?: boolean;
-}
-
-/**
- * Compile every registered action + form + state-update tool into the
- * payload shape the server handler expects.
- */
-function buildToolsPayload(snapshot: PilotRegistrySnapshot): Record<string, OutgoingToolSpec> {
-  const out: Record<string, OutgoingToolSpec> = {};
-
-  for (const action of snapshot.actions) {
-    // We extract the JSON Schema directly rather than shipping the full
-    // `zodSchema()` wrapper: the wrapper carries methods (`.validate`)
-    // that don't survive JSON serialization, so the server would receive
-    // a stripped object and fail with "schema is not a function" when the
-    // AI SDK tries to invoke them. Plain JSON Schema round-trips cleanly
-    // and is what `dynamicTool({ inputSchema })` actually wants.
-    out[action.name] = {
-      description: action.description,
-      inputSchema: zodSchema(action.parameters).jsonSchema,
-      ...(action.mutating ? { mutating: true } : {}),
-    };
-  }
-
-  return out;
-}
-
-/**
- * Serialize registered state into a plain object the server prepends to the
- * system prompt. Values are JSON-stringified so the LLM can read the
- * current UI state verbatim.
- */
-function buildStateContext(snapshot: PilotRegistrySnapshot): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const state of snapshot.states) {
-    out[state.name] = {
-      description: state.description,
-      value: state.value,
-    };
-  }
-  return out;
-}
-
-/**
- * True when the most recent assistant message contains a tool result the
- * model has not yet observed. The AI SDK calls this after every client-side
- * mutation so it can decide whether to resubmit.
- *
- * Correct behavior is "walk the parts from the tail, the first meaningful
- * part tells us the state":
- *   - If it's `text` or `reasoning`, the model has already responded after
- *     the tool results, the loop is done.
- *   - If it's a tool part in `output-available` / `output-error`, the
- *     model is still owed a reaction; resubmit.
- *   - Anything else (unfinished streaming, unknown part) is ambiguous;
- *     let the SDK decide by returning false.
- *
- * A naive "any part is a completed tool output" check causes an infinite
- * loop: once the model answers with text, the completed tool parts are
- * still in the message, so the naive check keeps firing resubmissions
- * that each produce the same text, forever.
- */
-export function lastAssistantMessageNeedsContinuation(
-  messages: ReadonlyArray<unknown>,
-): boolean {
-  const last = messages[messages.length - 1] as
-    | { role?: string; parts?: Array<{ type?: string; state?: string }> }
-    | undefined;
-  if (!last || last.role !== "assistant" || !Array.isArray(last.parts)) return false;
-  for (let i = last.parts.length - 1; i >= 0; i--) {
-    const part = last.parts[i];
-    if (!part || typeof part.type !== "string") continue;
-    const type = part.type;
-    // `step-start` is a structural marker between model steps, not content
-    // the model has "emitted" in the answer sense, skip and keep walking.
-    if (type === "step-start") continue;
-    if (type === "text" || type === "reasoning") return false;
-    if (
-      (type.startsWith("tool-") || type === "dynamic-tool") &&
-      (part.state === "output-available" || part.state === "output-error")
-    ) {
-      return true;
-    }
-    // Unknown / in-progress part. Don't force a resubmit; the SDK still
-    // owns the normal streaming lifecycle.
-    return false;
-  }
-  return false;
-}
+// The transport-shape helpers (`buildToolsPayload`, `buildStateContext`)
+// and the `lastAssistantMessageNeedsContinuation` resubmission predicate
+// now live in `runtime/local-runtime.ts` next to the `useChat` invocation
+// they wire up. The export above re-routes existing imports to the new
+// home so consumers and tests don't notice the move.
