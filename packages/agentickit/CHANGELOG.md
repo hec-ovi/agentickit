@@ -58,18 +58,33 @@ Phase 3a extracts the chat-stream layer beneath `<Pilot>` into a swappable `Pilo
 
 Before phase: 214 passing across 19 files. After phase: **223 passing across 21 files. Zero behavioral regressions.** The net delta is +9 tests (lost 8 duplicate `lastAssistantMessageNeedsContinuation` cases that moved between files, gained 17 new ones across the two new test files). `pnpm typecheck` clean (including the `examples/todo` workspace). `pnpm build` succeeds.
 
-### Not yet verified end-to-end (Phases 1 + 2)
+### Hardening, Phases 1-3a (2026-04-27)
 
-Phases 1 and 2 ship with vitest + happy-dom + scripted-SSE coverage only. The following are **not** verified and are pending a real-browser smoke pass before a 0.2.0 release tag:
+Pushback from the user on the testing bar. Three follow-ups:
 
-- **Real browser visual rendering.** All new CSS (`.pilot-chat-view`, `.pilot-popup-button`, `.pilot-popup-card`, `.pilot-modal-backdrop`, `.pilot-modal-card`, `pilot-modal-rise` keyframe) was added but never rendered in a real viewport. happy-dom does not run CSS, so flexbox layout, paint order, animations, and `prefers-reduced-motion` collapse are unverified.
-- **Real-browser focus trap on `<PilotModal>`.** The Tab-cycle assertions pass in happy-dom, but real browsers route Tab through the DOM with subtleties (display none + tabindex, hidden iframes, nested portals) that the synthetic test environment does not replicate.
-- **`examples/todo` app build + runtime smoke.** The example was not rebuilt or run after the `index.ts` export additions and the sidebar refactor. If a consumer imports `PilotPopup` / `PilotModal` from `@hec-ovi/agentickit`, the package compiles, but the example app's actual behavior under Vite + Hono is unconfirmed.
-- **Visual regression on the refactored sidebar.** DOM contract is preserved (all 11 existing sidebar tests pass), but a CSS rule could still misalign the body-vs-header-vs-composer flexbox in a real viewport.
-- **`renderAndWait` against a real model.** Verified only against scripted `tool-call → text-reply` SSE frame sequences from `installPilotFetchMock`. Behavior against an actual vLLM / OpenAI / Anthropic streaming response, including edge cases like model retry mid-suspension or partial tool-input deltas, is unconfirmed.
-- **vLLM smoke** for either phase. Phase 1+2 are pure UI/dispatcher work and should not interact with the existing vLLM Responses-API shim, but the example was not run against vLLM to confirm.
+- **Inline DOM-shape snapshots** added to `pilot-chat-view.test.tsx`, `pilot-popup.test.tsx`, and `pilot-modal.test.tsx` via `toMatchInlineSnapshot()`. Captures the exact rendered DOM (root wrapper, error banner, popup toggle, modal dialog header) so any unintended structural change (extra wrapper div, dropped `data-testid`, class rename) shows up as a focused diff in the test file.
+- **Scripted-runtime user-flow tests** added to `runtime/runtime-swap.test.tsx`. The original Phase 3a swap tests verified the seam contract by calling the runtime's `onToolCall` directly, which is correct for proving the abstraction but doesn't exercise the user-driven path. The new tests use a `makeScriptedRuntime` helper that drives the dispatcher in response to `chat.sendMessage`, then verify the full flow with real `fireEvent.click` events: user sends a message, the runtime emits a tool call, the modal/HITL UI mounts, the user clicks confirm/respond/cancel, the result lands. Five scenarios: basic respond path, mutating + approve, mutating + decline, renderAndWait + respond, runtime-supplied error surfacing in the chat view. No fetch, no SSE wire, no API credit.
+- **Real-browser smoke of `examples/todo`** via agent-browser CDP automation. Verified the page loads against the freshly-built dist, the sidebar renders with dark-mode CSS variables, the close-and-reopen lifecycle works in real DOM, and the layout reflows correctly when the sidebar collapses.
 
-These are tracked here so a future session (or another contributor) knows what level of verification was actually achieved before sealing the phases.
+Test status after hardening: **234 passing across 21 files**. Net +11 tests since Phase 3a sealed (5 user-flow + 4 inline snapshots, plus 2 portaling/empty-state assertions on the modal).
+
+### End-to-end verification status (Phases 1 + 2 + 3a)
+
+**Verified in a real browser (2026-04-27):** Booted `examples/todo` against the freshly-built `@hec-ovi/agentickit` dist via Vite + agent-browser CDP automation:
+
+- **`<PilotSidebar>` real-browser rendering** is correct: dark-mode CSS variables apply, slide-in animation runs, layout reflows cleanly when the sidebar closes (todo widget expands to full width, toggle pill reappears bottom-right with the dot indicator + "agentickit" label).
+- **`examples/todo` builds and runs** against the new `index.ts` exports. `pnpm typecheck` clean across the workspace, Vite serves without import errors, the example renders the same DOM contract our happy-dom tests assert.
+- **Close path** verified end-to-end: header X click closes the sidebar in the real browser, toggle button reappears, focus restoration is real (not just the synthetic `fireEvent.keyDown` we drive in unit tests).
+- **Visual regression** on the refactored sidebar: open and closed screenshots captured at `01-initial-load.png` / `02-sidebar-closed.png` / `03-reopened.png`. Sidebar body delegated to `<PilotChatView>` reflows identically to the pre-refactor implementation.
+
+**Still pending (deferred to future sessions or a 0.2.0 release pass):**
+
+- **`<PilotPopup>` and `<PilotModal>` real-browser rendering.** `examples/todo` only wires up the sidebar form factor, so the popup/modal CSS rules were exercised only by happy-dom (no paint, no animation). A consumer-side example using either form factor would close this.
+- **Real-browser focus trap on `<PilotModal>`.** The Tab-cycle assertions pass in happy-dom, but real browsers route Tab through the DOM with subtleties (display none + tabindex, hidden iframes, nested portals) that the synthetic test environment does not replicate. The focus-restore `useLayoutEffect` is verified by inference (sidebar focus restoration works), but the modal trap itself was not exercised in a real browser.
+- **`renderAndWait` against a real model.** Verified against scripted `tool-call → text-reply` SSE frame sequences from `installPilotFetchMock` and against the new scripted-runtime user-flow tests. Behavior against an actual vLLM / OpenAI / Anthropic streaming response, including edge cases like model retry mid-suspension or partial tool-input deltas, is unconfirmed (no API credit available this session).
+- **vLLM smoke** end-to-end. Phase 1+2+3a are pure UI/dispatcher/runtime-abstraction work and should not interact with the existing vLLM Responses-API shim, but the example was not run against vLLM to confirm.
+
+These are tracked here so a future session (or another contributor) knows exactly what level of verification was achieved.
 
 ## [0.1.0], 2026-04-22
 

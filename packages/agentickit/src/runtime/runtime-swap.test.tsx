@@ -22,12 +22,12 @@
  */
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useCallback, useContext, useRef, useState } from "react";
 import { z } from "zod";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Pilot } from "../components/pilot-provider.js";
 import { PilotChatView } from "../components/pilot-chat-view.js";
-import type { PilotChatContextValue } from "../context.js";
+import { PilotChatContext, type PilotChatContextValue } from "../context.js";
 import { usePilotAction } from "../hooks/use-pilot-action.js";
 import type {
   PilotIncomingToolCall,
@@ -422,5 +422,430 @@ describe("<Pilot runtime={...}> swap", () => {
       </Pilot>,
     );
     expect(container.querySelector("[data-testid=child]")).not.toBeNull();
+  });
+});
+
+// ----------------------------------------------------------------------
+// Scripted-runtime user-flow tests.
+//
+// The seam tests above call the runtime's onToolCall callback directly,
+// which is fine for proving the contract (provider's dispatcher receives
+// runtime-emitted calls and resolves them via output/outputError). They
+// don't, however, exercise the path a real user takes: type, send,
+// the runtime drives a tool call, the modal/HITL appears, the user
+// clicks, the result lands.
+//
+// `makeScriptedRuntime` is a test-only PilotRuntime that, on every
+// sendMessage(text), runs through a scripted sequence of steps:
+//   - tool-call: invokes config.onToolCall and waits for output()
+//   - text: appends an assistant text message to the runtime's state
+//
+// No fetch, no SSE, no API credit. Tests interact with real <Pilot>
+// chrome via fireEvent; the runtime drives the seam in response.
+// ----------------------------------------------------------------------
+
+type ScriptStep =
+  | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }
+  | { type: "text"; text: string };
+
+interface ScriptedRecord {
+  /** sendMessage texts the user (or the chat-driver button) submitted. */
+  readonly sentMessages: string[];
+  /** Tool outputs that came back from the provider, in order. */
+  readonly toolOutputs: Array<
+    | { kind: "output"; toolCallId: string; value: unknown }
+    | { kind: "error"; toolCallId: string; errorText: string }
+  >;
+}
+
+function makeScriptedRuntime(
+  scripts: ReadonlyArray<ReadonlyArray<ScriptStep>>,
+  record: ScriptedRecord,
+  options: { simulateError?: Error } = {},
+): PilotRuntime {
+  return {
+    useRuntime(config: PilotRuntimeConfig): PilotChatContextValue {
+      const [messages, setMessages] = useState<unknown[]>([]);
+      const [status, setStatus] = useState<"ready" | "streaming">("ready");
+      const scriptIndexRef = useRef(0);
+      // Capture-by-ref so the dispatcher closure inside the runtime sees
+      // the latest provider-supplied handleToolCall.
+      const onToolCallRef = useRef(config.onToolCall);
+      onToolCallRef.current = config.onToolCall;
+
+      const sendMessage = useCallback(async (text: string): Promise<void> => {
+        const idx = scriptIndexRef.current++;
+        record.sentMessages.push(text);
+        const script = scripts[idx];
+        if (!script) return;
+
+        setStatus("streaming");
+        // Append the user's message first so the suggestion-chip-hidden
+        // path matches a real conversation (PilotChatView hides chips
+        // once messages.length > 0).
+        setMessages((m) => [
+          ...m,
+          { id: `u${idx}`, role: "user", parts: [{ type: "text", text }] },
+        ]);
+
+        for (const step of script) {
+          if (step.type === "tool-call") {
+            // Invoke the dispatcher and wait for it to settle the call
+            // via output() or outputError(). The Promise wrapper makes
+            // the fire-and-forget callbacks awaitable.
+            await new Promise<void>((resolve) => {
+              void onToolCallRef.current({
+                toolName: step.toolName,
+                toolCallId: step.toolCallId,
+                input: step.input,
+                output: (value) => {
+                  record.toolOutputs.push({
+                    kind: "output",
+                    toolCallId: step.toolCallId,
+                    value,
+                  });
+                  // Mirror the AI SDK 6 wire format: an assistant message
+                  // with a `dynamic-tool` part in `output-available`.
+                  setMessages((m) => [
+                    ...m,
+                    {
+                      id: `t${step.toolCallId}`,
+                      role: "assistant",
+                      parts: [
+                        {
+                          type: "dynamic-tool",
+                          toolName: step.toolName,
+                          toolCallId: step.toolCallId,
+                          state: "output-available",
+                          input: step.input,
+                          output: value,
+                        },
+                      ],
+                    },
+                  ]);
+                  resolve();
+                },
+                outputError: (errorText) => {
+                  record.toolOutputs.push({
+                    kind: "error",
+                    toolCallId: step.toolCallId,
+                    errorText,
+                  });
+                  setMessages((m) => [
+                    ...m,
+                    {
+                      id: `t${step.toolCallId}`,
+                      role: "assistant",
+                      parts: [
+                        {
+                          type: "dynamic-tool",
+                          toolName: step.toolName,
+                          toolCallId: step.toolCallId,
+                          state: "output-error",
+                          input: step.input,
+                          errorText,
+                        },
+                      ],
+                    },
+                  ]);
+                  resolve();
+                },
+              });
+            });
+          } else if (step.type === "text") {
+            setMessages((m) => [
+              ...m,
+              {
+                id: `a${idx}-${m.length}`,
+                role: "assistant",
+                parts: [{ type: "text", text: step.text }],
+              },
+            ]);
+          }
+        }
+
+        setStatus("ready");
+      }, []);
+
+      return {
+        messages,
+        status,
+        error: options.simulateError,
+        isLoading: status === "streaming",
+        sendMessage,
+        stop: async () => {},
+      };
+    },
+  };
+}
+
+/**
+ * Test driver: a button that calls `chat.sendMessage(text)` when clicked.
+ * Lets us exercise the user flow ("user types and sends") without
+ * routing through the composer's autosize textarea (which would force
+ * us to also drive keyboard events, an orthogonal concern to the
+ * runtime-swap path under test).
+ */
+function ChatDriver(props: { text: string; testId?: string }): ReactNode {
+  const chat = useContext(PilotChatContext);
+  if (!chat) return null;
+  return (
+    <button
+      type="button"
+      data-testid={props.testId ?? "user-send"}
+      onClick={() => void chat.sendMessage(props.text)}
+    >
+      send
+    </button>
+  );
+}
+
+describe("<Pilot runtime={...}> user flows", () => {
+  it("user clicks send, scripted runtime emits a tool call, action handler runs, model replies", async () => {
+    const record: ScriptedRecord = { sentMessages: [], toolOutputs: [] };
+    const runtime = makeScriptedRuntime(
+      [
+        [
+          {
+            type: "tool-call",
+            toolCallId: "c1",
+            toolName: "lookup",
+            input: { q: "weather" },
+          },
+          { type: "text", text: "It's sunny." },
+        ],
+      ],
+      record,
+    );
+
+    const handlerSpy = vi.fn(() => ({ result: "sunny, 72F" }));
+    function Widget() {
+      usePilotAction({
+        name: "lookup",
+        description: "look something up",
+        parameters: z.object({ q: z.string() }),
+        handler: handlerSpy,
+      });
+      return null;
+    }
+
+    render(
+      <Pilot apiUrl="/api/pilot" runtime={runtime}>
+        <Widget />
+        <ChatDriver text="What's the weather?" />
+        <PilotChatView autoFocus={false} showSkillsPanel={false} />
+      </Pilot>,
+    );
+
+    fireEvent.click(screen.getByTestId("user-send"));
+
+    // Final assistant text appears after the tool call resolves.
+    await waitFor(() => {
+      expect(screen.queryByText("It's sunny.")).not.toBeNull();
+    });
+    expect(handlerSpy).toHaveBeenCalledWith({ q: "weather" });
+    expect(record.sentMessages).toEqual(["What's the weather?"]);
+    expect(record.toolOutputs).toEqual([
+      { kind: "output", toolCallId: "c1", value: { result: "sunny, 72F" } },
+    ]);
+  });
+
+  it("mutating action: confirm modal gates the user flow under a custom runtime", async () => {
+    const record: ScriptedRecord = { sentMessages: [], toolOutputs: [] };
+    const runtime = makeScriptedRuntime(
+      [
+        [
+          {
+            type: "tool-call",
+            toolCallId: "c1",
+            toolName: "delete_thing",
+            input: { id: "abc" },
+          },
+          { type: "text", text: "Deleted." },
+        ],
+      ],
+      record,
+    );
+
+    const handlerSpy = vi.fn(() => ({ ok: true }));
+    function Widget() {
+      usePilotAction({
+        name: "delete_thing",
+        description: "danger",
+        parameters: z.object({ id: z.string() }),
+        handler: handlerSpy,
+        mutating: true,
+      });
+      return null;
+    }
+
+    render(
+      <Pilot apiUrl="/api/pilot" runtime={runtime}>
+        <Widget />
+        <ChatDriver text="please delete abc" />
+        <PilotChatView autoFocus={false} showSkillsPanel={false} />
+      </Pilot>,
+    );
+
+    // User sends. Confirm modal mounts; handler has not yet run.
+    fireEvent.click(screen.getByTestId("user-send"));
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog")).not.toBeNull();
+    });
+    expect(handlerSpy).not.toHaveBeenCalled();
+
+    // User approves. Handler runs, scripted runtime emits the next step,
+    // assistant text lands.
+    fireEvent.click(screen.getByRole("button", { name: /^confirm$/i }));
+    await waitFor(() => {
+      expect(screen.queryByText("Deleted.")).not.toBeNull();
+    });
+    expect(handlerSpy).toHaveBeenCalledWith({ id: "abc" });
+    expect(record.toolOutputs[0]).toEqual({
+      kind: "output",
+      toolCallId: "c1",
+      value: { ok: true },
+    });
+  });
+
+  it("mutating action: declining the confirm modal short-circuits the dispatch", async () => {
+    const record: ScriptedRecord = { sentMessages: [], toolOutputs: [] };
+    const runtime = makeScriptedRuntime(
+      [
+        [
+          {
+            type: "tool-call",
+            toolCallId: "c1",
+            toolName: "delete_thing",
+            input: { id: "xyz" },
+          },
+          { type: "text", text: "OK, leaving it alone." },
+        ],
+      ],
+      record,
+    );
+
+    const handlerSpy = vi.fn();
+    function Widget() {
+      usePilotAction({
+        name: "delete_thing",
+        description: "danger",
+        parameters: z.object({ id: z.string() }),
+        handler: handlerSpy,
+        mutating: true,
+      });
+      return null;
+    }
+
+    render(
+      <Pilot apiUrl="/api/pilot" runtime={runtime}>
+        <Widget />
+        <ChatDriver text="delete xyz" />
+        <PilotChatView autoFocus={false} showSkillsPanel={false} />
+      </Pilot>,
+    );
+
+    fireEvent.click(screen.getByTestId("user-send"));
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog")).not.toBeNull();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("OK, leaving it alone.")).not.toBeNull();
+    });
+    expect(handlerSpy).not.toHaveBeenCalled();
+    expect(record.toolOutputs[0]).toEqual({
+      kind: "output",
+      toolCallId: "c1",
+      value: { ok: false, reason: "User declined." },
+    });
+  });
+
+  it("renderAndWait: HITL UI mounts mid-flow, user picks a value, conversation continues", async () => {
+    const record: ScriptedRecord = { sentMessages: [], toolOutputs: [] };
+    const runtime = makeScriptedRuntime(
+      [
+        [
+          {
+            type: "tool-call",
+            toolCallId: "c1",
+            toolName: "pick_letter",
+            input: { prompt: "Pick A or B" },
+          },
+          { type: "text", text: "Got it: A." },
+        ],
+      ],
+      record,
+    );
+
+    function Widget() {
+      usePilotAction({
+        name: "pick_letter",
+        description: "ask user",
+        parameters: z.object({ prompt: z.string() }),
+        handler: () => null as never,
+        renderAndWait: ({ input, respond, cancel }) => (
+          <div data-testid="hitl">
+            <span>{(input as { prompt: string }).prompt}</span>
+            <button
+              type="button"
+              data-testid="hitl-pick-a"
+              onClick={() => respond({ letter: "A" })}
+            >
+              A
+            </button>
+            <button
+              type="button"
+              data-testid="hitl-cancel"
+              onClick={() => cancel("user-skipped")}
+            >
+              skip
+            </button>
+          </div>
+        ),
+      });
+      return null;
+    }
+
+    render(
+      <Pilot apiUrl="/api/pilot" runtime={runtime}>
+        <Widget />
+        <ChatDriver text="please ask" />
+        <PilotChatView autoFocus={false} showSkillsPanel={false} />
+      </Pilot>,
+    );
+
+    fireEvent.click(screen.getByTestId("user-send"));
+    await waitFor(() => {
+      expect(screen.queryByTestId("hitl")).not.toBeNull();
+    });
+    expect(screen.getByText("Pick A or B")).toBeDefined();
+
+    fireEvent.click(screen.getByTestId("hitl-pick-a"));
+    await waitFor(() => {
+      expect(screen.queryByText("Got it: A.")).not.toBeNull();
+    });
+    expect(record.toolOutputs[0]).toEqual({
+      kind: "output",
+      toolCallId: "c1",
+      value: { letter: "A" },
+    });
+    // HITL unmounts after respond.
+    expect(screen.queryByTestId("hitl")).toBeNull();
+  });
+
+  it("scripted runtime returns chat.error: error banner surfaces in PilotChatView", () => {
+    const record: ScriptedRecord = { sentMessages: [], toolOutputs: [] };
+    const runtime = makeScriptedRuntime([], record, {
+      simulateError: new Error("scripted-runtime-error"),
+    });
+
+    render(
+      <Pilot apiUrl="/api/pilot" runtime={runtime}>
+        <PilotChatView autoFocus={false} showSkillsPanel={false} />
+      </Pilot>,
+    );
+    expect(screen.queryByText(/scripted-runtime-error/)).not.toBeNull();
   });
 });

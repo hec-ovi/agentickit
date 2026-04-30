@@ -226,6 +226,58 @@ describe("<PilotModal>", () => {
     expect(document.activeElement).toBe(last);
   });
 
+  // --------------------------------------------------------------------
+  // DOM-shape snapshots: capture the dialog wrapper at open=true so an
+  // accidental rename or aria-attribute change surfaces in the test
+  // file. The full body is PilotChatView; its snapshot lives there.
+  // --------------------------------------------------------------------
+  it("snapshot: dialog header shape when open", () => {
+    const chat = makeChatValue();
+    const { getByRole } = render(<Harness chat={chat} />);
+    const header = getByRole("dialog").querySelector(".pilot-header");
+    expect(header).toMatchInlineSnapshot(`
+      <header
+        class="pilot-header"
+      >
+        <h2
+          class="pilot-header-title"
+          id=":rd:"
+        >
+          Copilot
+        </h2>
+        <button
+          aria-label="Close copilot"
+          class="pilot-icon-button"
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            fill="none"
+            height="14"
+            viewBox="0 0 14 14"
+            width="14"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M3 3L11 11M11 3L3 11"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-width="1.5"
+            />
+          </svg>
+        </button>
+      </header>
+    `);
+  });
+
+  it("snapshot: returns null when open is false", () => {
+    const chat = makeChatValue();
+    const { container } = render(<Harness initial={false} chat={chat} />);
+    // No dialog node exists in body or container.
+    expect(document.body.querySelector(".pilot-modal-card")).toBeNull();
+    expect(container.querySelector(".pilot-modal-card")).toBeNull();
+  });
+
   it("focus restores to the previously-focused element on close", () => {
     const chat = makeChatValue();
     // Render a button outside the modal that we focus before opening, then

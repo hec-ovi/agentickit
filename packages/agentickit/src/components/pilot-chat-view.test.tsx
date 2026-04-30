@@ -185,4 +185,113 @@ describe("<PilotChatView>", () => {
     expect(root?.className).toContain("pilot-chat-view");
     expect(root?.className).toContain("my-extra");
   });
+
+  // ----------------------------------------------------------------------
+  // DOM-shape snapshots. These don't replace the behavioral tests above;
+  // they catch unintended structural changes (an extra wrapper div, a
+  // dropped data-testid, a class rename) that wouldn't fail any
+  // role/text/click assertion. We use inline snapshots so a regression
+  // surfaces as a focused diff in the test file itself.
+  //
+  // We snapshot the chat-view root (`.pilot-chat-view`) rather than the
+  // full container so the harness wrapper doesn't drift the snapshot on
+  // unrelated harness changes.
+  // ----------------------------------------------------------------------
+
+  it("snapshot: empty state shape with default labels", () => {
+    const value = makeChatValue();
+    const { container } = render(
+      <ChatProvider value={value}>
+        <PilotChatView autoFocus={false} />
+      </ChatProvider>,
+    );
+    const root = container.querySelector(".pilot-chat-view");
+    expect(root).toMatchInlineSnapshot(`
+      <div
+        class="pilot-chat-view"
+      >
+        <div
+          class="pilot-messages"
+          data-testid="pilot-messages"
+        >
+          <div
+            class="pilot-empty"
+            role="note"
+          >
+            <span
+              class="pilot-empty-title"
+            >
+              Copilot
+            </span>
+            <span>
+              Hi! Ask me anything about this page.
+            </span>
+          </div>
+        </div>
+        bound HTMLFormElement {
+          "0": <textarea
+            aria-label="Ask me anything..."
+            placeholder="Ask me anything..."
+            rows="1"
+            style="height: 0px;"
+          />,
+          "1": <button
+            aria-label="Send"
+            class="pilot-send"
+            disabled=""
+            type="submit"
+          >
+            <svg
+              aria-hidden="true"
+              fill="none"
+              height="14"
+              viewBox="0 0 16 16"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M8 13V3M8 3L3.5 7.5M8 3L12.5 7.5"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+              />
+            </svg>
+          </button>,
+        }
+      </div>
+    `);
+  });
+
+  it("snapshot: error banner shape when chat.error is set", () => {
+    const value = makeChatValue({
+      error: new Error("snap-err"),
+      status: "error",
+    });
+    const { container } = render(
+      <ChatProvider value={value}>
+        <PilotChatView autoFocus={false} />
+      </ChatProvider>,
+    );
+    const banner = container.querySelector(".pilot-error");
+    expect(banner).toMatchInlineSnapshot(`
+      <div
+        class="pilot-error"
+        role="alert"
+      >
+        <span
+          class="pilot-error-message"
+        >
+          snap-err
+        </span>
+        <button
+          aria-label="Dismiss error"
+          class="pilot-error-dismiss"
+          type="button"
+        >
+          ×
+        </button>
+      </div>
+    `);
+  });
 });

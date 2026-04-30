@@ -204,4 +204,89 @@ describe("<PilotPopup>", () => {
     expect(queryByRole("button", { name: /open copilot/i })).toBeNull();
     expect(getByRole("dialog")).toBeDefined();
   });
+
+  // ----------------------------------------------------------------------
+  // DOM-shape snapshots. We capture the toggle (closed) and the dialog
+  // header (open) at stable positions so an accidental rename or wrapper
+  // change shows up as a focused diff. The dialog body is the shared
+  // PilotChatView; its snapshot lives in pilot-chat-view.test.tsx.
+  // ----------------------------------------------------------------------
+
+  it("snapshot: toggle button shape when closed", () => {
+    const value = makeChatValue();
+    const { getByRole } = render(
+      <ChatProvider value={value}>
+        <PilotPopup position="bottom-right" />
+      </ChatProvider>,
+    );
+    const toggle = getByRole("button", { name: /open copilot/i });
+    expect(toggle).toMatchInlineSnapshot(`
+      <button
+        aria-expanded="false"
+        aria-label="Open copilot"
+        class="pilot-popup-button"
+        data-position="bottom-right"
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          fill="none"
+          height="20"
+          viewBox="0 0 20 20"
+          width="20"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M3 6c0-1.105.895-2 2-2h10c1.105 0 2 .895 2 2v6c0 1.105-.895 2-2 2H8l-3 3v-3H5c-1.105 0-2-.895-2-2V6Z"
+            stroke="currentColor"
+            stroke-linejoin="round"
+            stroke-width="1.5"
+          />
+        </svg>
+      </button>
+    `);
+  });
+
+  it("snapshot: dialog header shape when open", () => {
+    const value = makeChatValue();
+    const { getByRole } = render(
+      <ChatProvider value={value}>
+        <PilotPopup defaultOpen position="bottom-left" labels={{ title: "Helper" }} />
+      </ChatProvider>,
+    );
+    const header = getByRole("dialog").querySelector(".pilot-header");
+    expect(header).toMatchInlineSnapshot(`
+      <header
+        class="pilot-header"
+      >
+        <h2
+          class="pilot-header-title"
+          id=":rd:"
+        >
+          Helper
+        </h2>
+        <button
+          aria-label="Close copilot"
+          class="pilot-icon-button"
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            fill="none"
+            height="14"
+            viewBox="0 0 14 14"
+            width="14"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M3 3L11 11M11 3L3 11"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-width="1.5"
+            />
+          </svg>
+        </button>
+      </header>
+    `);
+  });
 });
