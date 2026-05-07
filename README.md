@@ -104,6 +104,12 @@ Requires **Node 20+** and a framework that supports the Web Fetch API on the ser
 
 ---
 
+## Guides
+
+Task-shaped walkthroughs live in [`docs/`](./docs/). Eight focused pages: getting started, the three hooks, chat surfaces, server handler, runtimes and multi-agent, human-in-the-loop, providers (with vLLM specifics), and testing. Read [`docs/README.md`](./docs/README.md) for the index.
+
+---
+
 ## For AI agents
 
 This repo ships with a root-level [`llms.txt`](./llms.txt) and a [`.pilot/`](./.pilot/) folder so any LLM agent can onboard cold, including a fresh Claude Code or Cursor session with no prior memory.
