@@ -18,10 +18,103 @@
 import { serve } from "@hono/node-server";
 import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
+import { createOpenAI } from "@ai-sdk/openai";
 import { createPilotHandler, type PilotLogEvent } from "@hec-ovi/agentickit/server";
 
 const PORT = Number.parseInt(process.env.PORT ?? "8787", 10);
-const MODEL = process.env.PILOT_MODEL ?? "openai/gpt-oss-120b";
+const RAW_MODEL = process.env.PILOT_MODEL ?? "openai/Qwen3.6-27B-AWQ4";
+const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL;
+
+// vLLM ships Qwen3 with thinking enabled by default, and its /responses
+// schema is stricter than OpenAI's. Two things have to happen at the
+// network boundary:
+//
+//   1. Inject `chat_template_kwargs.enable_thinking=false` so the model
+//      stops emitting reasoning channel tokens.
+//   2. Rewrite assistant-text history items from the AI SDK's loose
+//      `{role,content:[output_text]}` shape into the full
+//      `ResponseOutputMessage` shape (`type:"message"`, `id`, `status`,
+//      `annotations:[]`) that vLLM's Pydantic union accepts. Without
+//      this, multi-turn round trips after the first text reply fail
+//      with a 213-error validation cascade and the chat parser crashes.
+//
+// This is purely a network-boundary adapter — no semantic change to the
+// conversation. Reasoning off, streaming on, /responses only — the three
+// rules this example commits to for vLLM.
+function buildVllmModel(modelId: string, baseURL: string) {
+  const client = createOpenAI({
+    baseURL,
+    apiKey: process.env.OPENAI_API_KEY ?? "vllm-ignores-this",
+    fetch: async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const isResponses = url.endsWith("/responses") || url.includes("/responses?");
+      if (!isResponses || !init?.body) return fetch(input, init);
+      try {
+        const body = JSON.parse(init.body as string);
+        if (!("chat_template_kwargs" in body)) {
+          body.chat_template_kwargs = { enable_thinking: false };
+        } else if (
+          body.chat_template_kwargs &&
+          typeof body.chat_template_kwargs === "object" &&
+          !("enable_thinking" in body.chat_template_kwargs)
+        ) {
+          body.chat_template_kwargs.enable_thinking = false;
+        }
+        if (Array.isArray(body.input)) {
+          body.input = body.input.map(normalizeVllmInputItem);
+        }
+        return fetch(input, { ...init, body: JSON.stringify(body) });
+      } catch {
+        return fetch(input, init);
+      }
+    },
+  });
+  return client.responses(modelId);
+}
+
+function normalizeVllmInputItem(item: unknown): unknown {
+  if (!item || typeof item !== "object") return item;
+  const it = item as Record<string, unknown>;
+  // Assistant text history -> full ResponseOutputMessage shape.
+  if (it.role === "assistant" && Array.isArray(it.content)) {
+    const out = { ...it };
+    if (typeof out.type !== "string") out.type = "message";
+    if (typeof out.id !== "string")
+      out.id = `msg_compat_${Math.random().toString(36).slice(2, 12)}`;
+    if (typeof out.status !== "string") out.status = "completed";
+    out.content = (it.content as unknown[]).map((part) => {
+      if (!part || typeof part !== "object") return part;
+      const p = part as Record<string, unknown>;
+      if (p.type === "output_text" && !Array.isArray(p.annotations)) {
+        return { ...p, annotations: [] };
+      }
+      return part;
+    });
+    return out;
+  }
+  // function_call history: vLLM 400s if `arguments` is not a valid JSON
+  // object. The AI SDK passes through the model's raw string verbatim,
+  // so a malformed mid-stream call breaks the next turn. Sanitize to
+  // `"{}"` so the request is accepted; the matching function_call_output
+  // already carries the parse error so the model still sees it.
+  if (it.type === "function_call" && typeof it.arguments === "string") {
+    try {
+      const parsed = JSON.parse(it.arguments);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return item;
+    } catch {
+      // fall through and sanitize
+    }
+    return { ...it, arguments: "{}" };
+  }
+  return item;
+}
+
+const MODEL = ((): string | ReturnType<typeof buildVllmModel> => {
+  if (!OPENAI_BASE_URL) return RAW_MODEL;
+  if (!RAW_MODEL.startsWith("openai/")) return RAW_MODEL;
+  return buildVllmModel(RAW_MODEL.slice("openai/".length), OPENAI_BASE_URL);
+})();
+const MODEL_LABEL = typeof MODEL === "string" ? MODEL : RAW_MODEL;
 
 // -- Log broadcaster --------------------------------------------------------
 // The handler emits one PilotLogEvent per log line via onLogEvent. We keep
@@ -55,6 +148,16 @@ const pilotHandler = createPilotHandler({
   debug: true,
   log: true,
   onLogEvent: broadcast,
+  // vLLM does not store per-response items the way real OpenAI does, so
+  // the AI SDK's default `store: true` (which makes it emit
+  // `item_reference` history items pointing at server-stored response
+  // outputs) leaves vLLM unable to dereference them and its chat parser
+  // crashes with KeyError: 'role'. Forcing `store: false` makes the SDK
+  // inline the prior assistant content directly, which our shape shim
+  // then normalizes to vLLM's strict ResponseOutputMessage union.
+  ...(OPENAI_BASE_URL
+    ? { getProviderOptions: () => ({ openai: { store: false } }) }
+    : {}),
 });
 
 app.all("/api/pilot", (c) => pilotHandler(c.req.raw));
@@ -451,9 +554,9 @@ app.post("/api/agui-research", (c) => streamAgent(c, "research"));
 app.post("/api/agui-code", (c) => streamAgent(c, "code"));
 app.post("/api/agui-writing", (c) => streamAgent(c, "writing"));
 
-app.get("/api/health", (c) => c.json({ ok: true, model: MODEL, port: PORT }));
+app.get("/api/health", (c) => c.json({ ok: true, model: MODEL_LABEL, port: PORT }));
 
 serve({ fetch: app.fetch, port: PORT }, ({ port }) => {
   // biome-ignore lint/suspicious/noConsole: example server startup banner.
-  console.log(`[example] hono listening on http://127.0.0.1:${port} (model: ${MODEL})`);
+  console.log(`[example] hono listening on http://127.0.0.1:${port} (model: ${MODEL_LABEL})`);
 });

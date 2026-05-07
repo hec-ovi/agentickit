@@ -4,6 +4,12 @@ All notable changes to `@hec-ovi/agentickit` will be documented here. Format loo
 
 ## [Unreleased]
 
+### Changed, OpenAI endpoint default
+
+- **The handler now uses the Responses API by default for every `openai/*` model**, including when `OPENAI_BASE_URL` points at a custom OpenAI-compatible server (vLLM, Ollama, LM Studio, Fireworks, Together, DeepInfra). Previously the handler force-switched any non-default `OPENAI_BASE_URL` to Chat Completions to dodge an old vLLM Responses-API tool-call lifecycle bug. That bug is no longer load-bearing on current vLLM builds, and forcing chat-completions also bypassed Responses-only features. Set `AGENTICKIT_OPENAI_PROTOCOL=chat` to opt back into the legacy fallback for older OSS Responses servers that still never emit `function_call_arguments.done`. (`packages/agentickit/src/server/handler.ts`.)
+- **Two new tests** in `handler.test.ts` lock the contract: with `OPENAI_BASE_URL` set the handler resolves through `openai(modelId)` (Responses), and with `AGENTICKIT_OPENAI_PROTOCOL=chat` it routes through `openai.chat(modelId)`.
+- **`examples/todo` defaults switched to vLLM `Qwen3.6-27B-AWQ4`** and now constructs its OpenAI client via `createOpenAI({ baseURL, fetch })` so it can inject `chat_template_kwargs: { enable_thinking: false }` into every `/responses` POST. Streaming on, reasoning off, `/responses` only — the three rules vLLM gets in this repo.
+
 ### Added, Phase 1: UI form factors
 
 - **`<PilotChatView>`** (`src/components/pilot-chat-view.tsx`), headless chat body shell with messages, error banner, suggestion chips, optional skills panel, and composer. Imperative `focus()` / `prefill()` via ref. Used internally by every form factor and exported as the public extension point for consumers building custom chrome.

@@ -159,6 +159,8 @@ const ENV_KEYS = [
   "AI_GATEWAY_API_KEY",
   "VERCEL_OIDC_TOKEN",
   "OPENAI_API_KEY",
+  "OPENAI_BASE_URL",
+  "AGENTICKIT_OPENAI_PROTOCOL",
   "ANTHROPIC_API_KEY",
   "GROQ_API_KEY",
   "OPENROUTER_API_KEY",
@@ -524,6 +526,65 @@ describe("createPilotHandler", () => {
       expect(openai).toHaveBeenCalledWith("gpt-4o");
       const call = mocks.streamText.mock.calls[0]?.[0] as { model?: unknown };
       expect(call?.model).toBe(openaiModel);
+    });
+
+    it("uses the Responses API even when OPENAI_BASE_URL points at a custom server", async () => {
+      // Default: no AGENTICKIT_OPENAI_PROTOCOL knob. The handler must NOT
+      // silently divert to Chat Completions just because someone set
+      // OPENAI_BASE_URL — vLLM and similar servers have to stay on the
+      // /responses endpoint so streaming-on / reasoning-off / tool-call
+      // semantics line up with what we test against.
+      unsetEnv("AI_GATEWAY_API_KEY");
+      process.env.OPENAI_API_KEY = "sk-test";
+      process.env.OPENAI_BASE_URL = "http://localhost:8000/v1";
+
+      const openaiModel = fakeLanguageModel("Qwen3.6-27B-AWQ4", "openai");
+      const openaiFactory = vi.fn(() => openaiModel) as ReturnType<typeof vi.fn> & {
+        chat: ReturnType<typeof vi.fn>;
+      };
+      openaiFactory.chat = vi.fn(() => fakeLanguageModel("chat-fallback", "openai"));
+
+      const { createPilotHandler, mocks } = await loadHandlerWithMocks(undefined, {
+        openai: openaiFactory,
+      });
+      const handler = createPilotHandler({ model: "openai/Qwen3.6-27B-AWQ4" });
+
+      await handler(makeRequest(validBody));
+
+      expect(openaiFactory).toHaveBeenCalledWith("Qwen3.6-27B-AWQ4");
+      expect(openaiFactory.chat).not.toHaveBeenCalled();
+      const call = mocks.streamText.mock.calls[0]?.[0] as { model?: unknown };
+      expect(call?.model).toBe(openaiModel);
+    });
+
+    it("falls back to Chat Completions when AGENTICKIT_OPENAI_PROTOCOL=chat", async () => {
+      // Opt-in escape hatch for older OSS Responses implementations that
+      // never emit `function_call_arguments.done` and thus stall useChat's
+      // tool part. Keeps the legacy path available without forcing it on
+      // every OPENAI_BASE_URL deployment.
+      unsetEnv("AI_GATEWAY_API_KEY");
+      process.env.OPENAI_API_KEY = "sk-test";
+      process.env.OPENAI_BASE_URL = "http://localhost:8000/v1";
+      process.env.AGENTICKIT_OPENAI_PROTOCOL = "chat";
+
+      const chatModel = fakeLanguageModel("legacy-server-model", "openai");
+      const responsesModel = fakeLanguageModel("responses-default", "openai");
+      const openaiFactory = vi.fn(() => responsesModel) as ReturnType<typeof vi.fn> & {
+        chat: ReturnType<typeof vi.fn>;
+      };
+      openaiFactory.chat = vi.fn(() => chatModel);
+
+      const { createPilotHandler, mocks } = await loadHandlerWithMocks(undefined, {
+        openai: openaiFactory,
+      });
+      const handler = createPilotHandler({ model: "openai/legacy-server-model" });
+
+      await handler(makeRequest(validBody));
+
+      expect(openaiFactory.chat).toHaveBeenCalledWith("legacy-server-model");
+      expect(openaiFactory).not.toHaveBeenCalled();
+      const call = mocks.streamText.mock.calls[0]?.[0] as { model?: unknown };
+      expect(call?.model).toBe(chatModel);
     });
 
     it("routes openrouter/* through createOpenRouter with the API key", async () => {

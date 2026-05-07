@@ -234,7 +234,7 @@ import { parseResolver, parseSkill } from "@hec-ovi/agentickit/protocol";
 | `mistral/` | `MISTRAL_API_KEY` | `@ai-sdk/mistral` | `mistral/mistral-small-latest` |
 | _any of the above_ | `AI_GATEWAY_API_KEY` | none, routes through [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) | `openai/gpt-4o-mini` |
 
-OpenAI-compatible local servers (vLLM, Ollama, LM Studio, Fireworks, Together, DeepInfra) work via `OPENAI_BASE_URL`. The handler automatically switches the adapter to Chat Completions mode so tool-calling stays wired. For anything not in this list, pass a `LanguageModel` instance.
+OpenAI-compatible local servers (vLLM, Ollama, LM Studio, Fireworks, Together, DeepInfra) work via `OPENAI_BASE_URL` and use the Responses API by default, same as real OpenAI. If your server is an older Responses implementation that never emits `function_call_arguments.done` and stalls `useChat`'s tool-call lifecycle, set `AGENTICKIT_OPENAI_PROTOCOL=chat` to fall back to Chat Completions. For anything outside this list, pass a `LanguageModel` instance directly.
 
 ---
 

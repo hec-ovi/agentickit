@@ -563,22 +563,22 @@ async function loadAdapter(
       `agentickit: "${descriptor.pkg}" was imported but does not export a \`${firstPartyPrefix}\` factory. Please upgrade to a version compatible with AI SDK v6.`,
     );
   }
-  // Compatibility shim for OpenAI-compatible endpoints (vLLM, Ollama, LM
-  // Studio, Fireworks, Together, DeepInfra, etc.): when the consumer points
-  // `OPENAI_BASE_URL` at their own server, force the Chat Completions path
-  // via `openai.chat(modelId)` rather than the default Responses API.
+  // Optional Chat Completions escape hatch for OpenAI-compatible endpoints
+  // (vLLM, Ollama, LM Studio, Fireworks, Together, DeepInfra, etc.).
   //
-  // The Responses API adapter expects a specific tool-call lifecycle (a
-  // `response.function_call_arguments.done` event that flips the UI-stream
-  // part to `tool-input-available`). Several open-source Responses-API
-  // implementations stream the JSON deltas but never emit that completion
-  // event, which leaves `useChat`'s tool part stuck in "preparing" forever
-  // — the model calls the tool, the browser sees it coming, and then
-  // nothing fires. Chat Completions uses a simpler, more widely-supported
-  // path that avoids the trap entirely.
-  //
-  // Real OpenAI users are unaffected — they don't set `OPENAI_BASE_URL`.
-  if (firstPartyPrefix === "openai" && process.env.OPENAI_BASE_URL) {
+  // Default is the Responses API. Older OSS Responses implementations could
+  // stream tool-input JSON deltas without emitting the
+  // `response.function_call_arguments.done` event that flips `useChat`'s
+  // tool part to `tool-input-available`, leaving the call stuck in
+  // "preparing" forever. Setting `AGENTICKIT_OPENAI_PROTOCOL=chat` opts
+  // those deployments back into `openai.chat(modelId)` (Chat Completions),
+  // which uses a simpler tool-call shape that everyone supports. No other
+  // value enables the shim; real OpenAI users never trigger it.
+  if (
+    firstPartyPrefix === "openai" &&
+    process.env.OPENAI_BASE_URL &&
+    process.env.AGENTICKIT_OPENAI_PROTOCOL === "chat"
+  ) {
     const chatFactory = (factory as unknown as { chat?: (id: string) => LanguageModel }).chat;
     if (typeof chatFactory === "function") {
       return (modelId: string) => chatFactory(modelId);

@@ -731,7 +731,7 @@ Beyond the mocked suite, the package was exercised end-to-end against a real LLM
 
 Two real-world provider quirks surfaced during live testing and are fixed in shipped code:
 
-- vLLM's Responses API (via `@ai-sdk/openai`) streams tool-input JSON deltas but never emits the completion marker `useChat` waits on. The handler now auto-switches the OpenAI adapter to the Chat Completions path (`openai.chat(modelId)`) whenever `OPENAI_BASE_URL` is set, so every major OpenAI-compatible server (vLLM, Ollama, LM Studio, Fireworks, Together, DeepInfra) works without code changes.
+- vLLM's Responses API (via `@ai-sdk/openai`) historically streamed tool-input JSON deltas without emitting the completion marker `useChat` waits on. As of the post-0.1 endpoint switch, the handler defaults to the Responses API for every OpenAI-prefix model (real OpenAI and OpenAI-compatible servers alike) and exposes `AGENTICKIT_OPENAI_PROTOCOL=chat` as an opt-in escape hatch for older OSS Responses servers that still misbehave. The bundled `examples/todo` server demonstrates the streaming-on / reasoning-off / `/responses`-only setup against vLLM Qwen3 by injecting `chat_template_kwargs.enable_thinking=false` via a custom `fetch`.
 - The initial `sendAutomaticallyWhen` check returned `true` on any assistant message with a completed tool output, causing resubmit-after-text loops. Fix walks parts from the tail and stops at the first text or reasoning part; a dedicated integration test asserts the fetch count stays at 4 on the 3-tools-then-text scenario.
 
 ### What's not yet verified end-to-end
