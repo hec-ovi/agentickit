@@ -66,6 +66,11 @@ export interface PilotPopupProps {
   onOpenChange?: (open: boolean) => void;
   /** Text overrides for built-in copy. */
   labels?: PilotChromeLabels;
+  /**
+   * Composer visibility, forwarded to the inner `<PilotChatView>`. See
+   * `PilotChatViewProps.composer` for full semantics. Default `"full"`.
+   */
+  composer?: "full" | "suggestions" | "off";
 }
 
 export function PilotPopup(props: PilotPopupProps = {}): ReactNode {
@@ -79,6 +84,7 @@ export function PilotPopup(props: PilotPopupProps = {}): ReactNode {
     suggestions,
     onOpenChange,
     labels,
+    composer,
   } = props;
 
   const resolvedLabels = resolveChromeLabels(labels);
@@ -181,6 +187,7 @@ export function PilotPopup(props: PilotPopupProps = {}): ReactNode {
         ref={chatViewRef}
         greeting={greeting}
         suggestions={suggestions}
+        composer={composer}
         labels={{
           title: resolvedLabels.title,
           inputPlaceholder: resolvedLabels.inputPlaceholder,

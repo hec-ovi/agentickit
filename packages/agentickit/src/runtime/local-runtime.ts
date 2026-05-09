@@ -47,6 +47,30 @@ export interface LocalRuntimeOptions {
    * default (or its env-var auto-detection) takes effect.
    */
   model?: string;
+  /**
+   * Initial messages to seed `useChat` with on mount. Used together with
+   * `onMessagesChange` to wire per-agent (or per-thread) message
+   * persistence: a consumer keeps a `Map<agentId, messages[]>` and passes
+   * the appropriate slice in here when constructing the runtime, then
+   * writes back via `onMessagesChange`. Persists across runtime swaps so
+   * switching agents and back restores the prior conversation.
+   *
+   * Note: AI SDK's `useChat` reads `initialMessages` once on mount; later
+   * changes to this option do not retroactively update an already-mounted
+   * chat. Construct a fresh runtime to seed a new history.
+   */
+  initialMessages?: ReadonlyArray<unknown>;
+  /**
+   * Fires whenever the messages array changes. Use to persist the
+   * conversation outside React state (server, sessionStorage, IndexedDB,
+   * a parent-level `Map<agentId, messages>`, etc.). Pair with
+   * `initialMessages` to round-trip cleanly.
+   *
+   * Receives the AI SDK `UIMessage[]` directly; the runtime makes no
+   * promises about array identity stability beyond "changes by reference
+   * when a message is added/edited".
+   */
+  onMessagesChange?: (messages: ReadonlyArray<unknown>) => void;
 }
 
 const DEFAULT_API_URL = "/api/pilot";
@@ -152,6 +176,8 @@ export function lastAssistantMessageNeedsContinuation(
 function useLocalRuntimeImpl(
   apiUrl: string,
   model: string | undefined,
+  initialMessages: ReadonlyArray<unknown> | undefined,
+  onMessagesChange: ((messages: ReadonlyArray<unknown>) => void) | undefined,
   config: PilotRuntimeConfig,
 ): PilotChatContextValue {
   // Refs hold the latest config so the transport's `prepareSendMessagesRequest`
@@ -185,6 +211,7 @@ function useLocalRuntimeImpl(
           const snapshot = liveSnapshotRef.current();
           const tools = buildToolsPayload(snapshot);
           const context = buildStateContext(snapshot);
+          const instructions = snapshot.instructions.map((i) => i.text);
           return {
             body: {
               ...(body ?? {}),
@@ -195,6 +222,7 @@ function useLocalRuntimeImpl(
               messages,
               tools,
               context,
+              ...(instructions.length > 0 ? { instructions } : {}),
             },
           };
         },
@@ -206,6 +234,12 @@ function useLocalRuntimeImpl(
   const chat = useChat({
     id: "agentickit-default",
     transport,
+    // Seeding from a parent-managed message store. AI SDK reads this once
+    // on mount; consumers managing per-agent persistence pass the relevant
+    // slice when constructing the runtime.
+    ...(initialMessages && initialMessages.length > 0
+      ? { messages: initialMessages as never }
+      : {}),
 
     // Adapt AI SDK 6's tool-call payload to the runtime-agnostic shape and
     // hand it to the provider's dispatcher. The provider returns when it
@@ -245,6 +279,20 @@ function useLocalRuntimeImpl(
   const chatRef = useRef<typeof chat | null>(null);
   chatRef.current = chat;
 
+  // Forward message changes to the consumer's persistence callback.
+  // `chat.messages` reference changes whenever a message is added/edited;
+  // we mirror that to the callback so consumers can write to their store
+  // without polling.
+  const onMessagesChangeRef = useRef(onMessagesChange);
+  onMessagesChangeRef.current = onMessagesChange;
+  const lastReportedMessagesRef = useRef<ReadonlyArray<unknown> | null>(null);
+  if (lastReportedMessagesRef.current !== chat.messages) {
+    lastReportedMessagesRef.current = chat.messages;
+    if (onMessagesChangeRef.current) {
+      onMessagesChangeRef.current(chat.messages);
+    }
+  }
+
   const sendMessage = useCallback(
     async (text: string) => {
       await chat.sendMessage({ text });
@@ -274,8 +322,11 @@ function useLocalRuntimeImpl(
 function makeLocalRuntime(options: LocalRuntimeOptions): PilotRuntime {
   const apiUrl = options.apiUrl ?? DEFAULT_API_URL;
   const model = options.model;
+  const initialMessages = options.initialMessages;
+  const onMessagesChange = options.onMessagesChange;
   return {
-    useRuntime: (config) => useLocalRuntimeImpl(apiUrl, model, config),
+    useRuntime: (config) =>
+      useLocalRuntimeImpl(apiUrl, model, initialMessages, onMessagesChange, config),
   };
 }
 

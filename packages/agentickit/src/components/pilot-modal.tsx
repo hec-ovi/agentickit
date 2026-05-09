@@ -64,6 +64,11 @@ export interface PilotModalProps {
   suggestions?: ReadonlyArray<string>;
   /** Text overrides for built-in copy. */
   labels?: PilotModalLabels;
+  /**
+   * Composer visibility, forwarded to the inner `<PilotChatView>`. See
+   * `PilotChatViewProps.composer` for full semantics. Default `"full"`.
+   */
+  composer?: "full" | "suggestions" | "off";
 }
 
 export function PilotModal(props: PilotModalProps): ReactNode {
@@ -76,6 +81,7 @@ export function PilotModal(props: PilotModalProps): ReactNode {
     height = "80vh",
     suggestions,
     labels,
+    composer,
   } = props;
 
   const resolvedLabels = resolveModalLabels(labels);
@@ -207,6 +213,7 @@ export function PilotModal(props: PilotModalProps): ReactNode {
           ref={chatViewRef}
           greeting={greeting}
           suggestions={suggestions}
+          composer={composer}
           labels={{
             title: resolvedLabels.title,
             inputPlaceholder: resolvedLabels.inputPlaceholder,

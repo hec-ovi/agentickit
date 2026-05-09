@@ -410,6 +410,17 @@ const requestBodySchema = z
      */
     system: z.string().max(16_000).optional(),
     /**
+     * Optional list of per-component system-prompt fragments contributed by
+     * `usePilotInstructions` registrations live in the React tree. The
+     * server appends these to the composed system prompt after `system`
+     * (above) and before the live UI state. Each fragment is capped at
+     * 4 KB and the array is capped at 64 fragments to bound request size.
+     */
+    instructions: z
+      .array(z.string().max(4_096))
+      .max(64)
+      .optional(),
+    /**
      * Optional map of registered-state snapshots. Each key is the state slice's
      * `name`; values carry a description and the current value. Serialized as
      * JSON and appended to the system prompt so the model can read live UI
@@ -706,10 +717,17 @@ function composeSystemPrompt(
   serverSystem: string | undefined,
   clientSystem: string | undefined,
   clientContext: Record<string, unknown> | undefined,
+  clientInstructions: ReadonlyArray<string> | undefined,
 ): string | undefined {
   const parts: string[] = [];
   if (serverSystem) parts.push(serverSystem);
   if (clientSystem) parts.push(clientSystem);
+  if (clientInstructions && clientInstructions.length > 0) {
+    // Each fragment is its own paragraph under a labeled heading so the
+    // model can pattern-match on the block. Order is preserved from the
+    // client's registration order.
+    parts.push(`## Page instructions\n${clientInstructions.join("\n\n")}`);
+  }
   if (clientContext && Object.keys(clientContext).length > 0) {
     // JSON-stringify with a label so the LLM can pattern-match on the block.
     parts.push(
@@ -1097,7 +1115,12 @@ export function createPilotHandler(
       // the explicit `options.system` string or the `.pilot/`-derived auto-
       // load) always comes first so it can't be overridden by a compromised
       // client; client-derived sections are appended.
-      const system = composeSystemPrompt(serverSystem, body.system, body.context);
+      const system = composeSystemPrompt(
+        serverSystem,
+        body.system,
+        body.context,
+        body.instructions,
+      );
 
       const debugEnabled =
         loggerConfig.console || Boolean(loggerConfig.dir) || Boolean(loggerConfig.onEvent);
@@ -1261,9 +1284,10 @@ export function createPilotHandler(
         headers,
       });
     } catch (error) {
-      // Never leak stack traces. Log server-side for debugging; return a
-      // stable envelope to the client.
-      console.error("agentickit handler error:", error);
+      // Never leak stack traces. Route through the configurable log so we
+      // do not double-print when `log: true`. The structured event carries
+      // the error message; consumers can attach their own onLogEvent for
+      // any additional reporting (Sentry, Datadog, etc.).
       const message = error instanceof Error ? error.message : "Unknown server error.";
       log.line("err", `handler error: ${message}`, { errorMessage: message });
       return errorResponse(500, {

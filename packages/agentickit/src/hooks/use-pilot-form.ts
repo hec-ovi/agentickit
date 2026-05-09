@@ -22,8 +22,10 @@ export interface UsePilotFormOptions {
    * render as dimmed placeholders that the user confirms with Tab).
    * Currently a no-op — the plain tool set is always registered.
    *
-   * TODO(v0.2): implement ghost-fill via a sibling `<GhostFieldProvider>`
-   *   that overlays an uncontrolled input on top of each form field.
+   * TODO(v0.3): implement ghost-fill via a sibling `<GhostFieldProvider>`
+   *   that overlays an uncontrolled input on top of each form field. Not
+   *   shipped in v0.2; the option is accepted but ignored to keep the
+   *   public type surface stable for when the feature lands.
    */
   ghostFill?: boolean;
 }
@@ -67,15 +69,28 @@ export function usePilotForm<TFieldValues extends FieldValues>(
       return;
     }
 
+    // Snapshot the field paths from the form's defaultValues so the model
+    // gets an enum of allowed field names instead of a free-form string.
+    // Without this, the model has to guess names like "destination" vs
+    // "tripDestination" and silently no-ops on misses.
+    const fieldPaths = collectFieldPaths(formRef.current.formState.defaultValues);
+    const fieldsList = fieldPaths.length > 0 ? fieldPaths.join(", ") : "(none discovered yet)";
+
     // --- set_<name>_field ------------------------------------------------
     const setFieldId = ctx.registerAction({
       name: `set_${name}_field`,
       description:
-        "Write a single field of the form. Triggers RHF validation. " +
-        "Use this to progressively fill the form as the user describes it.",
+        `Write a single field of the "${name}" form. Triggers RHF validation. ` +
+        `Use to progressively fill as the user describes the form. ` +
+        `Available fields: ${fieldsList}.`,
       parameters: z.object({
-        field: z.string().describe("Path of the form field (e.g. 'email' or 'address.street')."),
-        value: z.unknown().describe("New value. Pass the value directly — not JSON-stringified."),
+        field:
+          fieldPaths.length > 0
+            ? z
+                .enum(fieldPaths as [string, ...string[]])
+                .describe(`One of: ${fieldsList}.`)
+            : z.string().describe("Path of the form field (e.g. 'email' or 'address.street')."),
+        value: z.unknown().describe("New value. Pass the value directly, not JSON-stringified."),
       }),
       handler: ({ field, value }) => {
         // react-hook-form types `setValue`'s first arg as a path union; we
@@ -87,6 +102,42 @@ export function usePilotForm<TFieldValues extends FieldValues>(
           shouldTouch: true,
         });
         return { ok: true, field };
+      },
+    });
+
+    // --- set_<name>_fields (batch) --------------------------------------
+    // One round-trip instead of N. Important for "fill the whole form"
+    // intents where N=5+ would otherwise burn extra tokens and latency.
+    const setFieldsId = ctx.registerAction({
+      name: `set_${name}_fields`,
+      description:
+        `Write multiple fields of the "${name}" form in one call. ` +
+        `Each entry sets one field; same validation as set_${name}_field. ` +
+        `Available fields: ${fieldsList}.`,
+      parameters: z.object({
+        values: z
+          .record(z.unknown())
+          .describe(
+            `Object whose keys are field paths and values are the new field values. ` +
+              `Keys must be one of: ${fieldsList}.`,
+          ),
+      }),
+      handler: ({ values }) => {
+        const written: string[] = [];
+        const skipped: string[] = [];
+        for (const [field, value] of Object.entries(values ?? {})) {
+          if (fieldPaths.length > 0 && !fieldPaths.includes(field)) {
+            skipped.push(field);
+            continue;
+          }
+          formRef.current.setValue(field as never, value as never, {
+            shouldValidate: true,
+            shouldDirty: true,
+            shouldTouch: true,
+          });
+          written.push(field);
+        }
+        return { ok: true, written, skipped };
       },
     });
 
@@ -131,10 +182,33 @@ export function usePilotForm<TFieldValues extends FieldValues>(
       mutating: true,
     });
 
+    // Also register a form-shaped entry so inspect_context can list this
+    // form alongside its actions. fieldSchemas is built from the field
+    // paths so the snapshot exposes which keys exist.
+    const formId = ctx.registerForm({
+      name,
+      fieldSchemas: Object.fromEntries(
+        fieldPaths.map((p) => [p, z.unknown() as z.ZodType<unknown>]),
+      ),
+      setValue: (field, value) =>
+        formRef.current.setValue(field as never, value as never, {
+          shouldValidate: true,
+          shouldDirty: true,
+          shouldTouch: true,
+        }),
+      submit: async () => {
+        const node = findFormElement(formRef.current);
+        if (node) node.requestSubmit();
+      },
+      reset: () => formRef.current.reset(),
+    });
+
     return () => {
       ctx.deregisterAction(setFieldId);
+      ctx.deregisterAction(setFieldsId);
       ctx.deregisterAction(submitId);
       ctx.deregisterAction(resetId);
+      ctx.deregisterForm(formId);
     };
   }, [ctx, name]);
 
@@ -169,6 +243,28 @@ function findFormElement<T extends FieldValues>(form: UseFormReturn<T>): HTMLFor
     }
   }
   return null;
+}
+
+/**
+ * Walk an object of default values and produce dot-path field names. Skips
+ * arrays (each index would create N more entries that the model doesn't
+ * need to enumerate). Used to give the model an explicit list of fields
+ * it can write to via `set_<name>_field` and `set_<name>_fields`.
+ */
+function collectFieldPaths(input: unknown, prefix = "", out: string[] = []): string[] {
+  if (input == null || typeof input !== "object" || Array.isArray(input)) {
+    if (prefix) out.push(prefix);
+    return out;
+  }
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      collectFieldPaths(value, path, out);
+    } else {
+      out.push(path);
+    }
+  }
+  return out;
 }
 
 export type { PilotFormRegistration };

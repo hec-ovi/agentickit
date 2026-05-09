@@ -81,6 +81,25 @@ export interface PilotSidebarProps {
   onOpenChange?: (open: boolean) => void;
   /** Text overrides for built-in copy. Every key is optional. */
   labels?: PilotChromeLabels;
+  /**
+   * Composer visibility, forwarded to the inner `<PilotChatView>`. See
+   * `PilotChatViewProps.composer` for full semantics. Default `"full"`.
+   */
+  composer?: "full" | "suggestions" | "off";
+  /**
+   * How the sidebar relates to the page content.
+   *
+   * - `"overlay"` (default): the sidebar floats over the page; nothing
+   *   underneath is shifted. Same behavior `<PilotSidebar>` has always had.
+   * - `"push"`: when the sidebar is open, the package adds
+   *   `data-pilot-sidebar-state="open"`, `data-pilot-sidebar-mode="push"`,
+   *   `data-pilot-sidebar-position="left|right"`, and a CSS variable
+   *   `--pilot-sidebar-width-active` to `<html>`. The package's own CSS
+   *   then applies a matching padding to `<body>` so the page content
+   *   shifts. Consumers can override the rule for finer-grained control,
+   *   e.g. push only a specific element.
+   */
+  mode?: "overlay" | "push";
 }
 
 /**
@@ -97,6 +116,8 @@ export function PilotSidebar(props: PilotSidebarProps = {}): ReactNode {
     suggestions,
     onOpenChange,
     labels,
+    composer,
+    mode = "overlay",
   } = props;
 
   const resolvedLabels = resolveChromeLabels(labels);
@@ -119,6 +140,33 @@ export function PilotSidebar(props: PilotSidebarProps = {}): ReactNode {
       onOpenChange?.(open);
     }
   }, [open, onOpenChange]);
+
+  // Push mode: while the sidebar is open, mark <html> with data attributes
+  // and a CSS variable so the package's own CSS (and consumer overrides)
+  // can shift the page content to make room. Cleans up to a closed state
+  // on unmount and on close.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const html = document.documentElement;
+    const widthValue = typeof width === "number" ? `${width}px` : width;
+    if (mode === "push" && open) {
+      html.setAttribute("data-pilot-sidebar-mode", "push");
+      html.setAttribute("data-pilot-sidebar-state", "open");
+      html.setAttribute("data-pilot-sidebar-position", position);
+      html.style.setProperty("--pilot-sidebar-width-active", widthValue);
+    } else {
+      html.removeAttribute("data-pilot-sidebar-mode");
+      html.removeAttribute("data-pilot-sidebar-state");
+      html.removeAttribute("data-pilot-sidebar-position");
+      html.style.removeProperty("--pilot-sidebar-width-active");
+    }
+    return () => {
+      html.removeAttribute("data-pilot-sidebar-mode");
+      html.removeAttribute("data-pilot-sidebar-state");
+      html.removeAttribute("data-pilot-sidebar-position");
+      html.style.removeProperty("--pilot-sidebar-width-active");
+    };
+  }, [mode, open, position, width]);
 
   // Return focus to the toggle button on close. The toggle is the only way
   // to open the sidebar (the API is uncontrolled), so the toggle is the
@@ -197,6 +245,7 @@ export function PilotSidebar(props: PilotSidebarProps = {}): ReactNode {
         ref={chatViewRef}
         greeting={greeting}
         suggestions={suggestions}
+        composer={composer}
         labels={{
           title: resolvedLabels.title,
           inputPlaceholder: resolvedLabels.inputPlaceholder,

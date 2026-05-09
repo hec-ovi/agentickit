@@ -56,14 +56,20 @@ describe("usePilotAction", () => {
     );
 
     // After the initial effect pass, the action must be in the snapshot.
+    // Filter out the always-on `inspect_context` auto-tool that <Pilot>
+    // registers itself; this test only cares about user actions.
     expect(registry).not.toBeNull();
     const snapshot = registry?.getSnapshot();
-    expect(snapshot?.actions).toHaveLength(1);
-    expect(snapshot?.actions[0]?.name).toBe("greet");
+    const userActions = (snapshot?.actions ?? []).filter(
+      (a) => a.name !== "inspect_context",
+    );
+    expect(userActions).toHaveLength(1);
+    expect(userActions[0]?.name).toBe("greet");
 
     unmount();
 
-    // A fresh render of the provider alone should have zero actions.
+    // A fresh render of the provider alone should have zero user actions
+    // (only the framework-internal inspect_context remains).
     const { unmount: unmount2 } = render(
       <Pilot apiUrl="/api/test">
         <RegistrySpy
@@ -73,7 +79,10 @@ describe("usePilotAction", () => {
         />
       </Pilot>,
     );
-    expect(registry?.getSnapshot().actions).toHaveLength(0);
+    const bareActions = (registry?.getSnapshot().actions ?? []).filter(
+      (a) => a.name !== "inspect_context",
+    );
+    expect(bareActions).toHaveLength(0);
     unmount2();
   });
 

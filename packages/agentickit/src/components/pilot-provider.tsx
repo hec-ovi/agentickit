@@ -1,7 +1,8 @@
 "use client";
 
 import { generateId } from "ai";
-import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { z } from "zod";
 import {
   PilotChatContext,
   PilotRegistryContext,
@@ -171,6 +172,7 @@ export function Pilot(props: PilotProps): ReactNode {
   const actionsRef = useRef<Map<string, PilotActionRegistration>>(new Map());
   const statesRef = useRef<Map<string, PilotStateRegistration>>(new Map());
   const formsRef = useRef<Map<string, PilotFormRegistration>>(new Map());
+  const instructionsRef = useRef<Map<string, { id: string; text: string }>>(new Map());
   const listenersRef = useRef<Set<() => void>>(new Set());
   // Monotonic version bumped on every mutation, enables memoized snapshots.
   const versionRef = useRef(0);
@@ -179,7 +181,7 @@ export function Pilot(props: PilotProps): ReactNode {
   // allocating on every call (a requirement of `useSyncExternalStore`).
   const snapshotRef = useRef<{ version: number; value: PilotRegistrySnapshot }>({
     version: -1,
-    value: { actions: [], states: [], forms: [] },
+    value: { actions: [], states: [], forms: [], instructions: [] },
   });
 
   const notify = useCallback(() => {
@@ -308,6 +310,23 @@ export function Pilot(props: PilotProps): ReactNode {
     [notify],
   );
 
+  const registerInstructions = useCallback(
+    (text: string): string => {
+      const id = generateId();
+      instructionsRef.current.set(id, { id, text });
+      notify();
+      return id;
+    },
+    [notify],
+  );
+
+  const deregisterInstructions = useCallback(
+    (id: string) => {
+      if (instructionsRef.current.delete(id)) notify();
+    },
+    [notify],
+  );
+
   const subscribe = useCallback((listener: () => void) => {
     listenersRef.current.add(listener);
     return () => {
@@ -323,6 +342,7 @@ export function Pilot(props: PilotProps): ReactNode {
       actions: Array.from(actionsRef.current.values()),
       states: Array.from(statesRef.current.values()),
       forms: Array.from(formsRef.current.values()),
+      instructions: Array.from(instructionsRef.current.values()),
     };
     snapshotRef.current = { version: versionRef.current, value };
     return value;
@@ -337,6 +357,8 @@ export function Pilot(props: PilotProps): ReactNode {
       deregisterState,
       registerForm,
       deregisterForm,
+      registerInstructions,
+      deregisterInstructions,
       subscribe,
       getSnapshot,
     }),
@@ -348,10 +370,43 @@ export function Pilot(props: PilotProps): ReactNode {
       deregisterState,
       registerForm,
       deregisterForm,
+      registerInstructions,
+      deregisterInstructions,
       subscribe,
       getSnapshot,
     ],
   );
+
+  // ------------------------------------------------------------------
+  // Built-in introspection tool. Lets the model "look around" when the
+  // user is ambiguous: returns the live registry snapshot so the model
+  // can reason about what state, actions, and forms are currently
+  // mounted. Always-on; no consumer opt-in needed. Self-filtered out of
+  // the action list so the snapshot doesn't include itself recursively.
+  // ------------------------------------------------------------------
+  useEffect(() => {
+    const id = registerAction({
+      name: INSPECT_TOOL_NAME,
+      description:
+        "Inspect what is currently mounted. Returns a live snapshot of the React app's " +
+        "registered states (with current values), actions (with descriptions and gates), and " +
+        "forms (with field paths and current values). Use this when the user is ambiguous, " +
+        "you need to confirm what the user can see, or you want to discover which tools are " +
+        "available before committing to a plan.",
+      parameters: z.object({
+        filter: z
+          .enum(["all", "states", "actions", "forms", "instructions"])
+          .default("all")
+          .optional()
+          .describe(
+            "Limit the snapshot to one section. Defaults to 'all'. Use a narrower filter " +
+              "to reduce response size on large apps.",
+          ),
+      }),
+      handler: ({ filter }) => buildInspectSnapshot(getSnapshot(), filter ?? "all"),
+    });
+    return () => deregisterAction(id);
+  }, [registerAction, deregisterAction, getSnapshot]);
 
   // ------------------------------------------------------------------
   // Tool-call dispatcher. The runtime invokes this whenever the model
@@ -621,3 +676,94 @@ function PilotRuntimeBridge(props: {
 // now live in `runtime/local-runtime.ts` next to the `useChat` invocation
 // they wire up. The export above re-routes existing imports to the new
 // home so consumers and tests don't notice the move.
+
+/**
+ * Stable name for the auto-registered introspection tool. Exported so
+ * tests and consumers can reference it without stringly-typed coupling.
+ */
+export const INSPECT_TOOL_NAME = "inspect_context";
+
+/**
+ * Compress a value for inclusion in the snapshot response. JSON for
+ * structured types, capped at MAX_PREVIEW_CHARS to keep responses model-
+ * sized when state is huge (e.g. a 10k-element list).
+ */
+const MAX_PREVIEW_CHARS = 1024;
+function previewValue(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") {
+    return value.length > MAX_PREVIEW_CHARS
+      ? `${value.slice(0, MAX_PREVIEW_CHARS)}... [${value.length - MAX_PREVIEW_CHARS} more chars]`
+      : value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  try {
+    const json = JSON.stringify(value);
+    if (json.length <= MAX_PREVIEW_CHARS) return value;
+    if (Array.isArray(value)) {
+      return {
+        __truncated: true,
+        type: "array",
+        length: value.length,
+        sample: value.slice(0, 3),
+      };
+    }
+    return {
+      __truncated: true,
+      type: "object",
+      keys: Object.keys(value as Record<string, unknown>).slice(0, 16),
+    };
+  } catch {
+    return { __unserializable: true, type: typeof value };
+  }
+}
+
+interface InspectSnapshot {
+  states?: ReadonlyArray<{ name: string; description: string; value: unknown }>;
+  actions?: ReadonlyArray<{
+    name: string;
+    description: string;
+    mutating: boolean;
+    hasRenderAndWait: boolean;
+  }>;
+  forms?: ReadonlyArray<{ name: string; fields: ReadonlyArray<string> }>;
+  instructions?: ReadonlyArray<string>;
+}
+
+/**
+ * Project a registry snapshot down to the inspect-tool response shape.
+ * Filters out the inspect tool itself so the snapshot is non-recursive.
+ */
+function buildInspectSnapshot(
+  snapshot: PilotRegistrySnapshot,
+  filter: "all" | "states" | "actions" | "forms" | "instructions",
+): InspectSnapshot {
+  const out: InspectSnapshot = {};
+  if (filter === "all" || filter === "states") {
+    out.states = snapshot.states.map((s) => ({
+      name: s.name,
+      description: s.description,
+      value: previewValue(s.value),
+    }));
+  }
+  if (filter === "all" || filter === "actions") {
+    out.actions = snapshot.actions
+      .filter((a) => a.name !== INSPECT_TOOL_NAME)
+      .map((a) => ({
+        name: a.name,
+        description: a.description,
+        mutating: Boolean(a.mutating),
+        hasRenderAndWait: typeof a.renderAndWait === "function",
+      }));
+  }
+  if (filter === "all" || filter === "forms") {
+    out.forms = snapshot.forms.map((f) => ({
+      name: f.name,
+      fields: Object.keys(f.fieldSchemas ?? {}),
+    }));
+  }
+  if (filter === "all" || filter === "instructions") {
+    out.instructions = snapshot.instructions.map((i) => i.text);
+  }
+  return out;
+}

@@ -19,8 +19,15 @@
 const STYLE_ELEMENT_ID = "pilot-sidebar-styles";
 
 /** The full stylesheet, written inline so we can ship a zero-config sidebar. */
+/*
+ * Default tokens are wrapped in :where(:root) which has specificity 0,0,0,0.
+ * Any consumer rule on :root (specificity 0,0,1,0) overrides them without
+ * needing higher-specificity selectors. The `[data-pilot-theme="dark"]`
+ * sibling lets host apps drive dark mode manually (a manual theme toggle)
+ * alongside the OS-level @media query that auto-tracks system preference.
+ */
 export const PILOT_SIDEBAR_CSS = `
-:root {
+:where(:root) {
   --pilot-bg: #ffffff;
   --pilot-bg-elevated: #ffffff;
   --pilot-fg: #0a0a0a;
@@ -46,7 +53,7 @@ export const PILOT_SIDEBAR_CSS = `
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :where(:root):not([data-pilot-theme="light"]) {
     --pilot-bg: #0b0b0c;
     --pilot-bg-elevated: #111113;
     --pilot-fg: #f5f5f7;
@@ -66,6 +73,43 @@ export const PILOT_SIDEBAR_CSS = `
     --pilot-error-border: rgba(254, 202, 202, 0.2);
     --pilot-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
   }
+}
+
+:where(:root)[data-pilot-theme="dark"] {
+  --pilot-bg: #0b0b0c;
+  --pilot-bg-elevated: #111113;
+  --pilot-fg: #f5f5f7;
+  --pilot-fg-muted: #9aa0a6;
+  --pilot-fg-subtle: #6b7280;
+  --pilot-border: rgba(255, 255, 255, 0.08);
+  --pilot-border-strong: rgba(255, 255, 255, 0.14);
+  --pilot-accent: #f5f5f7;
+  --pilot-accent-fg: #0b0b0c;
+  --pilot-user-bubble-bg: #1f2023;
+  --pilot-user-bubble-fg: #f5f5f7;
+  --pilot-assistant-fg: #e5e7eb;
+  --pilot-tool-bg: rgba(255, 255, 255, 0.04);
+  --pilot-tool-border: rgba(255, 255, 255, 0.08);
+  --pilot-error-bg: rgba(153, 27, 27, 0.18);
+  --pilot-error-fg: #fecaca;
+  --pilot-error-border: rgba(254, 202, 202, 0.2);
+  --pilot-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+/* Push-mode page reflow. When <PilotSidebar mode="push"> is open, it sets
+ * data-pilot-sidebar-mode="push" on <html> plus data-pilot-sidebar-position
+ * and a --pilot-sidebar-width-active CSS variable. We use those to apply
+ * matching padding to <body> so the consumer's main content shifts. The
+ * transition matches the sidebar's slide animation. Consumers can override
+ * this rule to push a specific element instead of the body. */
+html[data-pilot-sidebar-mode="push"][data-pilot-sidebar-state="open"] body {
+  transition: padding 200ms ease-out;
+}
+html[data-pilot-sidebar-mode="push"][data-pilot-sidebar-state="open"][data-pilot-sidebar-position="right"] body {
+  padding-right: var(--pilot-sidebar-width-active, 380px);
+}
+html[data-pilot-sidebar-mode="push"][data-pilot-sidebar-state="open"][data-pilot-sidebar-position="left"] body {
+  padding-left: var(--pilot-sidebar-width-active, 380px);
 }
 
 .pilot-toggle {
@@ -502,33 +546,35 @@ export const PILOT_SIDEBAR_CSS = `
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 12px 16px 14px;
-  border-top: 1px solid var(--pilot-border);
+  padding: 12px 14px 14px 0;
   flex: 0 0 auto;
   background: var(--pilot-bg);
 }
+/* Composer row: asymmetric pill. Flat left edge sits flush with the panel
+ * left wall; right edge is a full half-circle so the send button (a perfect
+ * 32px circle) sits inside the curve as one continuous shape. No border. */
 .pilot-composer-row {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 6px 6px 6px 14px;
   background: var(--pilot-bg-elevated);
-  border: 1px solid var(--pilot-border-strong);
-  border-radius: var(--pilot-radius);
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  border: 0;
+  border-radius: 0 999px 999px 0;
+  transition: background 140ms ease;
 }
 .pilot-composer-row:focus-within {
-  border-color: var(--pilot-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pilot-accent) 12%, transparent);
+  background: color-mix(in srgb, var(--pilot-bg-elevated) 88%, var(--pilot-accent) 12%);
 }
 .pilot-composer textarea {
   flex: 1 1 auto;
   min-height: 22px;
   max-height: 160px;
-  padding: 2px 0;
+  padding: 6px 0;
   margin: 0;
   border: none;
   outline: none;
+  box-shadow: none;
   resize: none;
   background: transparent;
   color: var(--pilot-fg);
@@ -542,16 +588,16 @@ export const PILOT_SIDEBAR_CSS = `
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   color: var(--pilot-accent-fg);
   background: var(--pilot-accent);
-  border: 1px solid var(--pilot-accent);
+  border: 0;
   border-radius: 999px;
   cursor: pointer;
   flex: 0 0 auto;
-  transition: opacity 120ms ease, transform 120ms ease;
+  transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
 }
 .pilot-send:hover:not(:disabled) { transform: translateY(-1px); }
 .pilot-send:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -561,7 +607,6 @@ export const PILOT_SIDEBAR_CSS = `
 }
 .pilot-send[data-variant="stop"] {
   background: var(--pilot-error-fg);
-  border-color: var(--pilot-error-fg);
 }
 
 @keyframes pilot-fade-in {

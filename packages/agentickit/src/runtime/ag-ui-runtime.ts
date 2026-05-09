@@ -406,7 +406,8 @@ function useAgUiRuntimeImpl(
 
     if (toolDispatchedRef.current && safety >= MAX_ITERATIONS) {
       const msg = `AG-UI runtime: tool-call continuation cap (${MAX_ITERATIONS}) reached, aborting loop. The agent may be emitting tool calls without ever resolving them.`;
-      console.warn(msg);
+      // Surfacing through setError already routes to the chat UI; the
+      // bare console.warn was double-noise in production.
       setError(new Error(msg));
       setStatus("error");
     }

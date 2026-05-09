@@ -492,7 +492,9 @@ describe("<Pilot runtime={agUiRuntime}> integration", () => {
     await waitFor(() => {
       expect(agent.runs).toHaveLength(1);
     });
-    const tools = agent.runs[0]!.tools;
+    // Tools include the always-on inspect_context plus the user's lookup.
+    // Filter framework tools so the assertion targets user behavior only.
+    const tools = (agent.runs[0]!.tools ?? []).filter((t) => t.name !== "inspect_context");
     expect(tools).toEqual([
       expect.objectContaining({
         name: "lookup",
@@ -1062,7 +1064,10 @@ describe("agUiRuntime factory", () => {
       expect(agent.runs).toHaveLength(1);
     });
     const tools = agent.runs[0]!.tools;
-    const toolNames = tools.map((t) => t.name);
+    // Filter the always-on inspect_context framework tool so the assertion
+    // targets the registry-derived "registered" + the prepareRunParameters
+    // contribution "extra-tool" specifically.
+    const toolNames = tools.map((t) => t.name).filter((n) => n !== "inspect_context");
     expect(toolNames).toEqual(["registered", "extra-tool"]);
     const context = agent.runs[0]!.context;
     expect(context.length).toBe(1);
@@ -1077,7 +1082,6 @@ describe("agUiRuntime factory", () => {
 
 describe("continuation cap", () => {
   it("surfaces an error and stops looping after 16 tool-call iterations", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const agent = new FakeAgent();
     // Enqueue 20 tool-call runs in a row. The runtime should stop after
     // 16 iterations and surface a chat error.
@@ -1106,16 +1110,19 @@ describe("continuation cap", () => {
     fireEvent.change(textarea, { target: { value: "go" } });
     fireEvent.click(screen.getByRole("button", { name: /send/i }));
 
+    // The user-visible signal: the cap message renders inside the chat
+    // surface (via setError → chat.error → error banner). We assert on
+    // the rendered message rather than a console.warn spy because the
+    // runtime no longer double-logs to console (rerouted to the chat UI
+    // only) so the user actually sees the failure.
     await waitFor(
       () => {
         expect(screen.queryByText(/continuation cap/i)).not.toBeNull();
       },
       { timeout: 3000 },
     );
-    expect(warnSpy).toHaveBeenCalled();
     // Exactly 16 runs happened, not 20.
     expect(agent.runs.length).toBe(16);
-    warnSpy.mockRestore();
   });
 });
 

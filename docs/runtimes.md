@@ -17,6 +17,40 @@ import { Pilot, localRuntime } from "@hec-ovi/agentickit";
 
 `localRuntime` is `useChat` + the AI SDK 6 UIMessage stream protocol. Every framework piece (chat surfaces, confirm modal, tool dispatch, HITL gate) is built against the runtime contract, so nothing changes when you swap it out.
 
+### Persisting the conversation: `initialMessages` + `onMessagesChange`
+
+```ts
+const runtime = localRuntime({
+  apiUrl: "/api/pilot",
+  initialMessages: prevMessages,           // seed on mount
+  onMessagesChange: (msgs) => save(msgs),  // mirror back to your store
+});
+```
+
+Together these let consumers wire per-thread (or per-agent) message persistence without the framework owning the policy. `initialMessages` seeds `useChat` once on mount. `onMessagesChange` fires whenever `chat.messages` changes by reference. Use them with sessionStorage, IndexedDB, a server thread, or a parent-level `Map<channelId, messages>`.
+
+The recommended pattern for the per-agent registry case (one `<Pilot>` whose `runtime` swaps based on the active agent):
+
+```tsx
+const [active, setActive] = useState("concierge");
+const storeRef = useRef<Map<string, ReadonlyArray<unknown>>>(new Map());
+const runtime = useMemo(
+  () =>
+    localRuntime({
+      apiUrl: "/api/pilot",
+      initialMessages: storeRef.current.get(active) ?? [],
+      onMessagesChange: (msgs) => {
+        storeRef.current.set(active, msgs);
+      },
+    }),
+  [active],
+);
+```
+
+Switching `active` re-creates the runtime, which seeds the new chat from the stored slice for that agent. Switching back restores the prior thread.
+
+Note: AI SDK's `useChat` reads `initialMessages` once on mount. Construct a fresh runtime to seed a new history; mutating the option on an already-mounted runtime does not retroactively replace the messages.
+
 Source: [`packages/agentickit/src/runtime/local-runtime.ts`](../packages/agentickit/src/runtime/local-runtime.ts).
 
 ## agUiRuntime

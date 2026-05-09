@@ -47,8 +47,11 @@ describe("usePilotState", () => {
     expect(snap?.states).toHaveLength(1);
     expect(snap?.states[0]?.name).toBe("count");
     expect(snap?.states[0]?.value).toBe(42);
-    // No auto-update action because setValue is absent.
-    expect(snap?.actions).toHaveLength(0);
+    // No auto-update action because setValue is absent. Filter out the
+    // always-on `inspect_context` framework tool to keep the assertion
+    // about user-registered actions specifically.
+    const userActions = (snap?.actions ?? []).filter((a) => a.name !== "inspect_context");
+    expect(userActions).toHaveLength(0);
   });
 
   it("registers an update_<name> action when setValue is provided", async () => {
@@ -83,7 +86,8 @@ describe("usePilotState", () => {
     );
 
     const snap = registry?.getSnapshot();
-    expect(snap?.actions).toHaveLength(1);
+    const userActions = (snap?.actions ?? []).filter((a) => a.name !== "inspect_context");
+    expect(userActions).toHaveLength(1);
     const updateAction = snap?.actions.find((a) => a.name === "update_count");
     expect(updateAction).toBeDefined();
     expect(updateAction?.mutating).toBe(true);

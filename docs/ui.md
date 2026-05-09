@@ -40,6 +40,24 @@ Renders a collapsed toggle button when closed and an `<aside role="complementary
 
 The sidebar internally renders `<PilotChatView>` for the body, so suggestions, error banner, skills panel, and composer behavior are identical across all four surfaces.
 
+### `mode="overlay" | "push"`
+
+- `"overlay"` (default): the sidebar floats over your page; nothing else moves. The current behavior.
+- `"push"`: while the sidebar is open, the package marks `<html>` with `data-pilot-sidebar-mode="push"`, `data-pilot-sidebar-state="open"`, `data-pilot-sidebar-position="left|right"`, and a CSS variable `--pilot-sidebar-width-active`. The package's own CSS applies a matching `padding-left` / `padding-right` to `<body>` so the page content shifts to make room. The user sees both your full app and the chat side-by-side, instead of one floating over the other.
+
+Use push mode for editor-style or dashboard-style apps where the underlying page IS the work and the chat is a long-running side panel. Use overlay for AI-first surfaces where the chat is the work and the page is context.
+
+Consumers can override the package's body-padding rule and instead push a specific element (e.g., `main`) by selecting on the same `data-pilot-sidebar-mode="push"` attribute set:
+
+```css
+html[data-pilot-sidebar-mode="push"][data-pilot-sidebar-state="open"][data-pilot-sidebar-position="right"] body {
+  padding-right: 0;
+}
+html[data-pilot-sidebar-mode="push"][data-pilot-sidebar-state="open"][data-pilot-sidebar-position="right"] main {
+  padding-right: var(--pilot-sidebar-width-active);
+}
+```
+
 Source: [`packages/agentickit/src/components/pilot-sidebar.tsx`](../packages/agentickit/src/components/pilot-sidebar.tsx).
 
 ## PilotPopup
@@ -109,6 +127,22 @@ import { Pilot, PilotChatView } from "@hec-ovi/agentickit";
 ```
 
 What you get: error banner, optional suggestion-chip row (rendered when `messages.length === 0` and `suggestions` is non-empty), optional collapsible skills panel, message list, and composer. No outer chrome. Bring your own borders and animation.
+
+### `composer="full" | "suggestions" | "off"`
+
+Available on every chat surface (`<PilotChatView>`, `<PilotSidebar>`, `<PilotPopup>`, `<PilotModal>`). Controls whether the user can type into the chat at all.
+
+- `"full"` (default): textarea + send button + suggestion chips + skills panel.
+- `"suggestions"`: hides the textarea and send button; suggestion chips remain so the user can drive the chat via canned prompts only. The skills panel is also hidden because it implies typing.
+- `"off"`: hides the composer AND the chips. The chat surface becomes purely observational, useful for streaming agent state where free text would not make sense.
+
+Use `"suggestions"` or `"off"` when the active runtime is scripted, deterministic, or runs in a one-shot mode where the user typing free text would be misleading. The default `"full"` keeps existing behavior.
+
+### Theming with `data-pilot-theme`
+
+The package's chat surfaces auto-track OS dark mode via `@media (prefers-color-scheme: dark)`. To override that with your app's theme toggle, set `data-pilot-theme="dark"` (or `"light"`) on `<html>` (or any ancestor of the chat surface). The package CSS honors that attribute alongside the `@media` query, so your manual choice always wins.
+
+The defaults are wrapped in `:where(:root)` (specificity 0), so any `:root { --pilot-* : ... }` override in your stylesheet wins without needing higher-specificity selectors.
 
 Imperative handle via ref:
 

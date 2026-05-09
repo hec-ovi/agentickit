@@ -59,6 +59,16 @@ export interface PilotRegistryContextValue {
   registerForm: (registration: Omit<PilotFormRegistration, "id">) => string;
   deregisterForm: (id: string) => void;
 
+  /**
+   * Register a per-page system-prompt fragment. The provider serializes
+   * every live fragment into the request body's `instructions` array on
+   * each send; the server appends them to the composed system prompt
+   * (after server-owned + client-system fragments, before live UI state).
+   * Returns an `id` used by `deregisterInstructions`.
+   */
+  registerInstructions: (text: string) => string;
+  deregisterInstructions: (id: string) => void;
+
   /** useSyncExternalStore-compatible subscribe. Fires when the registry mutates. */
   subscribe: (listener: () => void) => () => void;
 
@@ -75,6 +85,7 @@ export interface PilotRegistrySnapshot {
   actions: ReadonlyArray<PilotActionRegistration>;
   states: ReadonlyArray<PilotStateRegistration>;
   forms: ReadonlyArray<PilotFormRegistration>;
+  instructions: ReadonlyArray<{ id: string; text: string }>;
 }
 
 /**

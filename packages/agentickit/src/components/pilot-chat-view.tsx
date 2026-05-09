@@ -83,6 +83,17 @@ export interface PilotChatViewProps {
    * capability surface).
    */
   showSkillsPanel?: boolean;
+  /**
+   * Composer visibility:
+   * - `"full"` (default): render the textarea + send button as normal.
+   * - `"suggestions"`: hide the textarea + send button; suggestion chips
+   *   stay visible so the user can drive the chat via canned prompts.
+   *   Useful when the active runtime is scripted / read-mostly and free
+   *   text would mislead.
+   * - `"off"`: hide the composer AND the suggestion chips. The chat view
+   *   becomes purely observational (good for streaming agent state).
+   */
+  composer?: "full" | "suggestions" | "off";
 }
 
 /**
@@ -113,6 +124,7 @@ export const PilotChatView = forwardRef<PilotChatViewHandle, PilotChatViewProps>
       labels,
       autoFocus = true,
       showSkillsPanel = true,
+      composer = "full",
     } = props;
 
     const resolved = {
@@ -203,7 +215,7 @@ export const PilotChatView = forwardRef<PilotChatViewHandle, PilotChatViewProps>
           </div>
         ) : null}
 
-        {suggestions && suggestions.length > 0 && messages.length === 0 ? (
+        {composer !== "off" && suggestions && suggestions.length > 0 && messages.length === 0 ? (
           <div className="pilot-suggestions" aria-label="Suggested prompts">
             {suggestions.map((text, index) => (
               <button
@@ -222,17 +234,21 @@ export const PilotChatView = forwardRef<PilotChatViewHandle, PilotChatViewProps>
           </div>
         ) : null}
 
-        {showSkillsPanel ? <PilotSkillsPanel onPickPrompt={handlePrefill} /> : null}
+        {composer === "full" && showSkillsPanel ? (
+          <PilotSkillsPanel onPickPrompt={handlePrefill} />
+        ) : null}
 
-        <PilotComposer
-          ref={composerRef}
-          onSubmit={handleSend}
-          onStop={handleStop}
-          isLoading={isLoading}
-          placeholder={resolved.inputPlaceholder}
-          sendLabel={resolved.sendButton}
-          autoFocus={autoFocus}
-        />
+        {composer === "full" ? (
+          <PilotComposer
+            ref={composerRef}
+            onSubmit={handleSend}
+            onStop={handleStop}
+            isLoading={isLoading}
+            placeholder={resolved.inputPlaceholder}
+            sendLabel={resolved.sendButton}
+            autoFocus={autoFocus}
+          />
+        ) : null}
       </div>
     );
   },

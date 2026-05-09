@@ -17,6 +17,7 @@ export type {
 export { usePilotAction } from "./hooks/use-pilot-action.js";
 export { usePilotState } from "./hooks/use-pilot-state.js";
 export { usePilotForm } from "./hooks/use-pilot-form.js";
+export { usePilotInstructions } from "./hooks/use-pilot-instructions.js";
 export { Pilot, type PilotProps } from "./components/pilot-provider.js";
 export { PilotSidebar, type PilotSidebarProps } from "./components/pilot-sidebar.js";
 export { PilotPopup, type PilotPopupProps, type PilotPopupPosition } from "./components/pilot-popup.js";

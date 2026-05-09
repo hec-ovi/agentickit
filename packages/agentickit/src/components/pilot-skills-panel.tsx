@@ -38,6 +38,7 @@ const EMPTY_SNAPSHOT: PilotRegistrySnapshot = Object.freeze({
   actions: [],
   states: [],
   forms: [],
+  instructions: [],
 });
 
 /**

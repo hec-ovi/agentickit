@@ -4,6 +4,80 @@ All notable changes to `@hec-ovi/agentickit` will be documented here. Format loo
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-09
+
+This release lands Phase 8 (form-aware tool surface, asymmetric chat composer, OpenAI Responses-by-default refresh) and Phase 9 (CSS specificity, manual dark theme, `inspect_context`, `usePilotInstructions`, composer visibility, sidebar push mode, runtime message persistence). Test count climbed from 296 to 325. Zero regressions across the existing suite.
+
+### Added, examples: travel (showcase app)
+
+- **New example at `examples/travel/`** is a Vite + React + Hono trip-planning app that exercises every primitive the package ships: state, action, form, renderAndWait, instructions, four chat surfaces, multi-agent registry, push-mode sidebar, composer visibility prop. Three theme modes (light, dark, system) with localStorage persistence.
+- **Tool plugins**: `weatherPlugin` (proxies OpenWeather, falls back to deterministic mock), `currencyPlugin`, `destinationsPlugin`, `datePlugin` (today + relative date arithmetic). Registered via a small `<PilotPlugins>` shell that mounts each plugin as a no-render React component.
+- **Real LLM specialists** (replacing scripted "tape" endpoints from earlier prototypes). Each `/api/agui-{flights,hotels,activities,weather}` runs a real `streamText` call with its own system prompt and a curated tool subset, reached through the AG-UI `HttpAgent` registry pattern. The AG-UI ↔ AI SDK bridge lives at `examples/travel/server/agui-bridge.ts`.
+- 18 vitest tests cover the example's data layer, theme provider, and helpers.
+
+### Added, Phase 9: per-channel message persistence on `localRuntime`
+
+- **`localRuntime({ initialMessages, onMessagesChange })`** new options. `initialMessages` seeds `useChat` on mount; `onMessagesChange` fires whenever `chat.messages` changes by reference. Together they let consumers wire per-thread (or per-agent) persistence without the framework owning the policy.
+- **The pattern** for per-agent persistence: a parent component holds a `Map<channelId, messages[]>`, constructs a fresh `localRuntime` for the active channel with `initialMessages: store.get(activeId)` and `onMessagesChange: (m) => store.set(activeId, m)`, and re-creates the runtime when the active channel changes. Switching back restores the prior thread instantly. Documented in `docs/runtimes.md` as the recommended workaround for the per-agent registry case until the framework grows a built-in store.
+- **Reference identity stability**: AI SDK's `useChat` reads `messages` once on mount (the new `messages` prop maps to AI SDK 6's seed slot); construct a fresh runtime to seed a new history.
+- **No breaking changes**: both options are optional. Consumers not using them see no behavior change. `onMessagesChange` is fired imperatively during render (mirroring the cheap diff used by AI SDK itself), no extra renders introduced.
+- **3 new tests** in `local-runtime-persistence.test.tsx` cover all three contracts via real RTL: `onMessagesChange` fires on user send, `initialMessages` paints seed messages on mount, and a multi-channel harness round-trips per-channel history across switches (asserts that messages from the active channel appear and the inactive channel's messages don't leak).
+
+### Added, Phase 9: PilotSidebar push mode
+
+- **`<PilotSidebar mode="overlay" | "push">`**. Default `"overlay"` keeps the existing position-fixed-floats-over-content behavior. `"push"` shifts the page content to make room: while open, the package marks `<html>` with `data-pilot-sidebar-mode="push"`, `data-pilot-sidebar-state="open"`, `data-pilot-sidebar-position="left|right"`, and a `--pilot-sidebar-width-active` CSS variable. The package's own CSS applies a matching `padding-left` / `padding-right` to `<body>` so the original site stays fully visible alongside the chat. (`packages/agentickit/src/components/pilot-sidebar.tsx` + `pilot-sidebar-styles.ts`.)
+- **Cleanup is automatic**: closing the sidebar removes the attributes; unmounting too. Defensive afterEach in tests confirms the html cleans up even when a render fails.
+- **Consumer override pathway**: a host can override the package's `padding` rule and instead push a specific element (e.g., `main`) by writing their own CSS rule selecting on the same `data-pilot-sidebar-mode="push"` attributes.
+- **6 new tests** in `pilot-sidebar-mode.test.tsx` exercise the contract via real RTL: assert on `<html>` attribute presence/absence, click the close X to verify cleanup, click the toggle button to verify re-apply, cover left position, and unmount-cleanup.
+
+### Added, Phase 9: composer visibility prop
+
+- **`composer?: "full" | "suggestions" | "off"`** added to every chat surface (`<PilotChatView>`, `<PilotSidebar>`, `<PilotPopup>`, `<PilotModal>`). Default `"full"` preserves current behavior. (`packages/agentickit/src/components/pilot-chat-view.tsx` and the three chrome wrappers.)
+- `"full"`: textarea + send button + suggestion chips (current behavior).
+- `"suggestions"`: hides textarea + send button; suggestion chips remain so the user can drive a scripted / read-mostly agent via canned prompts. The skills panel is also hidden because it implies typing.
+- `"off"`: hides composer AND chips. The chat surface becomes purely observational, useful for streaming agent state or run-only views.
+- Fixes the trust footgun where a scripted agent (no LLM) still showed a misleading textarea.
+- **5 new tests** in `pilot-composer-visibility.test.tsx` cover all three modes via real RTL: assert textarea / send-button / chip presence-or-absence by role, then click-and-fire a chat request to verify the suggestion-chip path still routes correctly when the textarea is hidden.
+
+### Added, Phase 9: `usePilotInstructions` hook
+
+- **New hook `usePilotInstructions(text: string)`** lets components contribute per-page system-prompt fragments. Mounted fragments are serialized into the request body's `instructions` array on every send and appended to the composed system prompt by the server (after server-owned + client-system fragments, before live UI state). Unmounting cleans up automatically. (`packages/agentickit/src/hooks/use-pilot-instructions.ts`.)
+- **Provider plumbing**: `<Pilot>` registry now owns an `instructions` slot alongside actions / states / forms. `PilotRegistryContextValue` gained `registerInstructions(text) => id` and `deregisterInstructions(id)`. `PilotRegistrySnapshot` gained `instructions: ReadonlyArray<{ id, text }>`. `inspect_context` now reports the live fragments under a new `instructions` filter.
+- **Wire format**: `localRuntime`'s `prepareSendMessagesRequest` reads `snapshot.instructions` and ships them as `body.instructions: string[]` (omitted when empty). Server schema accepts `instructions: z.array(z.string().max(4096)).max(64).optional()` (size-capped to bound request budget); `composeSystemPrompt` appends them under a `## Page instructions` heading.
+- **4 new tests** in `use-pilot-instructions.test.tsx` exercise the contract end-to-end via real RTL: mount fragments, click the send button, assert on the recorded fetch body. Covers single fragment, multiple fragments in registration order, unmount-cleanup, and empty-string skip.
+- **No breaking changes**: existing consumers that don't import the new hook see no behavior change. Server handlers that ignore `body.instructions` continue to work.
+
+### Added, Phase 9: built-in `inspect_context` introspection tool
+
+- **`<Pilot>` now auto-registers an `inspect_context({ filter? })` action** on every mount. The model can call it to receive a live, structured snapshot of currently-mounted states, actions, and forms — useful when the user is ambiguous and the model needs to "look around" before deciding what to do. (`packages/agentickit/src/components/pilot-provider.tsx`.)
+- **Snapshot shape**: `{ states: [{ name, description, value }], actions: [{ name, description, mutating, hasRenderAndWait }], forms: [{ name, fields }] }`. Filter parameter (`"all" | "states" | "actions" | "forms"`) keeps responses tight on large apps. Self-filtered out of `actions` so the snapshot is non-recursive.
+- **`previewValue`** truncates large arrays / objects to a preview shape `{ __truncated: true, type, length, sample }` capped at ~1 KB so a 10k-element list doesn't blow the response budget.
+- **`usePilotForm` now also calls `registerForm`** so forms appear in the `inspect_context` snapshot with their field paths (previously the form's existence was only inferable from the `set_<name>_field` action description). No behavior change for the existing `set_<name>_field` / `set_<name>_fields` / `submit_<name>` / `reset_<name>` tools.
+- **`INSPECT_TOOL_NAME` exported** so consumers and tests can reference the action name without stringly-typed coupling.
+- **6 new tests** in `inspect-context.test.tsx` cover registration, the three filter modes, the self-filter, and the value-truncation behavior.
+- **Existing tests updated** to filter out `inspect_context` when asserting on counts of user-registered actions: `use-pilot-action.test.tsx`, `use-pilot-state.test.tsx`, `runtime/ag-ui-runtime.test.tsx`. No semantic change to user-visible behavior, just the assertions.
+
+### Changed, Phase 9: low-specificity defaults + manual dark mode
+
+- **Default `--pilot-*` tokens are now wrapped in `:where(:root)`** (specificity 0,0,0,0). Any consumer rule on `:root` (specificity 0,0,1,0) now overrides them without higher-specificity tricks. Fixes the long-standing footgun where the package's `:root` defaults beat consumer `:root` overrides because the package CSS was injected later. (`packages/agentickit/src/components/pilot-sidebar-styles.ts`.)
+- **New `[data-pilot-theme="dark"]` opt-in** for hosts with manual theme toggles. Set the attribute on `<html>` (or any ancestor of the chat surface) to force dark mode regardless of OS preference. The complementary `[data-pilot-theme="light"]` is honored inside the `@media (prefers-color-scheme: dark)` block via `:not()`, so manual light overrides system dark too.
+- **No breaking change** for consumers using OS-pref-tracked themes only; the `@media` rule still fires. Host overrides that previously had to use selectors like `html[data-theme="dark"] :root { --pilot-* : ... }` can now be simplified to plain `:root` rules.
+- **5 new tests** in `pilot-sidebar-styles.test.ts` lock the contract: `:where(:root)` is used (not bare `:root`), the dark `@media` block exists with the manual-light escape hatch, the manual-dark block exists, and the asymmetric composer + circular send button stay intact.
+
+### Added, Phase 8: form-aware tool surface
+
+- **`set_<name>_field` is now field-aware.** `usePilotForm` snapshots the form's `defaultValues` at registration and feeds the keys into the auto-tool. The `field` parameter is now a strict Zod enum of the form's actual paths (instead of an unconstrained string), and the description ends with `Available fields: foo, bar, baz.`. Models can no longer guess wrong; misspelled paths fail at the parameters layer rather than silently no-op'ing inside RHF. Nested objects are walked into dot-paths (`address.street`); arrays are skipped to avoid an explosion of indexed fields.
+- **New auto-tool: `set_<name>_fields({ values })`.** Batch sibling of `set_<name>_field`. Writes any number of fields in one call and returns `{ written: [...], skipped: [...] }`. Cuts the round-trip cost of "fill the whole form" intents from N to 1, and the description embeds the same field list so the model has a self-contained map of writable keys.
+- **`collectFieldPaths`** (private helper in `use-pilot-form.ts`): recursively walks a default-values object and produces dot-paths. Skips arrays. Used by both `set_<name>_field` and `set_<name>_fields`.
+- **No breaking change** for consumers of `usePilotForm`: hook signature unchanged, the existing `set_<name>_field` keeps the same name and returns the same shape; only the parameter type tightened.
+
+### Changed, Phase 8: chat composer redesign
+
+- **Asymmetric pill composer**: `.pilot-composer-row` is now flat-left and full-circular-right, sitting flush against the panel's left wall with the send button nesting in the right curve. No border. Focus is signaled by a soft background tint shift toward `--pilot-accent`, replacing the old border + box-shadow ring (which painted twice when the host page already had a global `textarea:focus` rule).
+- **Send button** bumped from 30x30 to 32x32, borderless, perfect circle.
+- **`.pilot-composer` outer container** dropped its `border-top` and zero'd left padding so the row's flat left edge meets the panel wall cleanly. Right padding kept so the circular right edge floats normally.
+- Visual change only; no JS, no DOM contract drift. All 296 existing framework tests pass unchanged. Consumers who were overriding `.pilot-composer-row { border, border-radius }` will need to remove those rules.
+
 ### Changed, OpenAI endpoint default
 
 - **The handler now uses the Responses API by default for every `openai/*` model**, including when `OPENAI_BASE_URL` points at a custom OpenAI-compatible server (vLLM, Ollama, LM Studio, Fireworks, Together, DeepInfra). Previously the handler force-switched any non-default `OPENAI_BASE_URL` to Chat Completions to dodge an old vLLM Responses-API tool-call lifecycle bug. That bug is no longer load-bearing on current vLLM builds, and forcing chat-completions also bypassed Responses-only features. Set `AGENTICKIT_OPENAI_PROTOCOL=chat` to opt back into the legacy fallback for older OSS Responses servers that still never emit `function_call_arguments.done`. (`packages/agentickit/src/server/handler.ts`.)
