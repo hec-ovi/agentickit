@@ -1,0 +1,156 @@
+/*
+ * Design tokens. Editorial travel palette: warm cream + deep navy on light,
+ * navy ink + amber accent on dark. Both themes share a single token surface so
+ * components never branch on theme.
+ *
+ * Pre-mount inline script in index.html sets [data-theme] before React boots,
+ * so this file ships colors with no flash.
+ */
+
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f7f4ee;
+  --surface: #fbfaf6;
+  --surface-muted: #efeae0;
+  --surface-sunken: #e7dfd0;
+  --border: #e0d8c8;
+  --border-strong: #c9bfa9;
+  --text: #1c1916;
+  --text-muted: #6b6359;
+  --text-subtle: #9c9385;
+
+  --accent: #1e3a5f;
+  --accent-strong: #142a47;
+  --accent-soft: rgba(30, 58, 95, 0.08);
+  --accent-ring: rgba(30, 58, 95, 0.18);
+  --accent-ink: #fbfaf6;
+
+  --highlight: #b45309;
+  --highlight-soft: rgba(180, 83, 9, 0.1);
+  --danger: #b91c1c;
+  --danger-soft: rgba(185, 28, 28, 0.08);
+  --success: #15803d;
+  --success-soft: rgba(21, 128, 61, 0.1);
+  --warning: #b45309;
+  --warning-soft: rgba(180, 83, 9, 0.12);
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-lg: 14px;
+
+  --shadow-sm: 0 1px 2px rgba(28, 25, 22, 0.06);
+  --shadow-md:
+    0 1px 2px rgba(28, 25, 22, 0.06),
+    0 4px 12px rgba(28, 25, 22, 0.07);
+  --shadow-lg:
+    0 4px 8px rgba(28, 25, 22, 0.06),
+    0 16px 36px rgba(28, 25, 22, 0.1);
+
+  /* Card-elevation aliases. Cards rely on these (not borders) for separation. */
+  --shadow-card:
+    0 1px 2px rgba(28, 25, 22, 0.05),
+    0 6px 18px rgba(28, 25, 22, 0.06);
+  --shadow-card-hover:
+    0 2px 4px rgba(28, 25, 22, 0.06),
+    0 14px 32px rgba(28, 25, 22, 0.1);
+  --shadow-modal:
+    0 8px 16px rgba(28, 25, 22, 0.08),
+    0 24px 56px rgba(28, 25, 22, 0.16);
+
+  --font:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+
+  /* Spacing scale (4 / 8 / 12 / 16 / 24 / 32 / 48). */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #0b1220;
+  --surface: #131c2e;
+  --surface-muted: #1a2538;
+  --surface-sunken: #212d44;
+  --border: #243049;
+  --border-strong: #3a4a6c;
+  --text: #f1ebde;
+  --text-muted: #a39d8e;
+  --text-subtle: #6f6a5e;
+
+  --accent: #f0b04a;
+  --accent-strong: #fdc66c;
+  --accent-soft: rgba(240, 176, 74, 0.14);
+  --accent-ring: rgba(240, 176, 74, 0.3);
+  --accent-ink: #0b1220;
+
+  --highlight: #f0b04a;
+  --highlight-soft: rgba(240, 176, 74, 0.12);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.14);
+  --success: #4ade80;
+  --success-soft: rgba(74, 222, 128, 0.14);
+  --warning: #fbbf24;
+  --warning-soft: rgba(251, 191, 36, 0.14);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md:
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 4px 14px rgba(0, 0, 0, 0.4);
+  --shadow-lg:
+    0 4px 8px rgba(0, 0, 0, 0.5),
+    0 16px 40px rgba(0, 0, 0, 0.6);
+  --shadow-card:
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 6px 18px rgba(0, 0, 0, 0.45);
+  --shadow-card-hover:
+    0 2px 4px rgba(0, 0, 0, 0.45),
+    0 14px 32px rgba(0, 0, 0, 0.55);
+  --shadow-modal:
+    0 8px 16px rgba(0, 0, 0, 0.5),
+    0 24px 56px rgba(0, 0, 0, 0.7);
+}
+
+/*
+ * Pilot chat-surface vars. Bumping to [data-theme] specificity (0,0,2,0)
+ * beats the package's own :root injection (0,0,1,0) which lands in <head>
+ * after our stylesheet on first mount.
+ */
+:root[data-theme="light"],
+:root[data-theme="dark"] {
+  --pilot-bg: var(--surface);
+  --pilot-bg-elevated: var(--surface);
+  --pilot-fg: var(--text);
+  --pilot-fg-muted: var(--text-muted);
+  --pilot-fg-subtle: var(--text-subtle);
+  --pilot-border: var(--border);
+  --pilot-border-strong: var(--border-strong);
+  --pilot-accent: var(--accent);
+  --pilot-accent-fg: var(--accent-ink);
+  --pilot-user-bubble-bg: var(--surface-muted);
+  --pilot-user-bubble-fg: var(--text);
+  --pilot-assistant-fg: var(--text);
+  --pilot-tool-bg: var(--accent-soft);
+  --pilot-tool-border: var(--border);
+  --pilot-error-bg: var(--danger-soft);
+  --pilot-error-fg: var(--danger);
+  --pilot-error-border: var(--danger);
+  --pilot-shadow: var(--shadow-md);
+  --pilot-radius: var(--radius);
+  --pilot-radius-sm: var(--radius-sm);
+}
+
+:root[data-theme="dark"] {
+  --pilot-bg-elevated: var(--surface-muted);
+  --pilot-user-bubble-bg: var(--surface-sunken);
+}
