@@ -20,9 +20,9 @@ describe("PILOT_SIDEBAR_CSS specificity contract", () => {
     );
   });
 
-  it("composer row preserves asymmetric pill shape (flat-left, full-circle right)", () => {
+  it("composer row is a fully-rounded pill", () => {
     expect(PILOT_SIDEBAR_CSS).toMatch(
-      /\.pilot-composer-row\s*\{[\s\S]*?border-radius:\s*0\s+999px\s+999px\s+0/,
+      /\.pilot-composer-row\s*\{[\s\S]*?border-radius:\s*999px/,
     );
   });
 

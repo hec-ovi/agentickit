@@ -546,21 +546,21 @@ html[data-pilot-sidebar-mode="push"][data-pilot-sidebar-state="open"][data-pilot
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 12px 14px 14px 0;
+  padding: 12px 14px 14px 14px;
   flex: 0 0 auto;
   background: var(--pilot-bg);
 }
-/* Composer row: asymmetric pill. Flat left edge sits flush with the panel
- * left wall; right edge is a full half-circle so the send button (a perfect
- * 32px circle) sits inside the curve as one continuous shape. No border. */
+/* Composer row: symmetric pill. Both ends fully rounded so the row floats
+ * with breathing room on both sides; the 32px circular send button sits
+ * inside the right curve. No border. */
 .pilot-composer-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 6px 6px 14px;
+  padding: 6px 6px 6px 16px;
   background: var(--pilot-bg-elevated);
   border: 0;
-  border-radius: 0 999px 999px 0;
+  border-radius: 999px;
   transition: background 140ms ease;
 }
 .pilot-composer-row:focus-within {
