@@ -40,6 +40,7 @@
 
 import { type ReactElement, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { formatJson } from "../format-json.js";
 import { injectModalStyles } from "./pilot-confirm-modal-styles.js";
 
 /**
@@ -194,7 +195,10 @@ export function PilotConfirmModal(props: PilotConfirmModalProps): ReactElement |
 
   if (!open || !canPortal) return null;
 
-  const prettyInput = formatJson(input);
+  // `undefinedAs: null` + `emptyAs: null` so the helper signals "hide the
+  // Arguments section" for `submit_detail({})` and friends, otherwise the
+  // modal would show a lonely `{}` that reads as noise.
+  const prettyInput = formatJson(input, { undefinedAs: null, emptyAs: null });
   const hasInput = prettyInput !== null;
 
   const card: ReactElement = (
@@ -256,23 +260,6 @@ export function PilotConfirmModal(props: PilotConfirmModalProps): ReactElement |
   );
 
   return createPortal(card, document.body);
-}
-
-/**
- * Pretty-print the tool input. Returns `null` when the payload is empty or
- * un-rendersable so the modal can hide the Arguments section entirely ,
- * otherwise `submit_detail({})` would show a lonely `{}` that reads as noise.
- */
-function formatJson(input: unknown): string | null {
-  if (input === undefined || input === null) return null;
-  if (typeof input === "object" && Object.keys(input as object).length === 0) {
-    return null;
-  }
-  try {
-    return JSON.stringify(input, null, 2);
-  } catch {
-    return String(input);
-  }
 }
 
 /**

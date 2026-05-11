@@ -37,7 +37,6 @@ export const SEED_TRIPS: Trip[] = [
     ],
     flights: [],
     hotels: [],
-    activities: [],
     packing: [
       { id: "p1", text: "Passport", packed: true },
       { id: "p2", text: "Pocket WiFi voucher", packed: false },
@@ -106,7 +105,6 @@ export const SEED_TRIPS: Trip[] = [
         nights: 3,
       },
     ],
-    activities: [],
     packing: [
       { id: "lp1", text: "Passport", packed: true },
       { id: "lp2", text: "Sunscreen", packed: false },
@@ -139,7 +137,6 @@ export const SEED_TRIPS: Trip[] = [
     ],
     flights: [],
     hotels: [],
-    activities: [],
     packing: [
       { id: "rp1", text: "Thermal layers", packed: false },
       { id: "rp2", text: "Waterproof boots", packed: false },
@@ -210,7 +207,6 @@ export const SEED_TRIPS: Trip[] = [
         nights: 7,
       },
     ],
-    activities: [],
     packing: [
       { id: "bap1", text: "Passport", packed: true },
       { id: "bap2", text: "Spring jacket", packed: true },
@@ -237,15 +233,12 @@ export const SEED_TRIPS: Trip[] = [
     ],
     flights: [],
     hotels: [],
-    activities: [],
     packing: [
       { id: "kyp1", text: "Comfortable walking shoes", packed: false },
       { id: "kyp2", text: "Light raincoat", packed: false },
     ],
   },
 ];
-
-export const SEED_TRIP: Trip = SEED_TRIPS[0] as Trip; // back-compat for tests
 
 export const SEED_PREFERENCES: Preferences = {
   homeAirport: "JFK",

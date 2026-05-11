@@ -7,15 +7,29 @@
  * the modal renders without the sidebar (rare — the modal only shows up when
  * the agent acts, which usually means the sidebar is open too), the fallback
  * values match the sidebar's light-mode defaults.
+ *
+ * Z-index: the backdrop pins itself to the absolute signed-int32 maximum
+ * (2147483647). Browsers cap z-index at int32, so this is the highest
+ * stacking position the platform allows. The intent is "the user-approval
+ * modal MUST sit above any host UI" — toast layers, page modals, image
+ * lightboxes, drag-and-drop overlays, anything. Consumers who genuinely
+ * need to render above the confirm modal (rare; almost always a layering
+ * mistake) can override with `--pilot-confirm-z-index` on `:root` or any
+ * ancestor of the portal target. The sidebar/popup/inline modal all use
+ * `--pilot-z-index` (default 2147483600) which sits 47 units below, so
+ * they never occlude the approval gate.
  */
 
 const STYLE_ELEMENT_ID = "pilot-confirm-modal-styles";
 
 export const PILOT_CONFIRM_MODAL_CSS = `
+:where(:root) {
+  --pilot-confirm-z-index: 2147483647;
+}
 .pilot-confirm-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 2147483640;
+  z-index: var(--pilot-confirm-z-index, 2147483647);
   display: flex;
   align-items: center;
   justify-content: center;

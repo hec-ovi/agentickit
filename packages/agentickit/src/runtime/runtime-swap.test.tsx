@@ -1,5 +1,5 @@
 /**
- * Integration test for the Phase 3a runtime-swap path.
+ * Integration test for the runtime-swap path.
  *
  * `<Pilot>` accepts an optional `runtime` prop; when present, the
  * default `localRuntime()` is replaced. This test wires up a stub

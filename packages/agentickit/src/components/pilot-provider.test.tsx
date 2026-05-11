@@ -2,10 +2,6 @@
  * Tests for `<Pilot>`. Covers basic rendering and context wiring. We
  * deliberately avoid triggering any `sendMessage` calls so the tests don't
  * reach out to the fake `/api/pilot` endpoint.
- *
- * The `lastAssistantMessageNeedsContinuation` predicate moved to
- * `runtime/local-runtime.ts` during Phase 3a; its unit tests live with
- * the function in `runtime/local-runtime.test.ts`.
  */
 
 import { cleanup, render } from "@testing-library/react";

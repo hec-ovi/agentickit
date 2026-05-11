@@ -19,7 +19,6 @@ import {
   type LanguageModel,
   type ToolSet,
 } from "ai";
-import { z } from "zod";
 
 interface AgUiToolDecl {
   name: string;
@@ -322,7 +321,3 @@ export async function runSpecialistTurn(
   });
 }
 
-// Re-export z so the host doesn't need to import zod separately when
-// declaring per-specialist parameter schemas (currently unused but a
-// nice convenience for future tools added to the bridge).
-export { z };

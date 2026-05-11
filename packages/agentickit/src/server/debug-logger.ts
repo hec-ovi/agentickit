@@ -18,6 +18,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { formatJson } from "../format-json.js";
 
 export type LogKind = "in" | "out" | "step" | "done" | "err" | "info";
 
@@ -242,7 +243,13 @@ function summarizePart(part: unknown): string {
         : type.slice("tool-".length);
     const state = (part as { state?: unknown }).state;
     if (state === "output-available") {
-      const output = truncate(safeJson((part as { output?: unknown }).output), 120);
+      const output = truncate(
+        formatJson((part as { output?: unknown }).output, {
+          indent: 0,
+          undefinedAs: "undefined",
+        }),
+        120,
+      );
       return `tool-result ${toolName} → ${output}`;
     }
     if (state === "output-error") {
@@ -250,7 +257,7 @@ function summarizePart(part: unknown): string {
     }
     // Input-available / streaming states land here — log the input we saw.
     const input = (part as { input?: unknown }).input;
-    return `tool-call ${toolName}(${truncate(safeJson(input), 120)})`;
+    return `tool-call ${toolName}(${truncate(formatJson(input, { indent: 0, undefinedAs: "undefined" }), 120)})`;
   }
   return type || "";
 }
@@ -260,11 +267,3 @@ function truncate(s: string, max: number): string {
   return `${s.slice(0, max - 1)}…`;
 }
 
-function safeJson(value: unknown): string {
-  if (value === undefined) return "undefined";
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}

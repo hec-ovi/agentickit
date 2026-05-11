@@ -36,7 +36,14 @@ export function NewTripWizard({ open, onClose }: { open: boolean; onClose: () =>
   // Hook the form into the AI registry so the model can fill any field.
   // Pass the form positionally — wrapping it in `{ form }` is the documented
   // footgun that breaks set_<name>_field at tool-call time.
-  usePilotForm(form, { name: "new_trip" });
+  //
+  // confirm.submit=false: this wizard creates a draft trip that lives in
+  // localStorage and lands the user on the trip-detail page where every
+  // mutating change (book flight, edit dates, etc.) still pops the modal.
+  // Asking the user to approve "create a draft" before they can edit it is
+  // friction without a safety payoff. confirm.reset stays at the default
+  // true so the model can't quietly nuke a half-filled form.
+  usePilotForm(form, { name: "new_trip", confirm: { submit: false } });
 
   const onSubmit = (values: NewTripFormValues) => {
     const id = newTripId();
@@ -52,7 +59,6 @@ export function NewTripWizard({ open, onClose }: { open: boolean; onClose: () =>
       itinerary: [],
       flights: [],
       hotels: [],
-      activities: [],
       packing: [],
     };
     upsertTrip(trip);

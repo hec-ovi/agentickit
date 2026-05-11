@@ -7,24 +7,30 @@ import { tripSchema } from "../data/types";
 import { BudgetBar } from "../components/budget-bar";
 import { EmptyState } from "../components/empty-state";
 import { Confetti } from "../components/confetti";
-import { useToast } from "../lib/toast";
 import { fmtCurrency } from "../lib/format";
+import { useTripBookingActions } from "../lib/use-trip-booking";
 
 export function BookingRoute() {
   const { tripId } = useParams<{ tripId: string }>();
-  const { getTrip, upsertTrip, preferences } = useShell();
+  const { getTrip, preferences } = useShell();
   const trip = tripId ? getTrip(tripId) : undefined;
-  const toast = useToast();
   const [confettiTrigger, setConfettiTrigger] = useState(0);
 
   const fireConfetti = () => setConfettiTrigger((n) => n + 1);
+
+  // Single source of truth for the three booking mutations. Both the AI
+  // tool handlers below and the inline buttons further down call into
+  // these helpers, so the two paths can never drift.
+  const { bookFlight, bookHotel, bookAllPending } = useTripBookingActions(trip, {
+    onAllBooked: fireConfetti,
+  });
 
   // Snapshot for the model: what's bookable and what's already booked.
   // Description nudges the model toward the per-item book tools (mutating).
   usePilotState({
     name: "booking_review",
     description: trip
-      ? `Booking review for trip "${trip.title}". Use book_flight / book_hotel / book_activity (mutating, will pop the confirm modal) for individual bookings, or book_all_pending to do the whole list.`
+      ? `Booking review for trip "${trip.title}". Use book_flight / book_hotel for individual bookings (each is mutating and pops the confirm modal), or book_all_pending to confirm every pending item at once.`
       : "No active trip.",
     value: trip ?? null,
     schema: tripSchema.nullable(),
@@ -34,21 +40,7 @@ export function BookingRoute() {
     name: "book_flight",
     description: "Lock in one previously proposed flight by id. The user must confirm.",
     parameters: z.object({ id: z.string() }),
-    handler: ({ id }) => {
-      if (!trip) return { ok: false, reason: "no active trip" };
-      const target = trip.flights.find((f) => f.id === id);
-      if (!target) return { ok: false, reason: "no such flight" };
-      upsertTrip({
-        ...trip,
-        flights: trip.flights.map((f) => (f.id === id ? { ...f, booked: true } : f)),
-      });
-      toast.push({
-        tone: "success",
-        title: "Flight booked",
-        message: `${target.airline} ${target.from} → ${target.to}`,
-      });
-      return { ok: true };
-    },
+    handler: ({ id }) => bookFlight(id),
     mutating: true,
   });
 
@@ -56,21 +48,7 @@ export function BookingRoute() {
     name: "book_hotel",
     description: "Lock in one previously proposed hotel by id. The user must confirm.",
     parameters: z.object({ id: z.string() }),
-    handler: ({ id }) => {
-      if (!trip) return { ok: false, reason: "no active trip" };
-      const target = trip.hotels.find((h) => h.id === id);
-      if (!target) return { ok: false, reason: "no such hotel" };
-      upsertTrip({
-        ...trip,
-        hotels: trip.hotels.map((h) => (h.id === id ? { ...h, booked: true } : h)),
-      });
-      toast.push({
-        tone: "success",
-        title: "Hotel booked",
-        message: `${target.name}, ${target.nights} nights`,
-      });
-      return { ok: true };
-    },
+    handler: ({ id }) => bookHotel(id),
     mutating: true,
   });
 
@@ -78,24 +56,7 @@ export function BookingRoute() {
     name: "book_all_pending",
     description: "Book every pending flight and hotel in one go. The user must confirm.",
     parameters: z.object({}).strict(),
-    handler: () => {
-      if (!trip) return { ok: false, reason: "no active trip" };
-      const flightCount = trip.flights.filter((f) => !f.booked).length;
-      const hotelCount = trip.hotels.filter((h) => !h.booked).length;
-      upsertTrip({
-        ...trip,
-        flights: trip.flights.map((f) => ({ ...f, booked: true })),
-        hotels: trip.hotels.map((h) => ({ ...h, booked: true })),
-        status: "booked",
-      });
-      fireConfetti();
-      toast.push({
-        tone: "success",
-        title: "Trip booked",
-        message: `${flightCount} flights, ${hotelCount} hotels locked in.`,
-      });
-      return { ok: true, flights: flightCount, hotels: hotelCount };
-    },
+    handler: () => bookAllPending(),
     mutating: true,
   });
 
@@ -174,19 +135,7 @@ export function BookingRoute() {
                 type="button"
                 className={`btn ${flight.booked ? "" : "primary"} compact`}
                 disabled={flight.booked}
-                onClick={() => {
-                  upsertTrip({
-                    ...trip,
-                    flights: trip.flights.map((f) =>
-                      f.id === flight.id ? { ...f, booked: true } : f,
-                    ),
-                  });
-                  toast.push({
-                    tone: "success",
-                    title: "Flight booked",
-                    message: `${flight.airline} ${flight.from} → ${flight.to}`,
-                  });
-                }}
+                onClick={() => bookFlight(flight.id)}
               >
                 {flight.booked ? "Booked" : "Book"}
               </button>
@@ -218,19 +167,7 @@ export function BookingRoute() {
                 type="button"
                 className={`btn ${hotel.booked ? "" : "primary"} compact`}
                 disabled={hotel.booked}
-                onClick={() => {
-                  upsertTrip({
-                    ...trip,
-                    hotels: trip.hotels.map((h) =>
-                      h.id === hotel.id ? { ...h, booked: true } : h,
-                    ),
-                  });
-                  toast.push({
-                    tone: "success",
-                    title: "Hotel booked",
-                    message: `${hotel.name}, ${hotel.nights} nights`,
-                  });
-                }}
+                onClick={() => bookHotel(hotel.id)}
               >
                 {hotel.booked ? "Booked" : "Book"}
               </button>
@@ -249,22 +186,7 @@ export function BookingRoute() {
           <button
             type="button"
             className="btn primary"
-            onClick={() => {
-              const flightCount = trip.flights.filter((f) => !f.booked).length;
-              const hotelCount = trip.hotels.filter((h) => !h.booked).length;
-              upsertTrip({
-                ...trip,
-                flights: trip.flights.map((f) => ({ ...f, booked: true })),
-                hotels: trip.hotels.map((h) => ({ ...h, booked: true })),
-                status: "booked",
-              });
-              fireConfetti();
-              toast.push({
-                tone: "success",
-                title: "Trip booked",
-                message: `${flightCount} flights, ${hotelCount} hotels locked in.`,
-              });
-            }}
+            onClick={() => bookAllPending()}
             disabled={trip.flights.length === 0 || trip.hotels.length === 0}
           >
             Book all pending

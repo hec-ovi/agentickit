@@ -44,7 +44,7 @@ export function DashboardRoute() {
   usePilotState({
     name: "trips_summary",
     description:
-      "Summary of all saved trips. Each entry includes id, title, destination, dates, status. Use trip ids when calling navigate_to_trip or delete_trip.",
+      "Summary of all saved trips. Each entry includes id, title, destination, dates, status. Use trip ids when calling delete_trip; reference trips by title or destination when conversing with the user.",
     value: trips.map((t) => ({
       id: t.id,
       title: t.title,

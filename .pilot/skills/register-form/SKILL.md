@@ -76,20 +76,25 @@ import { usePilotForm } from "@hec-ovi/agentickit";
 usePilotForm(form, { name: "invoice" });
 ```
 
-The signature (verified against `use-pilot-form.ts` lines 47-50):
+The signature (verified against `use-pilot-form.ts`):
 
 ```ts
 function usePilotForm<TFieldValues extends FieldValues>(
   form: UseFormReturn<TFieldValues>,
-  options?: { name?: string; ghostFill?: boolean },
+  options?: {
+    name?: string;
+    confirm?: { submit?: boolean; reset?: boolean };
+  },
 ): UseFormReturn<TFieldValues>
 ```
 
 `name` defaults to `"form"`, which is fine for single-form pages. Set it
 explicitly on multi-form pages so the tool names don't collide.
 
-`ghostFill` is reserved for v0.2 (streaming preview with Tab-to-accept).
-Currently a no-op. Safe to pass today but has no effect.
+`confirm` controls the per-form gate on the auto-registered `submit_<name>`
+and `reset_<name>` tools. Both default to `true`; flip a key to `false` for
+low-stakes flows where the approval popup is friction more than safety
+(e.g. a draft-only "create" wizard whose output the user immediately edits).
 
 ### Phase 4: render the form normally
 

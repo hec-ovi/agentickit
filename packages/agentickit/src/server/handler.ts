@@ -9,6 +9,7 @@ import {
   streamText,
 } from "ai";
 import { z } from "zod";
+import { isDev } from "../env.js";
 import {
   buildLoggerConfig,
   createPilotLogger,
@@ -194,15 +195,6 @@ function autoDetectModelWithEnv(): { envKey: string; model: string } | null {
     }
   }
   return null;
-}
-
-/**
- * True in development builds. Uses the same heuristic as the client-side
- * `isDev()` helper in `env.ts`: anything that isn't explicitly
- * `"production"` is treated as development.
- */
-function isDev(): boolean {
-  return process.env.NODE_ENV !== "production";
 }
 
 /**
@@ -433,8 +425,9 @@ const requestBodySchema = z
 type RequestBody = z.infer<typeof requestBodySchema>;
 
 /**
- * Permissive CORS headers for v0.1. Consumers who need tighter policy can
- * wrap the handler in their own middleware.
+ * Permissive CORS headers (allow-all). Consumers who need a tighter policy
+ * (specific origins, credentials, etc.) wrap the handler in their own
+ * middleware that strips or replaces these headers before responding.
  */
 const CORS_HEADERS: Readonly<Record<string, string>> = {
   "access-control-allow-origin": "*",

@@ -894,6 +894,128 @@ describe("usePilotAgentState / usePilotAgentActivity", () => {
     });
   });
 
+  it("usePilotAgentActivity reflects ACTIVITY_DELTA patches applied on top of a snapshot", async () => {
+    // ACTIVITY_DELTA carries a JSON Patch (RFC 6902) array applied to the
+    // existing activity content. Tests the full reduce path:
+    // SNAPSHOT seeds the activity, DELTA updates one field, the runtime's
+    // extractActivity surfaces the merged result.
+    const agent = new FakeAgent();
+    agent.enqueue([
+      { type: EventType.RUN_STARTED, threadId: "t1", runId: "r1" } as BaseEvent,
+      {
+        type: EventType.ACTIVITY_SNAPSHOT,
+        messageId: "act1",
+        activityType: "step",
+        content: { step: "fetching", progress: 0 },
+      } as BaseEvent,
+      {
+        type: EventType.ACTIVITY_DELTA,
+        messageId: "act1",
+        activityType: "step",
+        patch: [{ op: "replace", path: "/progress", value: 50 }],
+      } as BaseEvent,
+      { type: EventType.RUN_FINISHED, threadId: "t1", runId: "r1" } as BaseEvent,
+    ]);
+
+    function Probe(): ReactNode {
+      const { activities } = usePilotAgentActivity(agent);
+      const a = activities[0];
+      const content = a?.content as { step?: string; progress?: number } | undefined;
+      return (
+        <div data-testid="activity-progress">
+          step={content?.step ?? "?"} progress={content?.progress ?? "?"}
+        </div>
+      );
+    }
+
+    render(
+      <Pilot runtime={agUiRuntime({ agent })}>
+        <Probe />
+        <PilotChatView autoFocus={false} showSkillsPanel={false} />
+      </Pilot>,
+    );
+
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "go" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    // After the run, the activity reflects the delta-patched value (50),
+    // not the snapshot's seed (0).
+    await waitFor(() => {
+      expect(screen.getByTestId("activity-progress").textContent).toBe(
+        "step=fetching progress=50",
+      );
+    });
+  });
+
+  it("usePilotAgentActivity surfaces reasoning blocks emitted via REASONING_MESSAGE_* events", async () => {
+    // REASONING_MESSAGE_START / _CONTENT / _END is the structured chain-of-
+    // thought stream from reasoning models (gpt-oss, DeepSeek R1, o1).
+    // The apply pipeline reduces these into a `role: "reasoning"` message
+    // on agent.messages; extractActivity routes them into the `reasoning`
+    // array surfaced via usePilotAgentActivity.
+    const agent = new FakeAgent();
+    agent.enqueue([
+      { type: EventType.RUN_STARTED, threadId: "t1", runId: "r1" } as BaseEvent,
+      {
+        type: EventType.REASONING_MESSAGE_START,
+        messageId: "r1",
+        role: "reasoning",
+      } as BaseEvent,
+      {
+        type: EventType.REASONING_MESSAGE_CONTENT,
+        messageId: "r1",
+        delta: "the user wants ",
+      } as BaseEvent,
+      {
+        type: EventType.REASONING_MESSAGE_CONTENT,
+        messageId: "r1",
+        delta: "a summary",
+      } as BaseEvent,
+      { type: EventType.REASONING_MESSAGE_END, messageId: "r1" } as BaseEvent,
+      { type: EventType.RUN_FINISHED, threadId: "t1", runId: "r1" } as BaseEvent,
+    ]);
+
+    function Probe(): ReactNode {
+      const { reasoning } = usePilotAgentActivity(agent);
+      const first = reasoning[0];
+      // Reasoning content can land as either a string or a structured part
+      // array depending on the apply pipeline's normalization.
+      const content =
+        typeof first?.content === "string"
+          ? first.content
+          : Array.isArray(first?.content)
+            ? first.content
+                .map((p) => ((p as { text?: string }).text ?? ""))
+                .join("")
+            : "";
+      return (
+        <div data-testid="reasoning">count={reasoning.length} content={content}</div>
+      );
+    }
+
+    render(
+      <Pilot runtime={agUiRuntime({ agent })}>
+        <Probe />
+        <PilotChatView autoFocus={false} showSkillsPanel={false} />
+      </Pilot>,
+    );
+
+    expect(screen.getByTestId("reasoning").textContent).toBe("count=0 content=");
+
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "go" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    // After the run, exactly one reasoning entry exists and its content is
+    // the concatenation of the two streamed deltas.
+    await waitFor(() => {
+      expect(screen.getByTestId("reasoning").textContent).toBe(
+        "count=1 content=the user wants a summary",
+      );
+    });
+  });
+
   it("the agent's state is shared across multiple consumers (single source of truth)", async () => {
     const agent = new FakeAgent();
     agent.enqueue([
@@ -1081,6 +1203,85 @@ describe("agUiRuntime factory", () => {
 /* ------------------------------------------------------------------ */
 
 describe("continuation cap", () => {
+  it("recovers cleanly: a follow-up sendMessage after the cap fires runs once and stops", async () => {
+    // Regression test for an audit-flagged scenario: after the 16-iteration
+    // overflow trips the error path, an internal "is a tool currently
+    // being dispatched" flag could in theory leak into the next run and
+    // re-trigger the loop on the first iteration even when the new run
+    // produces only text. This test exercises that path end-to-end. If
+    // the runtime ever regresses (overflow leaves the flag stuck), the
+    // assertion at the bottom (exactly one run for the second sendMessage)
+    // will fail because the runtime would loop a second time looking for
+    // a tool that the new run never dispatched.
+    const agent = new FakeAgent();
+    // First sendMessage: exactly 16 looping tool runs. The runtime caps at
+    // 16, consumes all 16 scripts, surfaces the cap error. We enqueue
+    // exactly 16 (not 20) so the FakeAgent's script queue is empty when
+    // the second sendMessage starts, isolating the test to "what does the
+    // runtime do on a fresh run after a prior overflow?" — not "what does
+    // the runtime do when the agent has leftover scripts?".
+    for (let i = 0; i < 16; i++) {
+      agent.enqueue(toolCallTurn("t", `r${i}`, `a${i}`, `c${i}`, "loop", {}));
+    }
+    // Second sendMessage: a single text-only response. The runtime should
+    // execute exactly one runAgent for this. If the overflow path leaks
+    // any internal "currently dispatching" flag into the next run, the
+    // do/while clause would loop a second time and the assertion below
+    // (runs.length === 17) would fail with 18.
+    agent.enqueue(textTurn("t", "rfinal", "afinal", "all clear"));
+
+    let chatRef: PilotChatContextValue | null = null;
+    function Capture(): null {
+      chatRef = useContext(PilotChatContext);
+      return null;
+    }
+    function Widget(): null {
+      usePilotAction({
+        name: "loop",
+        description: "ever-looping tool",
+        parameters: z.object({}),
+        handler: () => ({ ok: true }),
+      });
+      return null;
+    }
+
+    render(
+      <Pilot runtime={agUiRuntime({ agent })}>
+        <Capture />
+        <Widget />
+        <PilotChatView autoFocus={false} showSkillsPanel={false} />
+      </Pilot>,
+    );
+
+    expect(chatRef).not.toBeNull();
+
+    // First send: drives the overflow.
+    await act(async () => {
+      await chatRef!.sendMessage("trigger overflow");
+    });
+    await waitFor(
+      () => {
+        expect(screen.queryByText(/continuation cap/i)).not.toBeNull();
+      },
+      { timeout: 3000 },
+    );
+    expect(agent.runs.length).toBe(16);
+
+    // Second send: clean text reply. Must NOT spin a phantom second
+    // iteration on a stale flag.
+    await act(async () => {
+      await chatRef!.sendMessage("ok try again");
+    });
+    await waitFor(
+      () => {
+        expect(screen.queryByText(/all clear/i)).not.toBeNull();
+      },
+      { timeout: 3000 },
+    );
+    // 16 from the first sendMessage + exactly 1 from the second.
+    expect(agent.runs.length).toBe(17);
+  });
+
   it("surfaces an error and stops looping after 16 tool-call iterations", async () => {
     const agent = new FakeAgent();
     // Enqueue 20 tool-call runs in a row. The runtime should stop after

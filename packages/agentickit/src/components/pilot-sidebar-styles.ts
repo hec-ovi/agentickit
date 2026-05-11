@@ -406,6 +406,51 @@ html[data-pilot-sidebar-mode="push"][data-pilot-sidebar-state="open"][data-pilot
 }
 .pilot-tool summary::-webkit-details-marker { display: none; }
 .pilot-tool[open] summary { margin-bottom: 6px; }
+
+/* Disclosure chevron: small CSS-only triangle on the summary. Rotates 90°
+ * when the <details> is open. Hidden when the tool call has no body to
+ * expand (data-has-body="no") so we don't promise an interaction that
+ * won't happen. */
+.pilot-tool-chevron {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  position: relative;
+  display: inline-block;
+  transition: transform 160ms ease;
+}
+.pilot-tool-chevron::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid var(--pilot-fg-muted);
+  border-bottom: 1.5px solid var(--pilot-fg-muted);
+  transform: rotate(-45deg);
+}
+.pilot-tool[open] .pilot-tool-chevron {
+  transform: rotate(90deg);
+}
+.pilot-tool[data-has-body="no"] .pilot-tool-chevron {
+  visibility: hidden;
+}
+.pilot-tool[data-has-body="no"] summary { cursor: default; }
+
+/* Smooth fade-in for the body when expanded. Pure CSS keyframe; reduced
+ * motion settings collapse to no animation. */
+@keyframes pilot-tool-body-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.pilot-tool[open] .pilot-tool-body {
+  animation: pilot-tool-body-in 160ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pilot-tool[open] .pilot-tool-body { animation: none; }
+  .pilot-tool-chevron { transition: none; }
+}
 .pilot-tool-name {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
@@ -450,6 +495,192 @@ html[data-pilot-sidebar-mode="push"][data-pilot-sidebar-state="open"][data-pilot
   word-wrap: break-word;
   overflow-x: auto;
   max-height: 200px;
+}
+
+/* ---- Tool header: humanized name + small mono raw name --------------- */
+.pilot-tool-raw-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--pilot-tool-border);
+  color: var(--pilot-fg-subtle);
+  letter-spacing: 0.02em;
+}
+
+/* ---- Section block + Pretty/Raw toggle ------------------------------- */
+.pilot-tool-section {
+  display: grid;
+  gap: 4px;
+}
+.pilot-tool-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pilot-tool-raw-toggle {
+  appearance: none;
+  border: 1px solid var(--pilot-tool-border);
+  background: transparent;
+  color: var(--pilot-fg-subtle);
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.pilot-tool-raw-toggle:hover {
+  color: var(--pilot-fg);
+  background: var(--pilot-tool-bg);
+  border-color: var(--pilot-fg-muted);
+}
+.pilot-tool-raw-toggle[aria-pressed="true"] {
+  background: var(--pilot-accent);
+  color: var(--pilot-accent-fg);
+  border-color: var(--pilot-accent);
+}
+
+.pilot-tool-error {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--pilot-error-fg, #dc2626);
+  border-radius: var(--pilot-radius-sm);
+  background: var(--pilot-error-bg, rgba(220, 38, 38, 0.08));
+  color: var(--pilot-error-fg, #dc2626);
+  font-family: var(--pilot-font);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+/* ---- Pretty value renderer (objects, arrays, primitives) ------------- */
+.pilot-tool-pretty {
+  padding: 8px 10px;
+  background: var(--pilot-bg-elevated);
+  border: 1px solid var(--pilot-tool-border);
+  border-radius: var(--pilot-radius-sm);
+  font-family: var(--pilot-font);
+  font-size: 12.5px;
+  line-height: 1.5;
+  max-height: 280px;
+  overflow: auto;
+}
+
+/* Key/value list: 2-column grid, label right-aligned + muted. */
+.pv-kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 14px;
+  row-gap: 4px;
+  margin: 0;
+}
+.pv-kv dt {
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pilot-fg-subtle);
+  text-align: right;
+  align-self: baseline;
+  white-space: nowrap;
+}
+.pv-kv dd {
+  margin: 0;
+  color: var(--pilot-fg);
+  word-break: break-word;
+  min-width: 0;
+}
+/* Nested kv lists get a subtle left border + indent so the parent reads. */
+.pv-kv .pv-kv {
+  grid-column: 1 / -1;
+  padding-left: 12px;
+  border-left: 2px solid var(--pilot-tool-border);
+  margin-top: 2px;
+}
+
+/* Bare-value styles. */
+.pv-string {
+  color: var(--pilot-fg);
+}
+.pv-number {
+  color: var(--pilot-fg);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+.pv-date {
+  color: var(--pilot-fg);
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  padding: 0 4px;
+  background: var(--pilot-tool-bg);
+  border-radius: 4px;
+}
+.pv-bool {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+.pv-bool[data-value="true"] {
+  background: rgba(34, 197, 94, 0.12);
+  color: rgb(21, 128, 61);
+}
+.pv-bool[data-value="false"] {
+  background: rgba(239, 68, 68, 0.12);
+  color: rgb(185, 28, 28);
+}
+.pv-empty {
+  color: var(--pilot-fg-subtle);
+  font-style: italic;
+}
+.pv-array .pv-sep {
+  color: var(--pilot-fg-subtle);
+}
+.pv-list {
+  margin: 0;
+  padding-left: 16px;
+  list-style: disc;
+  color: var(--pilot-fg);
+}
+.pv-list li { margin: 2px 0; }
+
+/* Tables for arrays of uniform-shape objects. */
+.pv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.pv-table thead th {
+  text-align: left;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pilot-fg-subtle);
+  font-weight: 500;
+  padding: 4px 8px 4px 0;
+  border-bottom: 1px solid var(--pilot-tool-border);
+}
+.pv-table tbody td {
+  padding: 4px 8px 4px 0;
+  border-bottom: 1px solid var(--pilot-tool-border);
+  color: var(--pilot-fg);
+  vertical-align: top;
+}
+.pv-table tbody tr:last-child td { border-bottom: none; }
+/* Numeric and date cells get tabular-nums for clean column alignment. */
+.pv-table td:has(.pv-number),
+.pv-table td:has(.pv-date) {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pilot-tool-raw-toggle { transition: none; }
 }
 
 /*

@@ -11,8 +11,6 @@ export interface CitySpec {
   lat: number;
   /** Hex pair for the destination cover gradient. */
   palette: [string, string];
-  /** Single-glyph landmark hint (rendered in the SVG cover). */
-  glyph: "tower" | "wave" | "peak" | "arch" | "torii";
   /** Best-known activities, used by the AI tools. */
   activities: ReadonlyArray<{
     name: string;
@@ -33,7 +31,6 @@ export const CITIES: ReadonlyArray<CitySpec> = [
     airportCode: "HND",
     lat: 35.6762,
     palette: ["#fb7185", "#0e7490"],
-    glyph: "tower",
     activities: [
       { name: "Tsukiji food walk", category: "food", durationMin: 180, cost: 65 },
       { name: "teamLab Borderless", category: "culture", durationMin: 240, cost: 38 },
@@ -61,7 +58,6 @@ export const CITIES: ReadonlyArray<CitySpec> = [
     airportCode: "KIX",
     lat: 35.0116,
     palette: ["#f59e0b", "#7c2d12"],
-    glyph: "torii",
     activities: [
       { name: "Fushimi Inari sunrise", category: "culture", durationMin: 180, cost: 0 },
       { name: "Arashiyama bamboo + monkey park", category: "nature", durationMin: 240, cost: 12 },
@@ -86,7 +82,6 @@ export const CITIES: ReadonlyArray<CitySpec> = [
     airportCode: "LIS",
     lat: 38.7169,
     palette: ["#0ea5e9", "#facc15"],
-    glyph: "arch",
     activities: [
       { name: "Tram 28 + Alfama wander", category: "culture", durationMin: 180, cost: 4 },
       { name: "Pastel de nata in Belém", category: "food", durationMin: 60, cost: 8 },
@@ -112,7 +107,6 @@ export const CITIES: ReadonlyArray<CitySpec> = [
     airportCode: "KEF",
     lat: 64.1466,
     palette: ["#67e8f9", "#1e3a8a"],
-    glyph: "peak",
     activities: [
       { name: "Golden Circle drive", category: "nature", durationMin: 540, cost: 90 },
       { name: "Blue Lagoon soak", category: "nature", durationMin: 240, cost: 110 },
@@ -137,7 +131,6 @@ export const CITIES: ReadonlyArray<CitySpec> = [
     airportCode: "EZE",
     lat: -34.6037,
     palette: ["#ef4444", "#1e40af"],
-    glyph: "wave",
     activities: [
       { name: "Recoleta cemetery + cafés", category: "culture", durationMin: 180, cost: 8 },
       { name: "Steakhouse parrilla in Palermo", category: "food", durationMin: 180, cost: 70 },

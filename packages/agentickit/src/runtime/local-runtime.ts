@@ -4,10 +4,6 @@
  * Default agentickit runtime: drives `useChat` from `@ai-sdk/react` against
  * an HTTP route that streams AI SDK 6 UIMessage frames.
  *
- * Behavioral parity: this file lifts the chat lifecycle out of `<Pilot>`
- * verbatim. Phase 3a's success criterion is that no test changes its
- * assertions; the seam between runtime and provider is purely structural.
- *
  * What lives here:
  *   - `DefaultChatTransport` configuration with `prepareSendMessagesRequest`.
  *   - `useChat` invocation and its three callback wires (`onToolCall`,

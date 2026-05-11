@@ -191,12 +191,13 @@ git clone https://github.com/hec-ovi/agentickit
 cd agentickit
 pnpm install
 pnpm --filter @hec-ovi/agentickit build
-cd examples/todo
+cd examples/travel
 cp .env.example .env.local       # pick your provider
 pnpm dev
+# open http://localhost:5174
 ```
 
-[`examples/todo`](./examples/todo) is a Vite + Hono demo with three widgets (todo list, contact form, preferences) and a live log panel that streams every tool call and token count. The `.pilot/` folder under it was scaffolded with `npx agentickit init` + `add-skill` calls, the same flow this README walks through.
+[`examples/travel`](./examples/travel) is a multi-route trip-planning app (Vite + React + Hono) that exercises every primitive the package ships: state, action, form, renderAndWait, instructions, all four chat surfaces, multi-agent registry, push-mode sidebar, composer visibility prop. Three theme modes, plugin-shaped tools (weather, currency, destinations, date), and four real-LLM specialists reached over an AG-UI `HttpAgent` bridge with curated tool subsets per agent.
 
 ---
 
@@ -442,7 +443,7 @@ export default function App() {
 
 `useRegisterAgent` constructs the agent once via the factory, registers under the id, and deregisters on unmount. Last-wins on duplicate ids (with a dev-mode warning). `useAgent(id)` re-renders the consumer when the id is registered, replaced, or unregistered. `useAgents()` lists every registered agent for picker UIs. `<PilotAgentRegistry>` is OPTIONAL: single-agent apps don't need to mount it.
 
-The runnable `examples/todo` ships a three-agent demo (research / code / writing), each with distinct scripted behavior on its own mock server endpoint.
+The runnable `examples/travel` ships a four-agent demo (flights / hotels / activities / weather) on the `/agents` route. Each one is a real LLM specialist reached over its own `/api/agui-{name}` endpoint with a curated tool subset, served through the AG-UI `HttpAgent` registry pattern.
 
 ### Generative UI: render components from streamed agent state
 
@@ -467,7 +468,7 @@ interface ResearchState {
 />
 ```
 
-The component is sugar over `usePilotAgentState`; pick whichever feels right. Multiple subscribers against the same agent share one store (single source of truth). The runnable `examples/todo` ships a "Thinking timeline" widget driven this way: switch to `agUiRuntime` and ask "process my data" to watch step transitions stream in.
+The component is sugar over `usePilotAgentState`; pick whichever feels right. Multiple subscribers against the same agent share one store (single source of truth). The runnable `examples/travel` consumes this on its `/agents` route: pick a specialist, send a message, and the streamed agent state drives the inline timeline next to the chat.
 
 ---
 
@@ -715,7 +716,7 @@ Yes. Hector Oviedo, <hector.ernesto.oviedo@gmail.com>. This library is the portf
 
 ## Testing
 
-`agentickit` ships **294 automated tests** across 25 files under `packages/agentickit/src/**/*.test.{ts,tsx}`, runnable with `pnpm test`. Coverage at a glance:
+`agentickit` ships **333 automated tests** across 34 files under `packages/agentickit/src/**/*.test.{ts,tsx}`, runnable with `pnpm test`. Coverage at a glance:
 
 - **23 component-level integration tests** (`pilot-integration.test.tsx`) that mount a real `<Pilot>` tree in `happy-dom`, install a scripted fetch mock that replays captured-from-real-providers SSE frames, simulate clicks via `@testing-library/react`, and assert on three observable surfaces: the DOM, the handler invocations, and the fetch call count. The fetch-count assertion catches the dangerous class of bugs: infinite resubmit loops that drain API credits.
 - **52 chat-surface tests** across `pilot-chat-view.test.tsx`, `pilot-sidebar.test.tsx`, `pilot-popup.test.tsx`, `pilot-modal.test.tsx`. Real `fireEvent` user simulation: type into the composer, click send, click backdrop, press Escape, Tab through the focus trap. DOM-shape inline snapshots catch silent rename / wrapper-drift regressions.
@@ -725,26 +726,19 @@ Yes. Hector Oviedo, <hector.ernesto.oviedo@gmail.com>. This library is the portf
 - **21 multi-agent registry tests**: 14 unit tests for `<PilotAgentRegistry>` + `useRegisterAgent` / `useAgent` / `useAgents` (registration lifecycle, last-wins, stale-token-safety, StrictMode convergence, snapshot stability, register/unregister roundtrip), plus 7 integration tests covering multi-agent + Pilot + agUiRuntime composition (per-agent message isolation, separate state stores, tool-call dispatch through active agent only, picker UI sync, zero React errors during rapid swaps with and without StrictMode).
 - Unit coverage for every public hook (`usePilotState` / `usePilotAction` / `usePilotForm`), the server handler's provider-resolution + request-body validation + error envelope, the `.pilot/` protocol parsers, the `agentickit` CLI (init + add-skill with exit-code assertions), and the structured-event logger.
 
-### Live verification against vLLM + `openai/gpt-oss-120b`
+### Live verification against vLLM (Qwen3 family)
 
-Beyond the mocked suite, the package was exercised end-to-end against a real LLM using the bundled `examples/todo` Vite + Hono app pointed at a local vLLM server. Verified user journeys:
+Beyond the mocked suite, the package is exercised end-to-end against a local vLLM server through the bundled `examples/travel` app. The full punch list (per-route flows, real-LLM AG-UI specialists with curated tool subsets, structured observability path) lives in [CHANGELOG](./packages/agentickit/CHANGELOG.md). At a glance: multi-tool turns across the trip-detail / itinerary / booking / packing / agents routes, confirm-modal approve and decline branches on every mutating tool, progressive form fill plus submit through `usePilotForm`, auto-generated `update_<name>` state setters, all four chat surfaces, and the AG-UI bridge driving `<PilotAgentStateView>` from real specialist responses.
 
-- **Multi-tool conversation turn.** *"Add three todos: buy milk, call mom, pay rent"* produces exactly four HTTP round-trips: three consecutive `add_todo` tool calls (one per item, model waits for each result before emitting the next) followed by a text confirmation. `finishReason` transitions from `tool-calls` on turns 1-3 to `stop` on turn 4. Zero infinite loops.
-- **Mutating actions with confirm-modal approve + decline branches.** Approving runs the handler and feeds `{ ok: true }` back to the model; declining records `{ ok: false, reason: "User declined." }` so the model can react conversationally rather than looping.
-- **Progressive form fill.** *"Fill contact form, hector, hector@…, message 'how ya doing'"* produces three consecutive `set_contact_field` calls, then `submit_contact` (mutating, confirm modal, approve) which triggers the actual `react-hook-form` `handleSubmit` path with the typed values.
-- **State-setter round-trip.** `update_preferences` (auto-generated by `usePilotState` because the hook supplies a setter) writes the model's new `{ accent, density }` through to React state after the confirm-modal approve.
-- **Structured observability.** With `createPilotHandler({ debug: true, log: true, onLogEvent })` the server emits a request-scoped transcript captured to console, to `./debug/agentickit-YYYY-MM-DD.log`, and streamed live over SSE to the example's **Live log** tab.
+Two real-world provider quirks the package works around in shipped code:
 
-Two real-world provider quirks surfaced during live testing and are fixed in shipped code:
-
-- vLLM's Responses API (via `@ai-sdk/openai`) historically streamed tool-input JSON deltas without emitting the completion marker `useChat` waits on. As of the post-0.1 endpoint switch, the handler defaults to the Responses API for every OpenAI-prefix model (real OpenAI and OpenAI-compatible servers alike) and exposes `AGENTICKIT_OPENAI_PROTOCOL=chat` as an opt-in escape hatch for older OSS Responses servers that still misbehave. The bundled `examples/todo` server demonstrates the streaming-on / reasoning-off / `/responses`-only setup against vLLM Qwen3 by injecting `chat_template_kwargs.enable_thinking=false` via a custom `fetch`.
+- vLLM's Responses API (via `@ai-sdk/openai`) historically streamed tool-input JSON deltas without emitting the completion marker `useChat` waits on. The handler defaults to the Responses API for every OpenAI-prefix model and exposes `AGENTICKIT_OPENAI_PROTOCOL=chat` as an opt-in escape hatch for older OSS Responses servers that still misbehave. The travel example's server demonstrates the streaming-on / reasoning-off / `/responses`-only setup against vLLM Qwen3 by injecting `chat_template_kwargs.enable_thinking=false` via a custom `fetch`.
 - The initial `sendAutomaticallyWhen` check returned `true` on any assistant message with a completed tool output, causing resubmit-after-text loops. Fix walks parts from the tail and stops at the first text or reasoning part; a dedicated integration test asserts the fetch count stays at 4 on the 3-tools-then-text scenario.
 
 ### What's not yet verified end-to-end
 
-- A live roundtrip against a hosted OpenAI / Anthropic / Groq / OpenRouter / Google / Mistral endpoint. Those paths are covered by the mocked handler tests but not by a v0.1 live smoke.
-- A live AG-UI server (LangGraph CoAgents, CrewAI, Mastra). The AG-UI runtime is covered by 32 tests against a `FakeAgent extends AbstractAgent` exercising the real `defaultApplyEvents` apply pipeline; an actual hosted server may surface event-shape edge cases we haven't reproduced.
-- A real-browser smoke for `<PilotPopup>` and `<PilotModal>`. `examples/todo` only wires up the sidebar; popup and modal CSS rules were exercised only by `happy-dom`.
+- A live roundtrip against a hosted OpenAI / Anthropic / Groq / OpenRouter / Google / Mistral endpoint. Those paths are covered by the mocked handler tests but not by a hosted-provider live smoke.
+- A live AG-UI server outside the example bridge (LangGraph CoAgents, CrewAI, Mastra). The runtime is covered by 32 tests against a `FakeAgent extends AbstractAgent` exercising the real `defaultApplyEvents` apply pipeline plus the four real-LLM specialists in the travel example, but a hosted CoAgent-style server may surface event-shape edge cases we haven't reproduced.
 
 These gaps are what keep this release pre-1.0.
 

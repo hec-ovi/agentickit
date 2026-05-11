@@ -24,16 +24,6 @@ export const hotelSchema = z.object({
 });
 export type Hotel = z.infer<typeof hotelSchema>;
 
-export const activitySchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  city: z.string(),
-  category: z.enum(["food", "culture", "nature", "shopping", "nightlife"]),
-  durationMin: z.number(),
-  cost: z.number(),
-});
-export type Activity = z.infer<typeof activitySchema>;
-
 export const weatherDaySchema = z.object({
   date: z.string(),
   highC: z.number(),
@@ -76,7 +66,6 @@ export const tripSchema = z.object({
   itinerary: z.array(itineraryDaySchema),
   flights: z.array(flightSchema.extend({ booked: z.boolean() })),
   hotels: z.array(hotelSchema.extend({ booked: z.boolean(), nights: z.number() })),
-  activities: z.array(activitySchema.extend({ booked: z.boolean(), date: z.string() })),
   packing: z.array(packingItemSchema),
 });
 export type Trip = z.infer<typeof tripSchema>;

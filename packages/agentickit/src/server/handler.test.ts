@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PilotLogEvent } from "./debug-logger.js";
 
 /**
  * Tests for `createPilotHandler`.
@@ -452,6 +453,243 @@ describe("createPilotHandler", () => {
     expect(call?.system).toContain("Current UI state");
     expect(call?.system).toContain('"count"');
     expect(call?.system).toContain("42");
+  });
+
+  it("appends client `instructions` fragments under a labeled heading", async () => {
+    // `usePilotInstructions` registrations on the React side flow through
+    // the request body's `instructions` field. The server is responsible
+    // for splicing them under a "## Page instructions" heading positioned
+    // between the server-owned system prompt and the live UI state. This
+    // test pins that contract; the React-side hook tests verify the wire
+    // shape, but nothing previously asserted the server actually emits the
+    // heading at the right spot.
+    const { createPilotHandler, mocks } = await loadHandlerWithMocks();
+    const handler = createPilotHandler({
+      model: "openai/gpt-4o",
+      system: "SERVER INSTRUCTIONS.",
+    });
+
+    await handler(
+      makeRequest({
+        ...validBody,
+        instructions: [
+          "On the packing page, prefer packing edits.",
+          "Today is 2026-05-11; emit dates as YYYY-MM-DD.",
+        ],
+        context: { trip: { description: "active trip", value: { id: "t1" } } },
+      }),
+    );
+
+    const call = mocks.streamText.mock.calls[0]?.[0] as { system?: string };
+    expect(call?.system).toBeDefined();
+    const sys = call!.system as string;
+
+    // Heading is the documented marker the model can pattern-match on.
+    expect(sys).toContain("## Page instructions");
+    // Both fragments survive in order.
+    const headingIdx = sys.indexOf("## Page instructions");
+    const firstIdx = sys.indexOf("On the packing page");
+    const secondIdx = sys.indexOf("Today is 2026-05-11");
+    expect(firstIdx).toBeGreaterThan(headingIdx);
+    expect(secondIdx).toBeGreaterThan(firstIdx);
+    // Ordering contract: server instructions come first, then client
+    // instructions, then live UI state. A tampered client must not be
+    // able to shadow server-owned guidance.
+    const serverIdx = sys.indexOf("SERVER INSTRUCTIONS.");
+    const stateIdx = sys.indexOf("Current UI state");
+    expect(serverIdx).toBeLessThan(headingIdx);
+    expect(headingIdx).toBeLessThan(stateIdx);
+  });
+
+  it("omits the page-instructions heading when no client `instructions` are present", async () => {
+    // An empty or missing `instructions` array must not produce the
+    // heading at all (otherwise the model sees an empty "## Page
+    // instructions" block on every request and starts pattern-matching
+    // on noise).
+    const { createPilotHandler, mocks } = await loadHandlerWithMocks();
+    const handler = createPilotHandler({ model: "openai/gpt-4o" });
+
+    await handler(makeRequest(validBody));
+    let call = mocks.streamText.mock.calls[0]?.[0] as { system?: string };
+    expect(call?.system ?? "").not.toContain("## Page instructions");
+
+    // Same expectation when an explicit empty array is sent.
+    mocks.streamText.mockClear();
+    await handler(makeRequest({ ...validBody, instructions: [] }));
+    call = mocks.streamText.mock.calls[0]?.[0] as { system?: string };
+    expect(call?.system ?? "").not.toContain("## Page instructions");
+  });
+
+  it("rejects an `instructions` array that exceeds the 64-fragment cap", async () => {
+    // Bound on request size. A tampered client must not be able to flood
+    // the server with thousands of fragments per turn.
+    const { createPilotHandler, mocks } = await loadHandlerWithMocks();
+    const handler = createPilotHandler({ model: "openai/gpt-4o" });
+
+    const tooMany = Array.from({ length: 65 }, (_, i) => `fragment ${i}`);
+    const response = await handler(
+      makeRequest({ ...validBody, instructions: tooMany }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.streamText).not.toHaveBeenCalled();
+  });
+
+  it("rejects an `instructions` fragment longer than 4 KB", async () => {
+    // Per-fragment cap: a single 4 KB+ string is also a flooding vector.
+    const { createPilotHandler, mocks } = await loadHandlerWithMocks();
+    const handler = createPilotHandler({ model: "openai/gpt-4o" });
+
+    const oversized = "x".repeat(4_097);
+    const response = await handler(
+      makeRequest({ ...validBody, instructions: [oversized] }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.streamText).not.toHaveBeenCalled();
+  });
+
+  it("logs vLLM-style tool calls via the onStepFinish flush path (no `tool-call` chunk)", async () => {
+    // Regression test for the load-bearing vLLM Responses API workaround.
+    // Standard OpenAI providers emit `tool-input-start` → N×
+    // `tool-input-delta` → `tool-call` (with the parsed input). vLLM's
+    // Responses API ends the step right after the last delta, never
+    // emitting `tool-call`. The handler buffers deltas in `onChunk` and
+    // flushes whatever's left when `onStepFinish` fires. Without this
+    // flush, the structured logger would silently drop every tool
+    // invocation against vLLM, even though the model successfully called
+    // the tool. This test was missing pre-cleanup; the audit flagged it
+    // as load-bearing-but-untested.
+    interface ChunkCallbacks {
+      onChunk?: (event: { chunk: unknown }) => void;
+      onStepFinish?: (step: {
+        text?: string;
+        finishReason?: string;
+        usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+      }) => void;
+    }
+    const captured: ChunkCallbacks = {};
+
+    const { createPilotHandler } = await loadHandlerWithMocks((args) => {
+      const a = args as ChunkCallbacks;
+      captured.onChunk = a.onChunk;
+      captured.onStepFinish = a.onStepFinish;
+      return {
+        toUIMessageStreamResponse: () =>
+          new Response("data: fake\n\n", {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          }),
+      };
+    });
+
+    const events: PilotLogEvent[] = [];
+    const handler = createPilotHandler({
+      model: "openai/gpt-4o",
+      log: true,
+      onLogEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    await handler(makeRequest(validBody));
+
+    expect(captured.onChunk).toBeDefined();
+    expect(captured.onStepFinish).toBeDefined();
+
+    // Replay a vLLM Responses-API style step: start + N deltas, NO
+    // `tool-call` chunk.
+    captured.onChunk!({
+      chunk: { type: "tool-input-start", id: "call-1", toolName: "set_destination" },
+    });
+    captured.onChunk!({
+      chunk: { type: "tool-input-delta", id: "call-1", delta: '{"city":' },
+    });
+    captured.onChunk!({
+      chunk: { type: "tool-input-delta", id: "call-1", delta: '"Tokyo"}' },
+    });
+
+    // Sanity: pre-step-finish, no tool-call log line should have been
+    // emitted (the buffered fragments are not yet a complete call).
+    const preFlush = events.filter((e) => e.message.startsWith("call set_destination"));
+    expect(preFlush).toHaveLength(0);
+
+    // Step ends. The handler should flush the buffer.
+    captured.onStepFinish!({
+      finishReason: "tool-calls",
+      usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+    });
+
+    // Exactly one structured log event for the flushed tool call.
+    const toolCallEvents = events.filter((e) => e.message.startsWith("call set_destination"));
+    expect(toolCallEvents).toHaveLength(1);
+    const ev = toolCallEvents[0]!;
+    expect(ev.kind).toBe("out");
+    // `toolInput` is the JSON-parsed buffered input.
+    expect(ev.meta?.toolInput).toEqual({ city: "Tokyo" });
+    expect(ev.meta?.toolName).toBe("set_destination");
+  });
+
+  it("logs OpenAI-style tool calls via the explicit `tool-call` chunk path", async () => {
+    // Symmetric test for the standard OpenAI provider path: `tool-call`
+    // chunk arrives with the parsed input, `flushToolCall` is invoked
+    // immediately (not deferred to onStepFinish). This pins the contract
+    // so a refactor of `flushToolCall` can't quietly regress one provider
+    // while keeping the other working.
+    interface ChunkCallbacks {
+      onChunk?: (event: { chunk: unknown }) => void;
+      onStepFinish?: (step: {
+        text?: string;
+        finishReason?: string;
+        usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+      }) => void;
+    }
+    const captured: ChunkCallbacks = {};
+
+    const { createPilotHandler } = await loadHandlerWithMocks((args) => {
+      const a = args as ChunkCallbacks;
+      captured.onChunk = a.onChunk;
+      captured.onStepFinish = a.onStepFinish;
+      return {
+        toUIMessageStreamResponse: () =>
+          new Response("data: fake\n\n", {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          }),
+      };
+    });
+
+    const events: PilotLogEvent[] = [];
+    const handler = createPilotHandler({
+      model: "openai/gpt-4o",
+      log: true,
+      onLogEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    await handler(makeRequest(validBody));
+
+    captured.onChunk!({
+      chunk: { type: "tool-input-start", id: "call-2", toolName: "book_flight" },
+    });
+    captured.onChunk!({
+      chunk: { type: "tool-input-delta", id: "call-2", delta: '{"id":"f1"}' },
+    });
+    // Standard provider emits a `tool-call` chunk with the parsed input.
+    // flushToolCall fires here, before onStepFinish.
+    captured.onChunk!({
+      chunk: { type: "tool-call", id: "call-2", input: { id: "f1" } },
+    });
+
+    const before = events.filter((e) => e.message.startsWith("call book_flight"));
+    expect(before).toHaveLength(1);
+    expect(before[0]!.meta?.toolInput).toEqual({ id: "f1" });
+
+    // onStepFinish fires after — the buffer is empty, no second log line.
+    captured.onStepFinish!({ finishReason: "stop" });
+    const after = events.filter((e) => e.message.startsWith("call book_flight"));
+    expect(after).toHaveLength(1);
   });
 
   it("honours a custom maxSteps and forwards it as stopWhen", async () => {

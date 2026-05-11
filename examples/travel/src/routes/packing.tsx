@@ -1,66 +1,65 @@
 import { Link, useParams } from "react-router-dom";
 import { z } from "zod";
-import { PilotChatView, usePilotAction, usePilotState } from "@hec-ovi/agentickit";
+import {
+  PilotChatView,
+  usePilotAction,
+  usePilotInstructions,
+  usePilotState,
+} from "@hec-ovi/agentickit";
 import { useShell } from "../shell-context";
-import { newItemId } from "../data/store";
 import { packingItemSchema } from "../data/types";
 import { EmptyState } from "../components/empty-state";
+import { useTripPackingActions } from "../lib/use-trip-packing";
 
 export function PackingRoute() {
   const { tripId } = useParams<{ tripId: string }>();
-  const { getTrip, upsertTrip } = useShell();
+  const { getTrip } = useShell();
   const trip = tripId ? getTrip(tripId) : undefined;
 
-  // The packing list IS the page state. Description carries the page-level
-  // instruction (focus on packing) since there's no usePilotInstructions.
+  // Page-scoped instruction. The hook splices this into the system prompt
+  // for as long as this route is mounted; navigating away unregisters it.
+  // The old version of this file stuffed the same nudge into the state
+  // description as a workaround; usePilotInstructions is the correct path.
+  usePilotInstructions(
+    trip
+      ? `The user is on the Packing page for trip "${trip.title}" (destination ${trip.destination}). Favor packing-related actions (add_packing_item / toggle_packing_item / remove_packing_item) over global trip edits.`
+      : "",
+  );
+
+  // The packing list itself remains pure data exposed to the model.
   usePilotState({
     name: "packing_list",
     description: trip
-      ? `Packing list for trip "${trip.title}" (destination ${trip.destination}). The user is on the Packing page; favor packing-related actions over global trip changes. Use add_packing_item / toggle_packing_item / remove_packing_item.`
+      ? `Packing list for trip "${trip.title}".`
       : "No active trip. Ignore packing actions.",
     value: trip?.packing ?? [],
     schema: z.array(packingItemSchema),
   });
 
+  // Single source of truth for the three packing mutations. Both the AI
+  // tool handlers below and the inline buttons further down call into
+  // these helpers so the two paths can't drift.
+  const { addItem, toggleItem, removeItem } = useTripPackingActions(trip);
+
   usePilotAction({
     name: "add_packing_item",
     description: "Append an item to the packing list.",
     parameters: z.object({ text: z.string().min(1).max(120) }),
-    handler: ({ text }) => {
-      if (!trip) return { ok: false, reason: "no active trip" };
-      upsertTrip({
-        ...trip,
-        packing: [...trip.packing, { id: newItemId("p"), text, packed: false }],
-      });
-      return { ok: true };
-    },
+    handler: ({ text }) => addItem(text),
   });
 
   usePilotAction({
     name: "toggle_packing_item",
     description: "Toggle the `packed` flag on one packing item by id.",
     parameters: z.object({ id: z.string() }),
-    handler: ({ id }) => {
-      if (!trip) return { ok: false, reason: "no active trip" };
-      const found = trip.packing.some((p) => p.id === id);
-      if (!found) return { ok: false, reason: "no such item" };
-      upsertTrip({
-        ...trip,
-        packing: trip.packing.map((p) => (p.id === id ? { ...p, packed: !p.packed } : p)),
-      });
-      return { ok: true };
-    },
+    handler: ({ id }) => toggleItem(id),
   });
 
   usePilotAction({
     name: "remove_packing_item",
     description: "Remove one packing item by id.",
     parameters: z.object({ id: z.string() }),
-    handler: ({ id }) => {
-      if (!trip) return { ok: false, reason: "no active trip" };
-      upsertTrip({ ...trip, packing: trip.packing.filter((p) => p.id !== id) });
-      return { ok: true };
-    },
+    handler: ({ id }) => removeItem(id),
     mutating: true,
   });
 
@@ -123,26 +122,14 @@ export function PackingRoute() {
                   <input
                     type="checkbox"
                     checked={item.packed}
-                    onChange={() => {
-                      upsertTrip({
-                        ...trip,
-                        packing: trip.packing.map((p) =>
-                          p.id === item.id ? { ...p, packed: !p.packed } : p,
-                        ),
-                      });
-                    }}
+                    onChange={() => toggleItem(item.id)}
                     aria-label={`Pack ${item.text}`}
                   />
                   <span>{item.text}</span>
                   <button
                     type="button"
                     className="btn ghost compact"
-                    onClick={() =>
-                      upsertTrip({
-                        ...trip,
-                        packing: trip.packing.filter((p) => p.id !== item.id),
-                      })
-                    }
+                    onClick={() => removeItem(item.id)}
                     aria-label={`Remove ${item.text}`}
                   >
                     Remove
@@ -167,14 +154,7 @@ export function PackingRoute() {
                   <input
                     type="checkbox"
                     checked={item.packed}
-                    onChange={() => {
-                      upsertTrip({
-                        ...trip,
-                        packing: trip.packing.map((p) =>
-                          p.id === item.id ? { ...p, packed: !p.packed } : p,
-                        ),
-                      });
-                    }}
+                    onChange={() => toggleItem(item.id)}
                     aria-label={`Unpack ${item.text}`}
                   />
                   <span>{item.text}</span>

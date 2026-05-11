@@ -43,13 +43,8 @@
  */
 
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
-import { PilotChatContext, type PilotChatContextValue } from "../context.js";
 import { PilotChatView, type PilotChatViewHandle } from "./pilot-chat-view.js";
-import {
-  type PilotChromeLabels,
-  PilotCloseIcon,
-  resolveChromeLabels,
-} from "./pilot-chrome.js";
+import { type PilotChromeLabels, PilotChromeHeader, resolveChromeLabels } from "./pilot-chrome.js";
 import { injectSidebarStyles } from "./pilot-sidebar-styles.js";
 
 export interface PilotSidebarProps {
@@ -227,19 +222,12 @@ export function PilotSidebar(props: PilotSidebarProps = {}): ReactNode {
       aria-labelledby={titleId}
       style={{ ["--pilot-sidebar-width" as string]: widthCss }}
     >
-      <header className="pilot-header">
-        <h2 id={titleId} className="pilot-header-title">
-          {resolvedLabels.title}
-        </h2>
-        <button
-          type="button"
-          className="pilot-icon-button"
-          onClick={handleClose}
-          aria-label={resolvedLabels.closeButton}
-        >
-          <PilotCloseIcon />
-        </button>
-      </header>
+      <PilotChromeHeader
+        title={resolvedLabels.title}
+        closeLabel={resolvedLabels.closeButton}
+        onClose={handleClose}
+        titleId={titleId}
+      />
 
       <PilotChatView
         ref={chatViewRef}
@@ -258,18 +246,3 @@ export function PilotSidebar(props: PilotSidebarProps = {}): ReactNode {
   );
 }
 
-/**
- * Helper for tests and for rare integration paths that want to render the
- * sidebar without going through the full `<Pilot>` provider (e.g., a
- * Storybook story with canned messages).
- */
-export function PilotSidebarStandalone(
-  props: PilotSidebarProps & { value: PilotChatContextValue },
-): ReactNode {
-  const { value, ...rest } = props;
-  return (
-    <PilotChatContext.Provider value={value}>
-      <PilotSidebar {...rest} />
-    </PilotChatContext.Provider>
-  );
-}

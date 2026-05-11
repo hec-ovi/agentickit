@@ -4,6 +4,26 @@ All notable changes to `@hec-ovi/agentickit` will be documented here. Format loo
 
 ## [Unreleased]
 
+### Added
+
+- **`usePilotForm(form, { confirm: { submit?, reset? } })`**: per-form opt-out for the confirm-modal gate on the auto-registered `submit_<name>` and `reset_<name>` tools. Both default to `true` so existing behaviour is unchanged. Set `confirm: { submit: false }` for low-stakes flows (e.g. a draft-only "create" wizard) where the approval popup is friction more than safety. Only the auto-registered tools are affected; consumer actions registered via `usePilotAction` keep the `mutating` flag they declare themselves. 7 tests cover the snapshot-level mutating-flag flip per option plus the end-to-end dispatch path on both submit and reset (confirm modal does NOT mount when the flag is `false` and the form's handler fires directly; default still suspends behind the modal until the user approves). Travel example wires `confirm: { submit: false }` on the new-trip wizard since its output is a draft trip the user immediately edits on the detail page where every mutating change still pops the modal.
+
+### Removed
+
+- **`usePilotForm` `ghostFill` option**: previously accepted as a public option but had no implementation behind it. Keeping a "reserved for v0.3" flag on the API surface is the kind of half-finished promise the package shouldn't ship. Removed entirely; if a streaming-preview mode lands later, it'll come back with a real implementation. Consumers passing `ghostFill: true` today get a TypeScript error; the fix is a one-line removal from the options object since the value was already a no-op.
+
+### Internal cleanup (no behavior change)
+
+- **One JSON formatter for the package** (`format-json.ts`). Replaces four near-identical inline helpers in `pilot-confirm-modal.tsx`, `pilot-sidebar-messages.tsx`, `runtime/ag-ui-runtime.ts`, and `server/debug-logger.ts` that had drifted on empty-handling and indent rules. 22 dedicated tests pin every option (`indent`, `passthroughStrings`, `undefinedAs`, `emptyAs`).
+- **One chrome header component** (`<PilotChromeHeader>`). Replaces three byte-identical header blocks in `<PilotSidebar>`, `<PilotPopup>`, and `<PilotModal>`. 5 dedicated tests pin the a11y contract (h2 with id, aria-label on the close button, single click handler).
+- **One `isDev` helper.** Server handler now imports from the shared `env.ts` instead of a private duplicate. 6 new tests pin the heuristic (NODE_ENV unset / development / test / production / unknown / no-process).
+- **One id helper.** AG-UI runtime now uses the AI SDK's `generateId` instead of a local 5-line crypto-or-fallback function.
+- **Removed dead code**: `PilotSidebarStandalone` (defined but never imported anywhere since the sidebar's first commit), `PilotMessage` and `PilotMessagePart` public types (exported but unused; the runtime works directly with AI SDK 6's `UIMessage`).
+- **Public API surface lock**: 3 tests in `index.test.ts` enumerate every exported symbol so a future refactor can't silently widen or shrink the contract.
+- **CLI scaffolding**: removed the literal `TODO:` markers from the `init` and `add-skill` templates. New users no longer find scaffolded TODO strings on day one. Replaced with the `<replace this>` placeholder convention so authors can grep for `<replace` to find every fill-in spot. 5 tests pin the contract.
+- **AG-UI runtime test backfill**: regression test for "after the 16-iteration cap fires, the next sendMessage runs cleanly" (the audit-flagged scenario; loop body's per-iteration reset already handled it correctly, regression test now locks the contract). New tests for `ACTIVITY_DELTA` (JSON Patch applied on top of a snapshot) and `REASONING_MESSAGE_*` (chain-of-thought stream surfaced via `usePilotAgentActivity`).
+- **Stale comments cleaned up**: phase-3a archaeology in `pilot-provider.tsx`, the "v0.1" note on the message-part renderer, the misleading "plus optional ghost-fill streaming preview" line in `PilotFormRegistration`'s JSDoc.
+
 ## [0.2.0] - 2026-05-09
 
 This release lands Phase 8 (form-aware tool surface, asymmetric chat composer, OpenAI Responses-by-default refresh) and Phase 9 (CSS specificity, manual dark theme, `inspect_context`, `usePilotInstructions`, composer visibility, sidebar push mode, runtime message persistence). Test count climbed from 296 to 325. Zero regressions across the existing suite.

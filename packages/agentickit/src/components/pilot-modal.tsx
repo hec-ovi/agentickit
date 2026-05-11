@@ -36,7 +36,7 @@ import {
 import { createPortal } from "react-dom";
 import { PilotChatView, type PilotChatViewHandle } from "./pilot-chat-view.js";
 import {
-  PilotCloseIcon,
+  PilotChromeHeader,
   type PilotModalLabels,
   createFocusRestoreHandle,
   findFocusBounds,
@@ -196,19 +196,12 @@ export function PilotModal(props: PilotModalProps): ReactNode {
           ["--pilot-modal-height" as string]: heightCss,
         }}
       >
-        <header className="pilot-header">
-          <h2 id={titleId} className="pilot-header-title">
-            {resolvedLabels.title}
-          </h2>
-          <button
-            type="button"
-            className="pilot-icon-button"
-            onClick={() => onOpenChange(false)}
-            aria-label={resolvedLabels.closeButton}
-          >
-            <PilotCloseIcon />
-          </button>
-        </header>
+        <PilotChromeHeader
+          title={resolvedLabels.title}
+          closeLabel={resolvedLabels.closeButton}
+          onClose={() => onOpenChange(false)}
+          titleId={titleId}
+        />
         <PilotChatView
           ref={chatViewRef}
           greeting={greeting}

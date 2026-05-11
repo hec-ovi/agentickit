@@ -100,8 +100,8 @@ export interface PilotActionRegistration<TParams = unknown, TResult = unknown> {
 }
 
 /**
- * A registered form integration. Exposes set_field / submit / reset tools
- * plus optional ghost-fill streaming preview.
+ * A registered form integration. Exposes the auto-registered set_field,
+ * submit, and reset tools the model can call for this form.
  */
 export interface PilotFormRegistration {
   id: string;
@@ -112,25 +112,6 @@ export interface PilotFormRegistration {
   reset: () => void;
 }
 
-/**
- * A message in the copilot chat, mapped from Vercel AI SDK `UIMessage`.
- */
-export interface PilotMessage {
-  id: string;
-  role: "user" | "assistant" | "system" | "tool";
-  parts: PilotMessagePart[];
-  createdAt?: Date;
-}
-
-export type PilotMessagePart =
-  | { type: "text"; text: string }
-  | {
-      type: "tool-call";
-      toolName: string;
-      args: unknown;
-      status: "generating" | "done";
-      result?: unknown;
-    };
 
 /**
  * Provider configuration for the <Pilot> component.

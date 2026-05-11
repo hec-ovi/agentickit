@@ -1,5 +1,11 @@
+/**
+ * Tests for the in-memory mock-search functions backing the itinerary
+ * picker UI. Both functions are pure and deterministic; same input yields
+ * same output, which is what makes the picker tests reproducible.
+ */
+
 import { describe, it, expect } from "vitest";
-import { searchFlights, searchHotels, searchActivities, searchWeather } from "./mock-search";
+import { searchFlights, searchHotels } from "./mock-search";
 
 describe("mock-search", () => {
   it("searchFlights returns 3 deterministic options for the same input", () => {
@@ -15,7 +21,7 @@ describe("mock-search", () => {
     expect(tokyo[0]?.airline).not.toBe(paris[0]?.airline);
   });
 
-  it("searchHotels returns 3 hotels with valid pricing", () => {
+  it("searchHotels returns 3 hotels with valid pricing for known cities", () => {
     const out = searchHotels({ city: "Tokyo", nights: 7 });
     expect(out).toHaveLength(3);
     for (const h of out) {
@@ -25,26 +31,15 @@ describe("mock-search", () => {
     }
   });
 
-  it("searchActivities returns curated list for known cities and falls back for unknown", () => {
-    const tokyo = searchActivities({ city: "Tokyo" });
-    const unknown = searchActivities({ city: "Atlantis" });
-    expect(tokyo.some((a) => a.name === "Tsukiji food walk")).toBe(true);
-    expect(unknown.length).toBeGreaterThan(0);
-    expect(unknown[0]?.city).toBe("Atlantis");
-  });
-
-  it("searchActivities filters by category", () => {
-    const food = searchActivities({ city: "Tokyo", category: "food" });
-    for (const a of food) expect(a.category).toBe("food");
-  });
-
-  it("searchWeather returns N days of forecast and is deterministic", () => {
-    const a = searchWeather({ city: "Tokyo", startDate: "2026-05-15", days: 5 });
-    const b = searchWeather({ city: "Tokyo", startDate: "2026-05-15", days: 5 });
-    expect(a).toHaveLength(5);
-    expect(a).toEqual(b);
-    for (const day of a) {
-      expect(day.highC).toBeGreaterThan(day.lowC);
+  it("searchHotels falls back gracefully for cities not in the catalog (no 'XXX' placeholder ids)", () => {
+    // Regression: an earlier version emitted ids like `h-XXX-0` for unknown
+    // cities. Now a real city-derived slug is used so ids stay distinct.
+    const out = searchHotels({ city: "Atlantis", nights: 3 });
+    expect(out).toHaveLength(3);
+    for (const h of out) {
+      expect(h.id).not.toContain("XXX");
+      expect(h.id).toMatch(/^h-[A-Z]{1,3}-\d+$/);
+      expect(h.city).toBe("Atlantis");
     }
   });
 });

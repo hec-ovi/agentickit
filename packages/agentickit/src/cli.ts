@@ -2,7 +2,7 @@
 /**
  * `agentickit` CLI — scaffolds and grows `.pilot/` folders.
  *
- * Two subcommands for v0.1:
+ * Two subcommands:
  *   - `init`           create `.pilot/RESOLVER.md` + one example skill
  *   - `add-skill NAME` create `skills/<name>/SKILL.md` + append resolver row
  *
@@ -250,7 +250,9 @@ export function isValidSkillName(name: string): boolean {
  * without going through the full command.
  */
 export function insertSkillRow(content: string, name: string): string {
-  const row = `| TODO: describe when to trigger \`${name}\` | \`skills/${name}/SKILL.md\` |`;
+  // Placeholder uses the `<replace this>` convention shared with the SKILL.md
+  // scaffold so a new author can grep `<replace` to find every spot to fill.
+  const row = `| <replace this with the trigger for \`${name}\`> | \`skills/${name}/SKILL.md\` |`;
   const lines = content.split("\n");
   const skillsIdx = lines.findIndex((l) => /^##\s+Skills\s*$/.test(l));
 
@@ -301,26 +303,33 @@ Docs:
 
 const RESOLVER_TEMPLATE = `# Agent Resolver
 
-This is the dispatcher for your in-app copilot. The model reads this file and
-every \`skills/<name>/SKILL.md\` as its system prompt at startup. Edit this
-file to change the agent's persona, formatting rules, and capability routing.
-Edit the skill files to change how each capability is invoked.
+The model reads this file and every \`skills/<name>/SKILL.md\` as its system
+prompt at startup. Edit this file to change the agent's persona and routing
+table. Edit the skill files to change how each capability is invoked.
 
-<!-- Persona + formatting rules. The model reads this prose verbatim. -->
+The prose below is the persona block. Rewrite it to match how YOUR app's
+copilot should sound (terse, friendly, formal, technical).
 
-You are a concise, helpful assistant embedded in this app. Prefer calling
-tools over describing what the user should do. Reply in short markdown.
+You are a concise, helpful assistant embedded in this app. Prefer calling a
+tool over describing what the user should do. Reply in short markdown.
 
 ## Skills
 
-| Trigger                         | Skill                         |
-| ------------------------------- | ----------------------------- |
-| "show example", "run example"   | \`skills/example/SKILL.md\`   |
+The table below routes user intent to a skill file. Each row is a trigger
+phrase or topic that, when matched, tells the model to consult the named
+skill before responding.
+
+| Trigger                       | Skill                         |
+| ----------------------------- | ----------------------------- |
+| Anything you can demo locally | \`skills/example/SKILL.md\`   |
 `;
 
 const EXAMPLE_SKILL_TEMPLATE = `---
 name: example
-description: A one-sentence summary of what this skill does.
+description: A starter skill so you can see the shape. Replace with a real one.
+triggers:
+  - "show me how"
+  - "demo this"
 tools:
   - example_tool
 mutating: false
@@ -328,52 +337,62 @@ mutating: false
 
 # When to use
 
-Describe the triggers and edge cases in plain English. The model reads this
-body verbatim and uses it to decide whether to call the tool(s) listed in the
-frontmatter.
+Plain English: when should the model consult this skill? Cover the user
+phrasings, the page contexts, and any disambiguators. The model reads this
+body verbatim and decides whether to call the tools listed in the frontmatter.
 
-Example triggers:
-- "show me the example"
-- "run the example"
+This starter skill is intentionally minimal. Replace the body with the real
+behaviour for your app.
 
 # How to use
 
-Steps, tool call order, formatting rules. Keep it short and direct.
+Numbered steps, tool order, formatting rules. Keep it tight; the model
+follows the order you give.
 
-1. Call \`example_tool\` with whatever arguments the user provided.
-2. Report the result in a single sentence.
+1. Call \`example_tool\` with whatever arguments the user supplied.
+2. Reply with a single sentence summarizing the result.
 
 # Anti-patterns
 
-Things not to do. One-line reasons.
+Things NOT to do, with one-line reasons. Optional but useful for skills
+where the model is likely to over-reach.
 
-- Don't call \`example_tool\` if the user only asked a question — answer in prose instead.
+- Don't call \`example_tool\` if the user only asked a clarifying question;
+  answer in prose instead.
 `;
 
-/** Template for `add-skill`: same shape as the example, with name filled in and TODO markers. */
+/**
+ * Template emitted by `add-skill <name>`. Uses the `<replace this>`
+ * placeholder convention so a new author can grep for `<replace` to find
+ * every spot that needs filling in. Avoids the literal token `TODO`
+ * because consumers tend to grep their own repos for it and a freshly
+ * scaffolded skill should not show up in that result on day one.
+ */
 function renderSkillTemplate(name: string): string {
   return `---
 name: ${name}
-description: TODO — one-sentence summary of what this skill does.
+description: <replace this with a one-sentence summary of what this skill does>
+triggers:
+  - "<replace with a user phrasing that should fire this skill>"
 tools:
-  - TODO_replace_with_tool_name
+  - <your_tool_name>
 mutating: false
 ---
 
 # When to use
 
-TODO — describe the triggers and edge cases in plain English.
-
-Example triggers:
-- "TODO example user phrasing"
+<replace this with a plain English description of when to consult this
+skill, including user phrasings, page contexts, and any disambiguators>
 
 # How to use
 
-TODO — steps, tool call order, formatting rules.
+<replace this with numbered steps, tool call order, and formatting rules.
+Keep it tight; the model follows the order you give>
 
 # Anti-patterns
 
-TODO — things not to do and why.
+<optional: list things NOT to do here, with one-line reasons. Delete this
+section if there are no useful anti-patterns to call out>
 `;
 }
 

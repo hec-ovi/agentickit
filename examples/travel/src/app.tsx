@@ -27,7 +27,9 @@ import { PackingRoute } from "./routes/packing";
 import { BookingRoute } from "./routes/booking";
 import { PreferencesRoute } from "./routes/preferences";
 import { AgentsRoute } from "./routes/agents";
-import { TripsContextProvider, usePilotMode } from "./shell-context";
+import { LabRoute } from "./routes/lab";
+import { ThreadsRoute } from "./routes/threads";
+import { TripsContextProvider } from "./shell-context";
 
 type AgentId = "concierge" | "flights" | "hotels" | "activities" | "weather";
 
@@ -138,7 +140,6 @@ function Shell() {
       runtime={runtime}
       renderConfirm={appConfirmRender}
     >
-      <PilotModeSync activeAgent={activeAgent} setActiveAgent={setActiveAgent} />
       <PilotPlugins
         plugins={[datePlugin, weatherPlugin, currencyPlugin, destinationsPlugin]}
       />
@@ -160,6 +161,8 @@ function Shell() {
                   <AgentsRoute active={activeAgent} onSwitch={setActiveAgent} />
                 }
               />
+              <Route path="/threads" element={<ThreadsRoute />} />
+              <Route path="/lab" element={<LabRoute />} />
             </Routes>
           </RouteFrame>
         </main>
@@ -179,15 +182,3 @@ function Shell() {
   );
 }
 
-// Lift the agent setter into shell-context so the AgentsRoute can call it
-// from inside Routes (which is rendered as a child of <Pilot>).
-function PilotModeSync({
-  activeAgent,
-  setActiveAgent,
-}: {
-  activeAgent: AgentId;
-  setActiveAgent: (id: AgentId) => void;
-}) {
-  usePilotMode().bind(activeAgent, setActiveAgent);
-  return null;
-}

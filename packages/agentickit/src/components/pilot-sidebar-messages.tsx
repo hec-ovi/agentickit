@@ -26,7 +26,8 @@
  *     this mirrors how assistant-ui, ChatGPT, Claude and Linear handle it.
  */
 
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { formatJson } from "../format-json.js";
 import { PilotMarkdown } from "./pilot-markdown.js";
 
 /**
@@ -296,8 +297,9 @@ function PilotPart(props: { part: RenderablePart; index: number }): ReactNode {
     return <PilotToolPart part={part as ToolPart} stagger={stagger} />;
   }
 
-  // step-start, file, source-*, data-* — unrendered in v0.1. We return null
-  // instead of failing so forward-compatibility with newer SDK parts is safe.
+  // step-start, file, source-*, data-* — informational SDK part types we
+  // don't surface in the chat UI. Return null instead of failing so the
+  // renderer is forward-compatible with newer SDK part shapes.
   return null;
 }
 
@@ -325,41 +327,251 @@ function PilotToolPart(props: { part: ToolPart; stagger: number }): ReactNode {
   const label = describeToolState(part.state);
   const style = stagger > 0 ? { animationDelay: `${stagger}ms` } : undefined;
 
+  // Each section is shown only when the value carries content. Void
+  // payloads (`{}`, `[]`, `null`, `undefined`) are short-circuited so the
+  // user doesn't see lonely empty cards. `submit_form({})` etc. used to
+  // render an empty "Arguments" block that read as visual noise.
+  const hasArgs = part.input !== undefined && !isEmptyish(part.input);
+  const hasOutput = part.state === "output-available" && !isEmptyish(part.output);
+  const hasError = part.state === "output-error" && !!part.errorText;
+  const hasBody = hasArgs || hasOutput || hasError;
+
   return (
     <details
       className="pilot-tool pilot-part-enter"
       data-tool-name={name}
       data-tool-state={part.state}
+      data-has-body={hasBody ? "yes" : "no"}
       style={style}
     >
       <summary>
-        <span className="pilot-tool-name">{name}</span>
+        <span className="pilot-tool-chevron" aria-hidden="true" />
+        <span className="pilot-tool-name">{humanizeToolName(name)}</span>
+        <code className="pilot-tool-raw-name" aria-hidden="true">{name}</code>
         <span className="pilot-tool-status" data-state={label.category}>
           {label.text}
         </span>
       </summary>
-      <div className="pilot-tool-body">
-        {part.input !== undefined ? (
-          <>
-            <span className="pilot-tool-section-label">Arguments</span>
-            <pre className="pilot-tool-code">{formatValue(part.input)}</pre>
-          </>
-        ) : null}
-        {part.state === "output-available" ? (
-          <>
-            <span className="pilot-tool-section-label">Result</span>
-            <pre className="pilot-tool-code">{formatValue(part.output)}</pre>
-          </>
-        ) : null}
-        {part.state === "output-error" && part.errorText ? (
-          <>
-            <span className="pilot-tool-section-label">Error</span>
-            <pre className="pilot-tool-code">{part.errorText}</pre>
-          </>
-        ) : null}
-      </div>
+      {hasBody ? (
+        <div className="pilot-tool-body">
+          {hasArgs ? <ToolSection label="Arguments" value={part.input} /> : null}
+          {hasOutput ? <ToolSection label="Result" value={part.output} /> : null}
+          {hasError ? (
+            <>
+              <span className="pilot-tool-section-label">Error</span>
+              <p className="pilot-tool-error">{part.errorText}</p>
+            </>
+          ) : null}
+        </div>
+      ) : null}
     </details>
   );
+}
+
+/**
+ * Wraps a labeled section with a "view raw JSON" toggle for power users.
+ * Default view is the styled `<PrettyValue>` renderer below; toggling
+ * swaps to a monospace JSON dump so deep nested structures stay copyable.
+ */
+function ToolSection(props: { label: string; value: unknown }): ReactNode {
+  const { label, value } = props;
+  const [raw, setRaw] = useState(false);
+  const rawJson = formatJson(value, { passthroughStrings: false });
+  return (
+    <div className="pilot-tool-section">
+      <div className="pilot-tool-section-head">
+        <span className="pilot-tool-section-label">{label}</span>
+        <button
+          type="button"
+          className="pilot-tool-raw-toggle"
+          onClick={() => setRaw((r) => !r)}
+          aria-pressed={raw}
+        >
+          {raw ? "Pretty" : "Raw"}
+        </button>
+      </div>
+      {raw ? (
+        <pre className="pilot-tool-code">{rawJson}</pre>
+      ) : (
+        <div className="pilot-tool-pretty">
+          <PrettyValue value={value} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Human-readable value renderer. Three shapes:
+ *
+ *   - Object: a 2-column key/value list with humanized labels.
+ *   - Array of uniform-shape objects: a compact table with humanized
+ *     column headers.
+ *   - Anything else (primitives, mixed arrays, nested objects): falls
+ *     back to a styled inline representation.
+ *
+ * Goals: no curly braces, no JSON quotes around plain strings, numbers
+ * align right when they're in tabular shape, booleans become small
+ * yes/no pills, null/empty becomes a muted em-dash.
+ */
+function PrettyValue(props: { value: unknown; depth?: number }): ReactNode {
+  const { value, depth = 0 } = props;
+
+  if (value === null || value === undefined) {
+    return <span className="pv-empty">—</span>;
+  }
+  if (typeof value === "string") {
+    // Recognize ISO dates (YYYY-MM-DD) and render them slightly differently.
+    if (/^\d{4}-\d{2}-\d{2}(T|$)/.test(value)) {
+      return <time className="pv-date" dateTime={value}>{value.slice(0, 10)}</time>;
+    }
+    if (value.length === 0) return <span className="pv-empty">—</span>;
+    return <span className="pv-string">{value}</span>;
+  }
+  if (typeof value === "number") {
+    return <span className="pv-number">{value.toLocaleString()}</span>;
+  }
+  if (typeof value === "boolean") {
+    return (
+      <span className="pv-bool" data-value={String(value)}>
+        {value ? "yes" : "no"}
+      </span>
+    );
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <span className="pv-empty">none</span>;
+    // Array of uniform-shape plain objects → table.
+    if (canRenderAsTable(value)) {
+      const cols = Array.from(
+        new Set(value.flatMap((row) => Object.keys(row as Record<string, unknown>))),
+      );
+      return (
+        <table className="pv-table">
+          <thead>
+            <tr>
+              {cols.map((c) => (
+                <th key={c}>{humanizeKey(c)}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {value.map((row, i) => (
+              <tr key={i}>
+                {cols.map((c) => (
+                  <td key={c} data-col={c}>
+                    <PrettyValue value={(row as Record<string, unknown>)[c]} depth={depth + 1} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      );
+    }
+    // Array of primitives → comma-separated inline if short.
+    if (value.every(isPrimitive) && value.length <= 6) {
+      return (
+        <span className="pv-array">
+          {value.map((v, i) => (
+            <Fragment key={i}>
+              {i > 0 ? <span className="pv-sep">, </span> : null}
+              <PrettyValue value={v} depth={depth + 1} />
+            </Fragment>
+          ))}
+        </span>
+      );
+    }
+    // Otherwise, bulleted list.
+    return (
+      <ul className="pv-list">
+        {value.map((v, i) => (
+          <li key={i}>
+            <PrettyValue value={v} depth={depth + 1} />
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value);
+    if (entries.length === 0) return <span className="pv-empty">empty</span>;
+    return (
+      <dl className="pv-kv">
+        {entries.map(([k, v]) => (
+          <Fragment key={k}>
+            <dt>{humanizeKey(k)}</dt>
+            <dd>
+              <PrettyValue value={v} depth={depth + 1} />
+            </dd>
+          </Fragment>
+        ))}
+      </dl>
+    );
+  }
+  return <span className="pv-string">{String(value)}</span>;
+}
+
+function isPrimitive(v: unknown): boolean {
+  return v === null || (typeof v !== "object" && typeof v !== "function");
+}
+
+function isEmptyish(v: unknown): boolean {
+  if (v === undefined || v === null) return true;
+  if (typeof v !== "object") return false;
+  if (Array.isArray(v)) return v.length === 0;
+  return Object.keys(v as object).length === 0;
+}
+
+/**
+ * `true` when every element of the array is a non-null plain object and
+ * the union of their keys is small enough that a table reads cleaner than
+ * a list of cards. Avoids tabling when rows have completely different
+ * shapes (would produce a sparse, awkward grid).
+ */
+function canRenderAsTable(arr: ReadonlyArray<unknown>): boolean {
+  if (arr.length === 0) return false;
+  for (const row of arr) {
+    if (row === null || typeof row !== "object" || Array.isArray(row)) return false;
+  }
+  const keys = new Set<string>();
+  for (const row of arr) {
+    for (const k of Object.keys(row as Record<string, unknown>)) keys.add(k);
+  }
+  // Cap at 5 columns to stay readable in the narrow sidebar.
+  if (keys.size === 0 || keys.size > 5) return false;
+  // All values inside each row must be primitives — nested rows make
+  // the table unreadable at this width.
+  for (const row of arr) {
+    for (const v of Object.values(row as Record<string, unknown>)) {
+      if (v !== null && typeof v === "object") return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * `startDate` → `Start date`. `pricePerNight` → `Price per night`.
+ * `home_airport` → `Home airport`. Used by the kv list + the table header.
+ */
+function humanizeKey(key: string): string {
+  if (!key) return key;
+  const withSpaces = key
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .trim();
+  return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1);
+}
+
+/**
+ * `book_flight` → `Book flight`. Used in the tool-card header so users see
+ * a human label first and the raw tool name second (as a small mono code).
+ */
+function humanizeToolName(name: string): string {
+  const parts = name.split(/[_\-\s]+/).filter(Boolean);
+  if (parts.length === 0) return name;
+  const head = (parts[0] ?? "").charAt(0).toUpperCase() + (parts[0] ?? "").slice(1);
+  return [head, ...parts.slice(1).map((p) => p.toLowerCase())].join(" ");
 }
 
 /**
@@ -386,16 +598,6 @@ function describeToolState(state: ToolPart["state"]): {
       return { text: "denied", category: "error" };
     default:
       return { text: "pending", category: "idle" };
-  }
-}
-
-function formatValue(value: unknown): string {
-  if (value === undefined) return "";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
   }
 }
 

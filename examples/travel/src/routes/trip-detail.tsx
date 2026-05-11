@@ -11,11 +11,7 @@ import { tripSchema } from "../data/types";
 import { findCity } from "../data/cities";
 import { newItemId } from "../data/store";
 import { useToast } from "../lib/toast";
-import { fmtDuration } from "../lib/format";
-
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { month: "long", day: "numeric" });
-}
+import { fmtDateMedium, fmtDuration } from "../lib/format";
 
 export function TripDetailRoute() {
   const { tripId } = useParams<{ tripId: string }>();
@@ -28,8 +24,7 @@ export function TripDetailRoute() {
     if (!trip) return 0;
     return (
       trip.flights.filter((f) => f.booked).reduce((s, f) => s + f.price, 0) +
-      trip.hotels.filter((h) => h.booked).reduce((s, h) => s + h.pricePerNight * h.nights, 0) +
-      trip.activities.filter((a) => a.booked).reduce((s, a) => s + a.cost, 0)
+      trip.hotels.filter((h) => h.booked).reduce((s, h) => s + h.pricePerNight * h.nights, 0)
     );
   }, [trip]);
 
@@ -115,7 +110,7 @@ export function TripDetailRoute() {
           </div>
         </div>
         <p className="page-subtitle">
-          {trip.destination} · {fmtDate(trip.startDate)} to {fmtDate(trip.endDate)} · {days} days ·{" "}
+          {trip.destination} · {fmtDateMedium(trip.startDate)} to {fmtDateMedium(trip.endDate)} · {days} days ·{" "}
           {trip.travelers} {trip.travelers === 1 ? "traveler" : "travelers"}
         </p>
       </header>

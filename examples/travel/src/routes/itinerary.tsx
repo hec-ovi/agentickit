@@ -8,21 +8,7 @@ import { searchFlights, searchHotels } from "../data/mock-search";
 import { newItemId } from "../data/store";
 import { FlightOptionCard, HotelOptionCard } from "../components/option-cards";
 import { EmptyState } from "../components/empty-state";
-
-function fmtDateLong(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function nightsBetween(a: string, b: string): number {
-  return Math.max(
-    1,
-    Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000),
-  );
-}
+import { fmtDateLong, nightsBetween } from "../lib/format";
 
 export function ItineraryRoute() {
   const { tripId } = useParams<{ tripId: string }>();

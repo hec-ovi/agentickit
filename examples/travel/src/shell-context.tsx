@@ -1,15 +1,6 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useRef,
-  type ReactNode,
-} from "react";
+import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
 import type { Preferences, Trip } from "./data/types";
 import { clearVisitedFlag, usePreferencesStore, useTripsStore } from "./data/store";
-
-type AgentId = "concierge" | "flights" | "hotels" | "activities" | "weather";
 
 interface ShellContextValue {
   trips: ReadonlyArray<Trip>;
@@ -23,12 +14,6 @@ interface ShellContextValue {
 }
 
 const ShellContext = createContext<ShellContextValue | null>(null);
-
-interface ModeBinding {
-  active: AgentId;
-  setActive: (id: AgentId) => void;
-}
-const ModeContext = createContext<{ get: () => ModeBinding | null; bind: (a: AgentId, s: (id: AgentId) => void) => void } | null>(null);
 
 export function TripsContextProvider({ children }: { children: ReactNode }) {
   const tripsStore = useTripsStore();
@@ -68,32 +53,11 @@ export function TripsContextProvider({ children }: { children: ReactNode }) {
     ],
   );
 
-  const bindingRef = useRef<ModeBinding | null>(null);
-  const modeApi = useMemo(
-    () => ({
-      get: () => bindingRef.current,
-      bind: (active: AgentId, setActive: (id: AgentId) => void) => {
-        bindingRef.current = { active, setActive };
-      },
-    }),
-    [],
-  );
-
-  return (
-    <ShellContext.Provider value={value}>
-      <ModeContext.Provider value={modeApi}>{children}</ModeContext.Provider>
-    </ShellContext.Provider>
-  );
+  return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }
 
 export function useShell(): ShellContextValue {
   const ctx = useContext(ShellContext);
   if (!ctx) throw new Error("useShell must be used inside <TripsContextProvider>");
-  return ctx;
-}
-
-export function usePilotMode() {
-  const ctx = useContext(ModeContext);
-  if (!ctx) throw new Error("usePilotMode must be used inside <TripsContextProvider>");
   return ctx;
 }

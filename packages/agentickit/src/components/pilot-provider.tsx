@@ -29,10 +29,6 @@ import {
   type PilotConfirmRenderArgs,
 } from "./pilot-confirm-modal.js";
 
-// `lastAssistantMessageNeedsContinuation` previously lived here; it
-// moved to `runtime/local-runtime.ts` next to its caller during Phase
-// 3a. Internal callers should import it from the new home.
-
 /** Approval outcome from the themed modal or consumer override. */
 type ConfirmOutcome = "approved" | "cancelled";
 
@@ -670,12 +666,6 @@ function PilotRuntimeBridge(props: {
     </PilotChatContext.Provider>
   );
 }
-
-// The transport-shape helpers (`buildToolsPayload`, `buildStateContext`)
-// and the `lastAssistantMessageNeedsContinuation` resubmission predicate
-// now live in `runtime/local-runtime.ts` next to the `useChat` invocation
-// they wire up. The export above re-routes existing imports to the new
-// home so consumers and tests don't notice the move.
 
 /**
  * Stable name for the auto-registered introspection tool. Exported so

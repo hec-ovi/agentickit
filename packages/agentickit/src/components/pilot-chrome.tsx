@@ -8,7 +8,7 @@
  * consistent and prevents drift when a new label is added.
  */
 
-import { type ReactNode } from "react";
+import { type ReactElement, type ReactNode } from "react";
 
 /**
  * Labels for chromes that own a toggle button (sidebar, popup). Modal omits
@@ -134,6 +134,50 @@ export function findFocusBounds(
   const nodes = Array.from(container.querySelectorAll<HTMLElement>(selector));
   if (nodes.length === 0) return { first: null, last: null };
   return { first: nodes[0] ?? null, last: nodes[nodes.length - 1] ?? null };
+}
+
+/**
+ * Header bar shared by sidebar, popup, and modal: a title on the left, a
+ * close X on the right. Three near-identical copies of this JSX used to
+ * live in the three chrome files; centralizing them means a future header
+ * tweak (extra slot, different icon, different aria role) lands in one
+ * place. Each chrome still owns its own `onClose` handler because the
+ * close semantics differ (sidebar collapses, popup hides + restores
+ * trigger focus, modal calls `onOpenChange(false)`); only the visual
+ * shell is shared.
+ */
+export interface PilotChromeHeaderProps {
+  /** Visible title text. */
+  title: string;
+  /** Accessible label for the close button. */
+  closeLabel: string;
+  /** Click handler for the close button. */
+  onClose: () => void;
+  /** `id` on the `<h2>` so the chrome's `aria-labelledby` can point at it. */
+  titleId: string;
+}
+
+export function PilotChromeHeader({
+  title,
+  closeLabel,
+  onClose,
+  titleId,
+}: PilotChromeHeaderProps): ReactElement {
+  return (
+    <header className="pilot-header">
+      <h2 id={titleId} className="pilot-header-title">
+        {title}
+      </h2>
+      <button
+        type="button"
+        className="pilot-icon-button"
+        onClick={onClose}
+        aria-label={closeLabel}
+      >
+        <PilotCloseIcon />
+      </button>
+    </header>
+  );
 }
 
 /**

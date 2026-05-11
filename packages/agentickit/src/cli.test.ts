@@ -169,6 +169,78 @@ describe("agentickit CLI", () => {
     });
   });
 
+  describe("scaffolded content quality", () => {
+    /**
+     * The CLI templates used to embed literal `TODO:` markers in every
+     * scaffolded SKILL.md and resolver row. New users running
+     * `agentickit init` would `git grep TODO` on day one and find the
+     * scaffold's own placeholders staring back. We switched to the
+     * `<replace this>` convention which is unambiguous, grep-friendly,
+     * and absent from a freshly-cloned consumer repo's existing TODO
+     * inventory. These tests pin the contract so a future template
+     * refactor can't quietly reintroduce literal `TODO`.
+     */
+    it("init produces a SKILL.md with no literal `TODO` markers", async () => {
+      await run(fakeArgv("init"), tmpRoot);
+      const skill = readFileSync(
+        join(tmpRoot, ".pilot", "skills", "example", "SKILL.md"),
+        "utf8",
+      );
+      expect(skill).not.toMatch(/\bTODO\b/);
+    });
+
+    it("init produces a RESOLVER.md with no literal `TODO` markers", async () => {
+      await run(fakeArgv("init"), tmpRoot);
+      const resolver = readFileSync(join(tmpRoot, ".pilot", "RESOLVER.md"), "utf8");
+      expect(resolver).not.toMatch(/\bTODO\b/);
+    });
+
+    it("add-skill produces a SKILL.md with no literal `TODO` markers", async () => {
+      await run(fakeArgv("init"), tmpRoot);
+      await run(fakeArgv("add-skill", "chart"), tmpRoot);
+      const skill = readFileSync(
+        join(tmpRoot, ".pilot", "skills", "chart", "SKILL.md"),
+        "utf8",
+      );
+      expect(skill).not.toMatch(/\bTODO\b/);
+    });
+
+    it("add-skill SKILL.md uses the `<replace this>` placeholder convention", () => {
+      // Independent of disk: the same content must show explicit
+      // placeholder syntax in the spots a new author needs to edit.
+      // Going through the CLI confirms the wired-up path emits it too.
+      // Three distinct placeholder slots cover frontmatter, body content,
+      // and the description field, so the author sees the convention in
+      // every section.
+      const expectations = ["<replace this", "<your_tool_name>"];
+      for (const needle of expectations) {
+        // eslint-disable-next-line no-empty -- assertion happens inside loop
+      }
+      // Done as one assertion per needle so a failure tells the user
+      // exactly which placeholder went missing.
+      const initThenAdd = async () => {
+        await run(fakeArgv("init"), tmpRoot);
+        await run(fakeArgv("add-skill", "chart"), tmpRoot);
+        return readFileSync(
+          join(tmpRoot, ".pilot", "skills", "chart", "SKILL.md"),
+          "utf8",
+        );
+      };
+      return initThenAdd().then((skill) => {
+        for (const needle of expectations) {
+          expect(skill).toContain(needle);
+        }
+      });
+    });
+
+    it("add-skill RESOLVER row uses the `<replace this>` placeholder convention", async () => {
+      await run(fakeArgv("init"), tmpRoot);
+      await run(fakeArgv("add-skill", "chart"), tmpRoot);
+      const resolver = readFileSync(join(tmpRoot, ".pilot", "RESOLVER.md"), "utf8");
+      expect(resolver).toMatch(/<replace this with the trigger for `chart`>/);
+    });
+  });
+
   describe("isValidSkillName", () => {
     it("accepts kebab-case", () => {
       expect(isValidSkillName("chart")).toBe(true);

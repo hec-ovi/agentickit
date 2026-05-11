@@ -6,6 +6,8 @@ const LINKS: ReadonlyArray<{ to: string; label: string; end?: boolean }> = [
   { to: "/", label: "Trips", end: true },
   { to: "/preferences", label: "Preferences" },
   { to: "/agents", label: "Agents" },
+  { to: "/threads", label: "Threads" },
+  { to: "/lab", label: "Lab" },
 ];
 
 function NavImpl() {

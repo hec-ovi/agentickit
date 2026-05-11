@@ -5,8 +5,6 @@ export type {
   PilotActionRegistration,
   PilotConfig,
   PilotFormRegistration,
-  PilotMessage,
-  PilotMessagePart,
   PilotRenderAndWait,
   PilotRenderAndWaitArgs,
   PilotStateRegistration,

@@ -68,9 +68,10 @@ import type {
   Tool as AgUiTool,
   ToolCall as AgUiToolCall,
 } from "@ag-ui/client";
-import { zodSchema } from "ai";
+import { generateId, zodSchema } from "ai";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { PilotChatContextValue, PilotRegistrySnapshot } from "../context.js";
+import { formatJson } from "../format-json.js";
 import type { PilotRuntime, PilotRuntimeConfig } from "./types.js";
 
 /* ------------------------------------------------------------------ */
@@ -345,13 +346,13 @@ function useAgUiRuntimeImpl(
 
         const toolMessage: AgUiMessage = result.kind === "ok"
           ? ({
-              id: randomId(),
+              id: generateId(),
               role: "tool",
               toolCallId: event.toolCallId,
-              content: serializeToolOutput(result.value),
+              content: formatJson(result.value, { indent: 0, passthroughStrings: true }),
             } as AgUiMessage)
           : ({
-              id: randomId(),
+              id: generateId(),
               role: "tool",
               toolCallId: event.toolCallId,
               content: "",
@@ -422,7 +423,7 @@ function useAgUiRuntimeImpl(
       runningRef.current = true;
       try {
         agent.addMessage({
-          id: randomId(),
+          id: generateId(),
           role: "user",
           content: text,
         } as AgUiMessage);
@@ -496,15 +497,6 @@ function dispatchToolCall(
   });
 }
 
-function serializeToolOutput(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value === undefined) return "";
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
 
 /* ------------------------------------------------------------------ */
 /* Tools / context builders                                           */
@@ -724,22 +716,3 @@ function safeParseJson(raw: string): unknown {
 /* IDs                                                                */
 /* ------------------------------------------------------------------ */
 
-/**
- * Generate a UUID-shaped id for runtime-issued messages (user input, tool
- * results). We don't import `uuid` directly since `@ag-ui/client` already
- * pulls it transitively; using `crypto.randomUUID` when present and a
- * fallback PRNG keeps this file's dep graph minimal and works under both
- * Node and the browser without extra polyfills.
- */
-function randomId(): string {
-  // crypto.randomUUID exists on Node 19+, modern browsers, happy-dom.
-  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
-  if (c?.randomUUID) return c.randomUUID();
-  // Fallback: 16 hex chars is enough for in-process correlation. AG-UI
-  // doesn't require a specific id format.
-  let out = "";
-  for (let i = 0; i < 16; i++) {
-    out += Math.floor(Math.random() * 16).toString(16);
-  }
-  return out;
-}

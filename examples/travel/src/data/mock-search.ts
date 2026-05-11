@@ -8,8 +8,8 @@
  * app depends on these implementations.
  */
 
-import { CITIES, findCity, type CitySpec } from "./cities";
-import type { Activity, Flight, Hotel, WeatherDay } from "./types";
+import { CITIES, findCity } from "./cities";
+import type { Flight, Hotel } from "./types";
 
 function hash(input: string): number {
   let h = 2166136261;
@@ -79,81 +79,18 @@ const FALLBACK_HOTELS = [
 export function searchHotels(args: { city: string; nights: number }): Hotel[] {
   const cityRecord = findCity(args.city);
   const list = cityRecord?.hotels ?? FALLBACK_HOTELS;
+  // For unknown cities we fall back to a generic three-hotel set; the id
+  // uses the airport code when known, otherwise a slugified city name so
+  // ids stay distinct per city even off-catalog.
+  const idTag =
+    cityRecord?.airportCode ??
+    (args.city.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3) || "ANY");
   return list.slice(0, 3).map((h, i) => ({
-    id: `h-${(cityRecord?.airportCode ?? "XXX")}-${i}`,
+    id: `h-${idTag}-${i}`,
     name: cityRecord ? h.name : `${h.name} ${args.city}`,
     city: args.city,
     rating: h.rating,
     pricePerNight: h.pricePerNight,
     amenities: [...h.amenities],
   }));
-}
-
-const FALLBACK_ACTIVITIES = [
-  { name: "Walking tour", category: "culture" as const, durationMin: 150, cost: 30 },
-  { name: "Local food tour", category: "food" as const, durationMin: 180, cost: 65 },
-  { name: "Free evening", category: "nightlife" as const, durationMin: 180, cost: 0 },
-  { name: "Day in the park", category: "nature" as const, durationMin: 180, cost: 0 },
-];
-
-export function searchActivities(args: {
-  city: string;
-  category?: Activity["category"];
-}): Activity[] {
-  const cityRecord = findCity(args.city);
-  const list = cityRecord?.activities ?? FALLBACK_ACTIVITIES;
-  const filtered = args.category ? list.filter((a) => a.category === args.category) : list;
-  return filtered.map((a, i) => ({
-    id: `a-${cityRecord?.airportCode ?? args.city.replace(/\s+/g, "")}-${i}`,
-    city: args.city,
-    name: a.name,
-    category: a.category,
-    durationMin: a.durationMin,
-    cost: a.cost,
-  }));
-}
-
-const SUMMARIES = [
-  "clear and warm",
-  "scattered clouds",
-  "morning showers",
-  "sunny",
-  "overcast",
-  "evening rain",
-  "foggy mornings",
-  "bright with breeze",
-];
-
-function biasForLatitude(lat: number): number {
-  // Higher latitudes are colder. Returns a temperature offset in Celsius.
-  return -Math.abs(lat) * 0.3 + 8;
-}
-
-export function searchWeather(args: {
-  city: string;
-  startDate: string;
-  days: number;
-}): WeatherDay[] {
-  const cityRecord = findCity(args.city);
-  const seed = hash(`${args.city}|${args.startDate}`);
-  const tempBias = biasForLatitude(cityRecord?.lat ?? 0);
-  const start = new Date(args.startDate);
-  return Array.from({ length: args.days }, (_, i) => {
-    const sub = seed + i * 11;
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    const high = Math.round(18 + tempBias + ((sub >>> 1) % 12));
-    const low = Math.round(high - 5 - (sub % 4));
-    const summary = pick(sub, SUMMARIES);
-    return {
-      date: d.toISOString().slice(0, 10),
-      highC: high,
-      lowC: low,
-      summary,
-    };
-  });
-}
-
-export function listKnownCities(): ReadonlyArray<CitySpec> {
-  return CITIES;
 }

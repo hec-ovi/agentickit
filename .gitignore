@@ -10,3 +10,9 @@ coverage
 .DS_Store
 .research/
 .claude/
+# Debug + log artifacts from running the example or framework locally.
+*.log
+debug/
+# Local-only scratch (manual-testing screenshots, session resume tokens).
+uidebug/
+session

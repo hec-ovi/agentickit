@@ -12,9 +12,9 @@ Three hooks, four chat surfaces (sidebar, popup, modal, headless), swappable run
 > Sits in the gap between Vercel AI SDK's primitives and CopilotKit's enterprise framework: small, typed, opinionated on the integration layer. Optional AG-UI runtime lets you mount the same chat surfaces on top of LangGraph CoAgents, CrewAI, Mastra, or any `AbstractAgent`.
 
 - 📦 [Full documentation + roadmap + FAQ on GitHub](https://github.com/hec-ovi/agentickit)
-- 🧪 [Testing notes (294 automated tests + vLLM e2e)](https://github.com/hec-ovi/agentickit#testing)
+- 🧪 [Testing notes (333 automated tests + vLLM e2e)](https://github.com/hec-ovi/agentickit#testing)
 - 📜 [CHANGELOG](./CHANGELOG.md)
-- 🎮 [Runnable demo: `examples/todo`](https://github.com/hec-ovi/agentickit/tree/master/examples/todo)
+- 🎮 [Runnable demo: `examples/travel`](https://github.com/hec-ovi/agentickit/tree/master/examples/travel)
 - 🐛 [Report an issue](https://github.com/hec-ovi/agentickit/issues)
 
 ---
@@ -126,7 +126,7 @@ export default function Root({ children }: { children: React.ReactNode }) {
 
 ### 3. Expose state + register actions
 
-See the "At a glance" snippet above, or the [runnable demo](https://github.com/hec-ovi/agentickit/tree/master/examples/todo) for three widgets (todo list, contact form, preferences) wired to every hook.
+See the "At a glance" snippet above, or the [runnable demo](https://github.com/hec-ovi/agentickit/tree/master/examples/travel) for a multi-route trip-planning app that wires every primitive (state, action, form, renderAndWait, instructions, all four chat surfaces, multi-agent registry) plus three theme modes and a real-LLM AG-UI bridge.
 
 ---
 
@@ -138,7 +138,7 @@ See the "At a glance" snippet above, or the [runnable demo](https://github.com/h
 | --- | --- | --- |
 | `usePilotState({ name, description, value, schema, setValue? })` | Expose React state to the AI | `update_<name>` tool when `setValue` is supplied |
 | `usePilotAction({ name, description, parameters, handler, mutating?, renderAndWait? })` | Register a typed, AI-callable tool. Handler runs in the browser. `renderAndWait` mounts a custom UI and pauses until the user resolves it | (none) |
-| `usePilotForm(form, { name?, ghostFill? })` | Attach a `react-hook-form` instance | `set_<name>_field`, `submit_<name>`, `reset_<name>` |
+| `usePilotForm(form, { name?, confirm? })` | Attach a `react-hook-form` instance | `set_<name>_field`, `submit_<name>`, `reset_<name>` |
 
 `mutating: true` on any action (or via `usePilotState`'s auto-registered update tool) triggers a themed confirm modal before the handler fires. Override the modal via `<Pilot renderConfirm={…} />`.
 
@@ -250,9 +250,9 @@ Full comparison table: [alternatives on GitHub](https://github.com/hec-ovi/agent
 
 ## Testing
 
-Ships with **294 automated tests** across 25 files (`pnpm test`). The suite includes 23 component-level integration scenarios that mount a real `<Pilot>` tree in `happy-dom`, replay scripted SSE frames, simulate user clicks, and assert on exact HTTP fetch counts so the dangerous class of bugs (infinite resubmit loops that drain API credits) fails CI before it ships. Plus 52 chat-surface tests with real `fireEvent` user simulation, 8 renderAndWait HITL tests, 24 runtime-swap + AG-UI tests against a fake AG-UI agent that exercises the real `defaultApplyEvents` apply pipeline, 6 generative-UI tests for `<PilotAgentStateView>`, 21 multi-agent registry tests covering registration lifecycle and per-agent state isolation under Pilot, and unit coverage for every public hook + the server handler + the `.pilot/` parsers + the CLI.
+Ships with **333 automated tests** across 34 files (`pnpm test`). The suite includes 23 component-level integration scenarios that mount a real `<Pilot>` tree in `happy-dom`, replay scripted SSE frames, simulate user clicks, and assert on exact HTTP fetch counts so the dangerous class of bugs (infinite resubmit loops that drain API credits) fails CI before it ships. Plus 52 chat-surface tests with real `fireEvent` user simulation, 8 renderAndWait HITL tests, 24 runtime-swap + AG-UI tests against a fake AG-UI agent that exercises the real `defaultApplyEvents` apply pipeline, 6 generative-UI tests for `<PilotAgentStateView>`, 21 multi-agent registry tests covering registration lifecycle and per-agent state isolation under Pilot, and unit coverage for every public hook + the server handler + the `.pilot/` parsers + the CLI.
 
-Beyond the mocked suite, `v0.1.0` was verified end-to-end against a local **vLLM** server running `openai/gpt-oss-120b` via the bundled `examples/todo` app: multi-tool conversation turns, confirm-modal approve + decline branches, progressive form fill + submit, auto-generated `update_<name>` state setters, and the full structured observability path through `debug` / `log` / `onLogEvent`.
+Beyond the mocked suite, the package is verified end-to-end against a local **vLLM** server (Qwen3 family) via the bundled `examples/travel` app: multi-tool conversation turns across the trip-detail / itinerary / booking / packing routes, confirm-modal approve and decline branches on every mutating tool, progressive form fill plus submit through `usePilotForm`, auto-generated `update_<name>` state setters, real LLM specialists reached over an AG-UI `HttpAgent` bridge with curated tool subsets, and the full structured observability path through `debug` / `log` / `onLogEvent`.
 
 Full testing notes + verified flows + known gaps: [Testing section on GitHub](https://github.com/hec-ovi/agentickit#testing).
 

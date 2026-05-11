@@ -33,7 +33,7 @@ import { PilotChatView, type PilotChatViewHandle } from "./pilot-chat-view.js";
 import {
   PilotChatIcon,
   type PilotChromeLabels,
-  PilotCloseIcon,
+  PilotChromeHeader,
   resolveChromeLabels,
 } from "./pilot-chrome.js";
 import { injectSidebarStyles } from "./pilot-sidebar-styles.js";
@@ -170,19 +170,12 @@ export function PilotPopup(props: PilotPopupProps = {}): ReactNode {
         ["--pilot-popup-height" as string]: heightCss,
       }}
     >
-      <header className="pilot-header">
-        <h2 id={titleId} className="pilot-header-title">
-          {resolvedLabels.title}
-        </h2>
-        <button
-          type="button"
-          className="pilot-icon-button"
-          onClick={handleClose}
-          aria-label={resolvedLabels.closeButton}
-        >
-          <PilotCloseIcon />
-        </button>
-      </header>
+      <PilotChromeHeader
+        title={resolvedLabels.title}
+        closeLabel={resolvedLabels.closeButton}
+        onClose={handleClose}
+        titleId={titleId}
+      />
       <PilotChatView
         ref={chatViewRef}
         greeting={greeting}

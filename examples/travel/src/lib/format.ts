@@ -22,6 +22,12 @@ export function fmtDateShort(iso: string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/** `"May 11"`-style: full month name, day number. Used in the trip header. */
+export function fmtDateMedium(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { month: "long", day: "numeric" });
+}
+
 export function fmtDateLong(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });

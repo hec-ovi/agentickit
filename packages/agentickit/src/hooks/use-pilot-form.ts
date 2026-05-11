@@ -18,16 +18,24 @@ export interface UsePilotFormOptions {
    */
   name?: string;
   /**
-   * Reserved for a future streaming preview mode (the AI's proposed values
-   * render as dimmed placeholders that the user confirms with Tab).
-   * Currently a no-op — the plain tool set is always registered.
+   * Per-form override for the confirm-modal gate on the auto-registered
+   * `submit_<name>` and `reset_<name>` tools. Both default to `true`, which
+   * keeps the safe behaviour of asking the user to approve any AI-driven
+   * submit or reset. Flip a key to `false` for low-stakes flows where the
+   * approval popup is friction more than safety (e.g. a draft-only "create"
+   * wizard whose output the user immediately edits, or a reset that just
+   * clears a scratch field).
    *
-   * TODO(v0.3): implement ghost-fill via a sibling `<GhostFieldProvider>`
-   *   that overlays an uncontrolled input on top of each form field. Not
-   *   shipped in v0.2; the option is accepted but ignored to keep the
-   *   public type surface stable for when the feature lands.
+   * Only the auto-registered submit/reset tools are affected. Consumer
+   * actions registered via `usePilotAction` keep whatever `mutating` flag
+   * they set themselves.
    */
-  ghostFill?: boolean;
+  confirm?: {
+    /** Confirm modal before `submit_<name>`. Defaults to `true`. */
+    submit?: boolean;
+    /** Confirm modal before `reset_<name>`. Defaults to `true`. */
+    reset?: boolean;
+  };
 }
 
 /**
@@ -58,6 +66,8 @@ export function usePilotForm<TFieldValues extends FieldValues>(
   formRef.current = form;
 
   const name = options.name ?? "form";
+  const confirmSubmit = options.confirm?.submit ?? true;
+  const confirmReset = options.confirm?.reset ?? true;
 
   useEffect(() => {
     if (!ctx) {
@@ -167,7 +177,7 @@ export function usePilotForm<TFieldValues extends FieldValues>(
         node.requestSubmit();
         return { success: true };
       },
-      mutating: true,
+      mutating: confirmSubmit,
     });
 
     // --- reset_<name> ----------------------------------------------------
@@ -179,7 +189,7 @@ export function usePilotForm<TFieldValues extends FieldValues>(
         formRef.current.reset();
         return { ok: true };
       },
-      mutating: true,
+      mutating: confirmReset,
     });
 
     // Also register a form-shaped entry so inspect_context can list this
@@ -210,7 +220,7 @@ export function usePilotForm<TFieldValues extends FieldValues>(
       ctx.deregisterAction(resetId);
       ctx.deregisterForm(formId);
     };
-  }, [ctx, name]);
+  }, [ctx, name, confirmSubmit, confirmReset]);
 
   return form;
 }

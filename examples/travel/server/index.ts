@@ -144,9 +144,38 @@ const SPECIALIST_PROVIDER_OPTS = OPENAI_BASE_URL
   ? { openai: { store: false } }
   : undefined;
 
-const SPECIALIST_CONFIGS: Record<string, SpecialistConfig> = {
+// Specialists need a fully-resolved LanguageModel instance because they
+// call `streamText` directly (the Concierge goes through `createPilotHandler`
+// which resolves model strings to instances internally).
+//
+// Two paths:
+//   - vLLM mode (OPENAI_BASE_URL set): `MODEL` is already the built vLLM
+//     client instance with strict-mode shims; reuse it.
+//   - Hosted-provider mode (OPENAI_BASE_URL unset): `MODEL` is a plain
+//     "openai/..."-style string and we have no resolver in this file.
+//     Specialists return 503 in this branch instead of silently calling
+//     `buildVllmModel("", "")` (which would point at default OpenAI with
+//     no key) or trying to feed `streamText` a raw string. The Concierge
+//     route still works through `createPilotHandler`'s provider lookup.
+const SPECIALIST_MODEL: ReturnType<typeof buildVllmModel> | null =
+  typeof MODEL === "string" ? null : MODEL;
+const SPECIALIST_DISABLED_REASON = SPECIALIST_MODEL
+  ? null
+  : "Specialist agents require a vLLM endpoint. Set OPENAI_BASE_URL in .env.local to enable /api/agui-{flights,hotels,activities,weather}.";
+
+// Configs are populated only when SPECIALIST_MODEL resolved (vLLM mode);
+// in the disabled branch the routes return 503 before ever reading from
+// this map. The non-null assertion below is safe behind that guard.
+const SPECIALIST_CONFIGS: Record<string, SpecialistConfig> = SPECIALIST_MODEL
+  ? buildSpecialistConfigs(SPECIALIST_MODEL)
+  : {};
+
+function buildSpecialistConfigs(
+  model: ReturnType<typeof buildVllmModel>,
+): Record<string, SpecialistConfig> {
+  return {
   flights: {
-    model: typeof MODEL === "string" ? buildVllmModel(MODEL.replace(/^openai\//, ""), OPENAI_BASE_URL ?? "") : MODEL,
+    model,
     system: [
       "You are the Flights specialist for a travel-planning app.",
       "Scope: flights only. Use propose_flight to surface options through the picker UI;",
@@ -168,7 +197,7 @@ const SPECIALIST_CONFIGS: Record<string, SpecialistConfig> = {
     ...(SPECIALIST_PROVIDER_OPTS ? { providerOptions: SPECIALIST_PROVIDER_OPTS } : {}),
   },
   hotels: {
-    model: typeof MODEL === "string" ? buildVllmModel(MODEL.replace(/^openai\//, ""), OPENAI_BASE_URL ?? "") : MODEL,
+    model,
     system: [
       "You are the Hotels specialist for a travel-planning app.",
       "Scope: accommodations only. Use propose_hotel to surface options through the picker UI;",
@@ -190,7 +219,7 @@ const SPECIALIST_CONFIGS: Record<string, SpecialistConfig> = {
     ...(SPECIALIST_PROVIDER_OPTS ? { providerOptions: SPECIALIST_PROVIDER_OPTS } : {}),
   },
   activities: {
-    model: typeof MODEL === "string" ? buildVllmModel(MODEL.replace(/^openai\//, ""), OPENAI_BASE_URL ?? "") : MODEL,
+    model,
     system: [
       "You are the Activities specialist for a travel-planning app.",
       "Scope: things to do only. Use add_day_item to schedule activities into the itinerary;",
@@ -210,7 +239,7 @@ const SPECIALIST_CONFIGS: Record<string, SpecialistConfig> = {
     ...(SPECIALIST_PROVIDER_OPTS ? { providerOptions: SPECIALIST_PROVIDER_OPTS } : {}),
   },
   weather: {
-    model: typeof MODEL === "string" ? buildVllmModel(MODEL.replace(/^openai\//, ""), OPENAI_BASE_URL ?? "") : MODEL,
+    model,
     system: [
       "You are the Weather specialist for a travel-planning app.",
       "Scope: forecasts and weather-driven advice only. Use get_weather and",
@@ -228,12 +257,28 @@ const SPECIALIST_CONFIGS: Record<string, SpecialistConfig> = {
     ],
     ...(SPECIALIST_PROVIDER_OPTS ? { providerOptions: SPECIALIST_PROVIDER_OPTS } : {}),
   },
-};
+  };
+}
 
-app.post("/api/agui-flights", (c) => runSpecialistTurn(c, SPECIALIST_CONFIGS.flights as SpecialistConfig));
-app.post("/api/agui-hotels", (c) => runSpecialistTurn(c, SPECIALIST_CONFIGS.hotels as SpecialistConfig));
-app.post("/api/agui-activities", (c) => runSpecialistTurn(c, SPECIALIST_CONFIGS.activities as SpecialistConfig));
-app.post("/api/agui-weather", (c) => runSpecialistTurn(c, SPECIALIST_CONFIGS.weather as SpecialistConfig));
+// Specialist routes. Each one returns 503 with a clear reason when vLLM
+// isn't configured (see SPECIALIST_DISABLED_REASON above) so the Agents
+// page surfaces an honest "specialists unavailable" state instead of
+// silently breaking on the first request.
+function specialistRoute(name: keyof typeof SPECIALIST_CONFIGS) {
+  return (c: Parameters<typeof runSpecialistTurn>[0]) => {
+    if (!SPECIALIST_MODEL) {
+      return c.json(
+        { error: "specialists_disabled", reason: SPECIALIST_DISABLED_REASON },
+        503,
+      );
+    }
+    return runSpecialistTurn(c, SPECIALIST_CONFIGS[name] as SpecialistConfig);
+  };
+}
+app.post("/api/agui-flights", specialistRoute("flights"));
+app.post("/api/agui-hotels", specialistRoute("hotels"));
+app.post("/api/agui-activities", specialistRoute("activities"));
+app.post("/api/agui-weather", specialistRoute("weather"));
 
 // ---- Weather proxy ----
 // When OPENWEATHER_API_KEY is set, hit api.openweathermap.org. Otherwise
