@@ -14,9 +14,21 @@
  * (`server/web-search/<name>.ts`).
  */
 
+import type { ReactNode } from "react";
 import { z } from "zod";
 import { usePilotAction } from "@hec-ovi/agentickit";
-import type { PilotPlugin } from "./index";
+
+/**
+ * Minimal local definition of the plugin shape, so this file works
+ * without depending on a project-level `src/plugins/index.tsx`. If your
+ * project already exports a `PilotPlugin` type, replace this with an
+ * import.
+ */
+interface PilotPlugin {
+  id: string;
+  description?: string;
+  component: () => ReactNode;
+}
 
 interface SearchResult {
   title: string;

@@ -121,6 +121,18 @@ const pilotHandler = createPilotHandler({
     "",
     "When proposing options, use the renderAndWait pickers; when the action is destructive,",
     "expect the confirm modal to fire and adjust your follow-up text after the user decides.",
+    "",
+    "WEB SEARCH",
+    "Several search_* tools are mounted (search_duckduckgo, search_tavily, search_firecrawl,",
+    "search_serper). They are NOT the first place to look for trip data — describe_destination,",
+    "get_weather, list_destinations, convert_currency, and get_current_date cover the local",
+    "catalog. Reach for web search only for things outside the catalog: news, current prices,",
+    "opening hours, reviews, recent events, places this app doesn't list. When you do search:",
+    "prefer search_serper (Google index, fastest) when available; search_tavily for research",
+    "queries needing context; search_firecrawl if you'll likely fetch a full page next;",
+    "search_duckduckgo as fallback. Always cite the URL when you quote a result. If a backend",
+    "returns ok:false, retry on a different mounted backend before telling the user the lookup",
+    "failed.",
   ].join(" "),
   ...(OPENAI_BASE_URL
     ? { getProviderOptions: () => ({ openai: { store: false } }) }

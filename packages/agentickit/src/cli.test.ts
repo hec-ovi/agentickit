@@ -1,8 +1,14 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { insertSkillRow, isValidSkillName, run } from "./cli.js";
+import {
+  findTemplatesDir,
+  insertSkillRow,
+  isValidSkillName,
+  listToolManifests,
+  run,
+} from "./cli.js";
 import { parseSkill } from "./protocol/skill.js";
 
 function fakeArgv(...command: string[]): string[] {
@@ -238,6 +244,124 @@ describe("agentickit CLI", () => {
       await run(fakeArgv("add-skill", "chart"), tmpRoot);
       const resolver = readFileSync(join(tmpRoot, ".pilot", "RESOLVER.md"), "utf8");
       expect(resolver).toMatch(/<replace this with the trigger for `chart`>/);
+    });
+  });
+
+  describe("list-tools / add-tool", () => {
+    it("findTemplatesDir resolves the bundled templates folder", () => {
+      const dir = findTemplatesDir();
+      expect(dir).toMatch(/templates$/);
+      expect(existsSync(join(dir, "tools"))).toBe(true);
+    });
+
+    it("listToolManifests returns at least the web-search manifest", async () => {
+      const manifests = await listToolManifests();
+      const webSearch = manifests.find((m) => m.name === "web-search");
+      expect(webSearch).toBeDefined();
+      expect(webSearch!.title.length).toBeGreaterThan(0);
+      expect(webSearch!.files.length).toBeGreaterThan(0);
+    });
+
+    it("list-tools prints each available tool with name + title", async () => {
+      const result = await run(fakeArgv("list-tools"), tmpRoot);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Available tools:");
+      expect(result.stdout).toContain("web-search");
+      expect(result.stdout).toContain("Web search");
+      expect(result.stdout).toContain("npx agentickit add-tool");
+    });
+
+    it("list-tools rejects extra args", async () => {
+      const result = await run(fakeArgv("list-tools", "stray"), tmpRoot);
+      expect(result.exitCode).toBe(1);
+    });
+
+    it("add-tool requires a name", async () => {
+      const result = await run(fakeArgv("add-tool"), tmpRoot);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("Usage: agentickit add-tool");
+    });
+
+    it("add-tool refuses an unknown name", async () => {
+      const result = await run(fakeArgv("add-tool", "nonexistent-tool"), tmpRoot);
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain("Unknown tool");
+    });
+
+    it("add-tool web-search copies every manifest file into the cwd", async () => {
+      const result = await run(fakeArgv("add-tool", "web-search"), tmpRoot);
+      expect(result.exitCode).toBe(0);
+
+      // Files from the manifest land at their `to` paths.
+      const expected = [
+        "server/web-search/types.ts",
+        "server/web-search/duckduckgo.ts",
+        "server/web-search/tavily.ts",
+        "server/web-search/firecrawl.ts",
+        "server/web-search/serper.ts",
+        "server/web-search/index.ts",
+        "src/plugins/web-search.tsx",
+      ];
+      for (const rel of expected) {
+        expect(existsSync(join(tmpRoot, rel))).toBe(true);
+      }
+
+      // Each scaffolded file matches the source template byte-for-byte.
+      const templatesDir = findTemplatesDir();
+      const dest = readFileSync(join(tmpRoot, "server/web-search/index.ts"), "utf8");
+      const src = readFileSync(
+        join(templatesDir, "tools/web-search/server/index.ts"),
+        "utf8",
+      );
+      expect(dest).toBe(src);
+    });
+
+    it("add-tool web-search appends env vars to .env.example", async () => {
+      await run(fakeArgv("add-tool", "web-search"), tmpRoot);
+      const envExample = readFileSync(join(tmpRoot, ".env.example"), "utf8");
+      // Each commented var present.
+      expect(envExample).toMatch(/# TAVILY_API_KEY=/);
+      expect(envExample).toMatch(/# FIRECRAWL_API_KEY=/);
+      expect(envExample).toMatch(/# SERPER_API_KEY=/);
+      // Each help comment present.
+      expect(envExample).toMatch(/tavily\.com/);
+      expect(envExample).toMatch(/firecrawl\.dev/);
+      expect(envExample).toMatch(/serper\.dev/);
+    });
+
+    it("add-tool preserves an existing .env.example and appends only", async () => {
+      // Pre-populate with consumer content.
+      const existingPath = join(tmpRoot, ".env.example");
+      const existing = "DATABASE_URL=postgres://...\nLOG_LEVEL=info\n";
+      mkdirSync(tmpRoot, { recursive: true });
+      // Write through fs directly so we don't need an existing init.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require("node:fs").writeFileSync(existingPath, existing);
+
+      await run(fakeArgv("add-tool", "web-search"), tmpRoot);
+
+      const updated = readFileSync(existingPath, "utf8");
+      // Existing content preserved at the top.
+      expect(updated.startsWith(existing.trim())).toBe(true);
+      // New env vars appended.
+      expect(updated).toMatch(/# TAVILY_API_KEY=/);
+    });
+
+    it("add-tool is idempotent: re-running with existing files refuses", async () => {
+      const first = await run(fakeArgv("add-tool", "web-search"), tmpRoot);
+      expect(first.exitCode).toBe(0);
+      const second = await run(fakeArgv("add-tool", "web-search"), tmpRoot);
+      expect(second.exitCode).toBe(2);
+      expect(second.stderr).toContain("Refusing to overwrite existing files");
+      expect(second.stderr).toContain("server/web-search/types.ts");
+    });
+
+    it("add-tool prints the manifest's nextSteps after a successful scaffold", async () => {
+      const result = await run(fakeArgv("add-tool", "web-search"), tmpRoot);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Next steps:");
+      expect(result.stdout).toContain("webSearchRoute");
+      expect(result.stdout).toContain("<PilotPlugins>");
     });
   });
 

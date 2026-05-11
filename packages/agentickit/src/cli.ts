@@ -13,7 +13,7 @@
  *   - `run()` is a pure function (argv + cwd → exit + output) so tests drive
  *     it without spawning child processes.
  */
-import { realpathSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -58,6 +58,12 @@ export async function run(argv: readonly string[], cwd: string): Promise<CliResu
     }
     if (command === "add-skill") {
       return await cmdAddSkill(cwd, rest, print, warn);
+    }
+    if (command === "list-tools") {
+      return await cmdListTools(rest, print, warn);
+    }
+    if (command === "add-tool") {
+      return await cmdAddTool(cwd, rest, print, warn);
     }
     warn(`Unknown command: ${command}`);
     warn(HELP_TEXT);
@@ -278,12 +284,230 @@ export function insertSkillRow(content: string, name: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Tool templates: list-tools + add-tool
+// ---------------------------------------------------------------------------
+
+/**
+ * Shape of `templates/tools/<name>/MANIFEST.json`. We keep it
+ * deliberately small so adding a new tool is just "drop files in a
+ * folder + write the manifest". No code generation, no runtime
+ * indirection.
+ */
+export interface ToolManifest {
+  /** Slug used as the CLI argument: `agentickit add-tool <name>`. */
+  name: string;
+  /** Short title shown by `list-tools`. */
+  title: string;
+  /** One-paragraph description shown by `list-tools` and after scaffolding. */
+  description: string;
+  /** Env vars the consumer needs to set. Each gets appended to `.env.example`. */
+  envVars?: Array<{ name: string; required?: boolean; help: string }>;
+  /** Source-to-destination file map. Paths are relative on both sides. */
+  files: Array<{ from: string; to: string }>;
+  /** Optional lines printed after a successful scaffold (next-steps guidance). */
+  nextSteps?: string[];
+}
+
+/**
+ * Resolve the path to the `templates/` directory shipped with this
+ * package. Works in both the source layout (during local development
+ * and tests) and the published `dist/` layout (after `tsup` builds and
+ * `npm publish` copies the `templates/` allowlisted via `package.json`).
+ *
+ * Walks up from the CLI module's location until it finds a directory
+ * containing `templates/tools/`. Throws if nothing matches inside a few
+ * levels — safer than silently returning a wrong path.
+ */
+export function findTemplatesDir(startFromUrl: string = import.meta.url): string {
+  const start = fileURLToPath(startFromUrl);
+  let dir = dirname(start);
+  for (let i = 0; i < 5; i += 1) {
+    const candidate = join(dir, "templates", "tools");
+    if (existsSync(candidate)) return join(dir, "templates");
+    dir = dirname(dir);
+  }
+  throw new Error(
+    "agentickit: could not locate the bundled templates/ directory. " +
+      "If you're running from source, make sure packages/agentickit/templates/ exists.",
+  );
+}
+
+/**
+ * Read every `MANIFEST.json` under `templates/tools/<name>/` and return
+ * the parsed manifests. Skips any folder without a manifest so partial
+ * scaffolds-in-progress don't crash `list-tools`.
+ */
+export async function listToolManifests(): Promise<ToolManifest[]> {
+  const root = join(findTemplatesDir(), "tools");
+  if (!existsSync(root)) return [];
+  const entries = readdirSync(root, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .sort();
+  const out: ToolManifest[] = [];
+  for (const name of entries) {
+    const manifestPath = join(root, name, "MANIFEST.json");
+    if (!existsSync(manifestPath)) continue;
+    const text = await readFile(manifestPath, "utf8");
+    out.push(JSON.parse(text) as ToolManifest);
+  }
+  return out;
+}
+
+async function cmdListTools(
+  args: readonly string[],
+  print: (s: string) => void,
+  warn: (s: string) => void,
+): Promise<CliResult> {
+  const out: string[] = [];
+  const err: string[] = [];
+  const tee = {
+    print: (s: string) => {
+      print(s);
+      out.push(s.endsWith("\n") ? s : `${s}\n`);
+    },
+    warn: (s: string) => {
+      warn(s);
+      err.push(s.endsWith("\n") ? s : `${s}\n`);
+    },
+  };
+
+  if (args.length > 0) {
+    tee.warn("list-tools takes no arguments.");
+    return { exitCode: 1, stdout: out.join(""), stderr: err.join("") };
+  }
+
+  const manifests = await listToolManifests();
+  if (manifests.length === 0) {
+    tee.print("No tools available.");
+    return { exitCode: 0, stdout: out.join(""), stderr: err.join("") };
+  }
+
+  tee.print("Available tools:");
+  tee.print("");
+  for (const m of manifests) {
+    tee.print(`  ${m.name.padEnd(16)} ${m.title}`);
+    tee.print(`  ${" ".repeat(16)} ${m.description}`);
+    tee.print("");
+  }
+  tee.print("Install with:  npx agentickit add-tool <name>");
+  return { exitCode: 0, stdout: out.join(""), stderr: err.join("") };
+}
+
+async function cmdAddTool(
+  cwd: string,
+  args: readonly string[],
+  print: (s: string) => void,
+  warn: (s: string) => void,
+): Promise<CliResult> {
+  const out: string[] = [];
+  const err: string[] = [];
+  const tee = {
+    print: (s: string) => {
+      print(s);
+      out.push(s.endsWith("\n") ? s : `${s}\n`);
+    },
+    warn: (s: string) => {
+      warn(s);
+      err.push(s.endsWith("\n") ? s : `${s}\n`);
+    },
+  };
+
+  const name = args[0];
+  if (!name || args.length !== 1) {
+    tee.warn("Usage: agentickit add-tool <name>");
+    tee.warn("  Run `npx agentickit list-tools` to see what's available.");
+    return { exitCode: 1, stdout: out.join(""), stderr: err.join("") };
+  }
+  if (!isValidSkillName(name)) {
+    tee.warn(`Invalid tool name: "${name}"`);
+    tee.warn("  Use the kebab-case name printed by `agentickit list-tools`.");
+    return { exitCode: 1, stdout: out.join(""), stderr: err.join("") };
+  }
+
+  const templatesRoot = findTemplatesDir();
+  const toolDir = join(templatesRoot, "tools", name);
+  const manifestPath = join(toolDir, "MANIFEST.json");
+  if (!existsSync(manifestPath)) {
+    tee.warn(`Unknown tool: "${name}"`);
+    tee.warn("  Run `npx agentickit list-tools` to see available tools.");
+    return { exitCode: 2, stdout: out.join(""), stderr: err.join("") };
+  }
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ToolManifest;
+
+  // Refuse if ANY target file already exists, so we never silently
+  // overwrite the consumer's edits.
+  const conflicts: string[] = [];
+  for (const file of manifest.files) {
+    const dest = resolve(cwd, file.to);
+    if (await pathExists(dest)) conflicts.push(file.to);
+  }
+  if (conflicts.length > 0) {
+    tee.warn(`Refusing to overwrite existing files:`);
+    for (const c of conflicts) tee.warn(`  ${c}`);
+    tee.warn("Remove or rename them first, then re-run.");
+    return { exitCode: 2, stdout: out.join(""), stderr: err.join("") };
+  }
+
+  // Copy every file.
+  for (const file of manifest.files) {
+    const src = join(toolDir, file.from);
+    const dest = resolve(cwd, file.to);
+    const body = await readFile(src, "utf8");
+    await writeTextFile(dest, body);
+  }
+
+  // Append env-var stubs to .env.example (creating the file if missing).
+  if (manifest.envVars && manifest.envVars.length > 0) {
+    await ensureEnvVarsDocumented(cwd, manifest);
+  }
+
+  tee.print(`✓ Tool "${manifest.name}" scaffolded (${manifest.title})`);
+  for (const file of manifest.files) {
+    tee.print(`  ${file.to}`);
+  }
+  if (manifest.envVars && manifest.envVars.length > 0) {
+    tee.print(`  .env.example (env-var stubs appended)`);
+  }
+  if (manifest.nextSteps && manifest.nextSteps.length > 0) {
+    tee.print("");
+    tee.print("Next steps:");
+    for (const line of manifest.nextSteps) tee.print(`  ${line}`);
+  }
+  return { exitCode: 0, stdout: out.join(""), stderr: err.join("") };
+}
+
+/**
+ * Append the tool's env vars to `.env.example`, but only the ones not
+ * already documented (so re-running `add-tool` on an existing project
+ * is idempotent). Each var gets its `help` line as a comment above it.
+ */
+async function ensureEnvVarsDocumented(cwd: string, manifest: ToolManifest): Promise<void> {
+  const path = resolve(cwd, ".env.example");
+  const existing = (await pathExists(path)) ? await readFile(path, "utf8") : "";
+  const block: string[] = [];
+  for (const env of manifest.envVars ?? []) {
+    if (existing.includes(`\n${env.name}=`) || existing.startsWith(`${env.name}=`)) continue;
+    if (existing.includes(`# ${env.name}=`)) continue;
+    block.push(`# ${env.help}`);
+    block.push(`# ${env.name}=`);
+    block.push("");
+  }
+  if (block.length === 0) return;
+  const header = `# ${manifest.title} (added by \`agentickit add-tool ${manifest.name}\`)`;
+  const next = existing
+    ? `${existing.replace(/\n+$/, "")}\n\n${header}\n${block.join("\n").trim()}\n`
+    : `${header}\n${block.join("\n").trim()}\n`;
+  await writeTextFile(path, next);
+}
+
+// ---------------------------------------------------------------------------
 // Templates
 // ---------------------------------------------------------------------------
 
 const VERSION = "0.0.0";
 
-const HELP_TEXT = `agentickit — scaffold and grow your .pilot/ folder.
+const HELP_TEXT = `agentickit — scaffold and grow your .pilot/ folder and plug in stock tools.
 
 Usage:
   npx agentickit <command>
@@ -292,6 +516,9 @@ Commands:
   init              Create .pilot/ with one example skill.
   add-skill <name>  Add a new skill and register it in RESOLVER.md.
                     <name> must be kebab-case (e.g. chart, detail-form).
+  list-tools        List stock tools you can install (web-search, etc.).
+  add-tool <name>   Scaffold a stock tool: copies its files into your repo
+                    and appends required env vars to .env.example.
 
 Options:
   -h, --help        Show this help.

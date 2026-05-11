@@ -22,10 +22,9 @@ import { destinationsPlugin } from "./plugins/destinations";
 import { datePlugin } from "./plugins/date";
 import {
   duckDuckGoPlugin,
-  bravePlugin,
   tavilyPlugin,
   firecrawlPlugin,
-  googleSearchPlugin,
+  serperPlugin,
 } from "./plugins/web-search";
 import { DashboardRoute } from "./routes/dashboard";
 import { TripDetailRoute } from "./routes/trip-detail";
@@ -158,10 +157,9 @@ function Shell() {
           // for unset keys, so leaving all mounted is also safe — the
           // model just sees a `{ ok: false, reason: ... }` and reports it).
           duckDuckGoPlugin,
-          bravePlugin,
           tavilyPlugin,
           firecrawlPlugin,
-          googleSearchPlugin,
+          serperPlugin,
         ]}
       />
       <FirstVisitHint />
