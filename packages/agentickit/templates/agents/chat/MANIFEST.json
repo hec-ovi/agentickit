@@ -1,0 +1,26 @@
+{
+  "name": "chat",
+  "title": "Chat agent",
+  "description": "A focused, system-prompted chat agent. createPilotHandler on the server, <Pilot> + <PilotSidebar> on the client. Replace the system prompt with your agent's persona; mount the route + the React component into your existing app.",
+  "envVars": [
+    {
+      "name": "PILOT_MODEL",
+      "required": false,
+      "help": "Model id (e.g. 'openai/gpt-4o-mini', 'anthropic/claude-haiku-4-5'). Defaults to openai/gpt-4o-mini if unset."
+    }
+  ],
+  "files": [
+    { "from": "server/agent.ts", "to": "server/{{NAME}}-agent.ts" },
+    { "from": "src/agent.tsx", "to": "src/agents/{{NAME}}-agent.tsx" }
+  ],
+  "nextSteps": [
+    "Mount the server handler in your existing Hono / Express / Next.js app:",
+    "    import { {{NAME_CAMEL}}Handler } from './server/{{NAME}}-agent';",
+    "    app.all('/api/{{NAME}}', (c) => {{NAME_CAMEL}}Handler(c.req.raw));",
+    "Render the React component somewhere in your route tree:",
+    "    import { {{NAME_PASCAL}}Agent } from './src/agents/{{NAME}}-agent';",
+    "    <{{NAME_PASCAL}}Agent />",
+    "Edit SYSTEM_PROMPT in server/{{NAME}}-agent.ts to match your agent's persona.",
+    "If unset, the agent uses openai/gpt-4o-mini. Set PILOT_MODEL in .env.local to change."
+  ]
+}

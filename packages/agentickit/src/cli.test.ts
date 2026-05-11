@@ -3,11 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  applyPlaceholders,
   findTemplatesDir,
   insertSkillRow,
   isValidSkillName,
+  listAgentManifests,
   listToolManifests,
   run,
+  toCamelCase,
+  toPascalCase,
 } from "./cli.js";
 import { parseSkill } from "./protocol/skill.js";
 
@@ -362,6 +366,179 @@ describe("agentickit CLI", () => {
       expect(result.stdout).toContain("Next steps:");
       expect(result.stdout).toContain("webSearchRoute");
       expect(result.stdout).toContain("<PilotPlugins>");
+    });
+
+    it("scaffolded web-search.tsx is self-contained: NO `./index` import", async () => {
+      // The template was designed to be droppable into any project,
+      // even one without an existing src/plugins/index.tsx exporting
+      // PilotPlugin. So the scaffolded client file MUST inline the
+      // PilotPlugin type rather than import it. Regression test.
+      await run(fakeArgv("add-tool", "web-search"), tmpRoot);
+      const client = readFileSync(join(tmpRoot, "src/plugins/web-search.tsx"), "utf8");
+      expect(client).not.toMatch(/from\s+["']\.\/index["']/);
+      expect(client).toMatch(/interface\s+PilotPlugin\b/);
+    });
+
+    it("scaffolded server files have consistent inter-module imports", async () => {
+      // Each backend file imports types from `./types.js`; the proxy
+      // route imports each backend. A regression that splits the
+      // import paths would break the scaffold for consumers.
+      await run(fakeArgv("add-tool", "web-search"), tmpRoot);
+      const proxy = readFileSync(join(tmpRoot, "server/web-search/index.ts"), "utf8");
+      expect(proxy).toMatch(/from\s+["']\.\/duckduckgo\.js["']/);
+      expect(proxy).toMatch(/from\s+["']\.\/tavily\.js["']/);
+      expect(proxy).toMatch(/from\s+["']\.\/firecrawl\.js["']/);
+      expect(proxy).toMatch(/from\s+["']\.\/serper\.js["']/);
+      expect(proxy).toMatch(/from\s+["']\.\/types\.js["']/);
+      expect(proxy).toMatch(/export\s+(async\s+)?function\s+webSearchRoute/);
+    });
+  });
+
+  describe("placeholder helpers (toPascalCase / toCamelCase / applyPlaceholders)", () => {
+    it("toPascalCase converts kebab-case to PascalCase", () => {
+      expect(toPascalCase("support")).toBe("Support");
+      expect(toPascalCase("support-bot")).toBe("SupportBot");
+      expect(toPascalCase("multi-word-name")).toBe("MultiWordName");
+      expect(toPascalCase("a")).toBe("A");
+    });
+
+    it("toCamelCase converts kebab-case to camelCase", () => {
+      expect(toCamelCase("support")).toBe("support");
+      expect(toCamelCase("support-bot")).toBe("supportBot");
+      expect(toCamelCase("multi-word-name")).toBe("multiWordName");
+    });
+
+    it("applyPlaceholders substitutes all three placeholder forms", () => {
+      const tpl = "name={{NAME}}, pascal={{NAME_PASCAL}}, camel={{NAME_CAMEL}}";
+      expect(applyPlaceholders(tpl, "support-bot")).toBe(
+        "name=support-bot, pascal=SupportBot, camel=supportBot",
+      );
+    });
+
+    it("applyPlaceholders substitutes the longer-prefix form first (avoids `{{NAME}}` matching `{{NAME_PASCAL}}`)", () => {
+      const tpl = "{{NAME_PASCAL}}.{{NAME}}.{{NAME_CAMEL}}";
+      // Without longest-match-first ordering, `{{NAME}}` would gobble
+      // the prefix of `{{NAME_PASCAL}}` and corrupt the output. This
+      // test pins the right resolution order.
+      expect(applyPlaceholders(tpl, "billing")).toBe("Billing.billing.billing");
+    });
+  });
+
+  describe("list-agents / add-agent", () => {
+    it("listAgentManifests returns the chat + observational templates", async () => {
+      const manifests = await listAgentManifests();
+      const names = manifests.map((m) => m.name).sort();
+      expect(names).toEqual(["chat", "observational"]);
+    });
+
+    it("list-agents prints both templates with their titles", async () => {
+      const result = await run(fakeArgv("list-agents"), tmpRoot);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Available agent templates:");
+      expect(result.stdout).toContain("chat");
+      expect(result.stdout).toContain("observational");
+      expect(result.stdout).toContain("--type");
+    });
+
+    it("add-agent requires a name", async () => {
+      const result = await run(fakeArgv("add-agent"), tmpRoot);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("Usage: agentickit add-agent");
+    });
+
+    it("add-agent rejects an unknown --type", async () => {
+      const result = await run(
+        fakeArgv("add-agent", "support", "--type", "nonexistent"),
+        tmpRoot,
+      );
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain("Unknown agent type");
+    });
+
+    it("add-agent rejects an invalid name", async () => {
+      const result = await run(
+        fakeArgv("add-agent", "Support_Bot", "--type", "chat"),
+        tmpRoot,
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("Invalid agent name");
+    });
+
+    it("add-agent --type=chat scaffolds a chat agent with placeholders applied", async () => {
+      const result = await run(
+        fakeArgv("add-agent", "support-bot", "--type", "chat"),
+        tmpRoot,
+      );
+      expect(result.exitCode).toBe(0);
+
+      // Filenames have {{NAME}} (kebab) substituted in.
+      expect(existsSync(join(tmpRoot, "server/support-bot-agent.ts"))).toBe(true);
+      expect(existsSync(join(tmpRoot, "src/agents/support-bot-agent.tsx"))).toBe(true);
+
+      // Server file uses camelCase identifier + PascalCase string.
+      const server = readFileSync(join(tmpRoot, "server/support-bot-agent.ts"), "utf8");
+      expect(server).toContain("supportBotHandler");
+      expect(server).toContain("SupportBot assistant");
+
+      // Client file uses PascalCase component name + kebab in the URL.
+      const client = readFileSync(join(tmpRoot, "src/agents/support-bot-agent.tsx"), "utf8");
+      expect(client).toContain("SupportBotAgent");
+      expect(client).toContain('apiUrl="/api/support-bot"');
+
+      // No raw {{NAME}} placeholders survived.
+      expect(server).not.toContain("{{NAME");
+      expect(client).not.toContain("{{NAME");
+    });
+
+    it("add-agent --type=observational scaffolds the observational pattern", async () => {
+      const result = await run(
+        fakeArgv("add-agent", "indexer", "--type", "observational"),
+        tmpRoot,
+      );
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(join(tmpRoot, "server/indexer-agent.ts"))).toBe(true);
+      expect(existsSync(join(tmpRoot, "src/agents/indexer-agent.tsx"))).toBe(true);
+
+      const server = readFileSync(join(tmpRoot, "server/indexer-agent.ts"), "utf8");
+      expect(server).toContain("indexerRunRoute");
+      expect(server).toContain("IndexerEvent");
+      expect(server).not.toContain("{{NAME");
+
+      const client = readFileSync(join(tmpRoot, "src/agents/indexer-agent.tsx"), "utf8");
+      expect(client).toContain("IndexerAgent");
+      expect(client).toContain('"/api/indexer/run"');
+      expect(client).not.toContain("{{NAME");
+    });
+
+    it("add-agent defaults to --type=chat when no type is given", async () => {
+      const result = await run(fakeArgv("add-agent", "concierge"), tmpRoot);
+      expect(result.exitCode).toBe(0);
+      // chat template has the createPilotHandler import; observational doesn't.
+      const server = readFileSync(join(tmpRoot, "server/concierge-agent.ts"), "utf8");
+      expect(server).toContain("createPilotHandler");
+    });
+
+    it("add-agent refuses to overwrite existing files (idempotent guard)", async () => {
+      await run(fakeArgv("add-agent", "twin", "--type", "chat"), tmpRoot);
+      const second = await run(fakeArgv("add-agent", "twin", "--type", "chat"), tmpRoot);
+      expect(second.exitCode).toBe(2);
+      expect(second.stderr).toContain("Refusing to overwrite");
+      expect(second.stderr).toContain("server/twin-agent.ts");
+    });
+
+    it("add-agent prints next-steps with placeholders applied", async () => {
+      const result = await run(
+        fakeArgv("add-agent", "billing", "--type", "chat"),
+        tmpRoot,
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Next steps:");
+      // The next-steps template references {{NAME_CAMEL}} for the
+      // import name; the printed line should have it substituted.
+      expect(result.stdout).toContain("billingHandler");
+      expect(result.stdout).toContain("BillingAgent");
+      expect(result.stdout).toContain("/api/billing");
+      expect(result.stdout).not.toContain("{{NAME");
     });
   });
 

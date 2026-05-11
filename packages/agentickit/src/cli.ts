@@ -65,6 +65,12 @@ export async function run(argv: readonly string[], cwd: string): Promise<CliResu
     if (command === "add-tool") {
       return await cmdAddTool(cwd, rest, print, warn);
     }
+    if (command === "list-agents") {
+      return await cmdListAgents(rest, print, warn);
+    }
+    if (command === "add-agent") {
+      return await cmdAddAgent(cwd, rest, print, warn);
+    }
     warn(`Unknown command: ${command}`);
     warn(HELP_TEXT);
     return { exitCode: 1, stdout: out.join(""), stderr: err.join("") };
@@ -502,6 +508,240 @@ async function ensureEnvVarsDocumented(cwd: string, manifest: ToolManifest): Pro
 }
 
 // ---------------------------------------------------------------------------
+// Agent templates: list-agents + add-agent
+// ---------------------------------------------------------------------------
+
+/**
+ * Shape of `templates/agents/<type>/MANIFEST.json`. Same envelope as
+ * ToolManifest; the difference is that file paths AND contents support
+ * `{{NAME}}` / `{{NAME_PASCAL}}` / `{{NAME_CAMEL}}` placeholders so a
+ * scaffolded agent uses the consumer's chosen name.
+ */
+export interface AgentManifest {
+  /** Type slug used as `agentickit add-agent <name> --type <type>`. */
+  name: string;
+  title: string;
+  description: string;
+  envVars?: Array<{ name: string; required?: boolean; help: string }>;
+  files: Array<{ from: string; to: string }>;
+  nextSteps?: string[];
+}
+
+/** Walk `templates/agents/` and return one parsed manifest per type. */
+export async function listAgentManifests(): Promise<AgentManifest[]> {
+  const root = join(findTemplatesDir(), "agents");
+  if (!existsSync(root)) return [];
+  const entries = readdirSync(root, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .sort();
+  const out: AgentManifest[] = [];
+  for (const name of entries) {
+    const manifestPath = join(root, name, "MANIFEST.json");
+    if (!existsSync(manifestPath)) continue;
+    const text = await readFile(manifestPath, "utf8");
+    out.push(JSON.parse(text) as AgentManifest);
+  }
+  return out;
+}
+
+/** kebab-case → `PascalCase`. `support-bot` → `SupportBot`. */
+export function toPascalCase(kebab: string): string {
+  return kebab
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join("");
+}
+
+/** kebab-case → `camelCase`. `support-bot` → `supportBot`. */
+export function toCamelCase(kebab: string): string {
+  const pascal = toPascalCase(kebab);
+  return pascal.charAt(0).toLowerCase() + pascal.slice(1);
+}
+
+/**
+ * Substitute the agent-template placeholders in `text`. Three placeholders:
+ *   `{{NAME}}`         → the kebab-case agent name (e.g. `support-bot`)
+ *   `{{NAME_PASCAL}}`  → PascalCase            (e.g. `SupportBot`)
+ *   `{{NAME_CAMEL}}`   → camelCase             (e.g. `supportBot`)
+ *
+ * Used for both file paths AND file contents so a single template
+ * generates correctly-named files with correctly-named identifiers.
+ */
+export function applyPlaceholders(text: string, name: string): string {
+  return text
+    .replace(/\{\{NAME_PASCAL\}\}/g, toPascalCase(name))
+    .replace(/\{\{NAME_CAMEL\}\}/g, toCamelCase(name))
+    .replace(/\{\{NAME\}\}/g, name);
+}
+
+async function cmdListAgents(
+  args: readonly string[],
+  print: (s: string) => void,
+  warn: (s: string) => void,
+): Promise<CliResult> {
+  const out: string[] = [];
+  const err: string[] = [];
+  const tee = {
+    print: (s: string) => {
+      print(s);
+      out.push(s.endsWith("\n") ? s : `${s}\n`);
+    },
+    warn: (s: string) => {
+      warn(s);
+      err.push(s.endsWith("\n") ? s : `${s}\n`);
+    },
+  };
+
+  if (args.length > 0) {
+    tee.warn("list-agents takes no arguments.");
+    return { exitCode: 1, stdout: out.join(""), stderr: err.join("") };
+  }
+
+  const manifests = await listAgentManifests();
+  if (manifests.length === 0) {
+    tee.print("No agent templates available.");
+    return { exitCode: 0, stdout: out.join(""), stderr: err.join("") };
+  }
+
+  tee.print("Available agent templates:");
+  tee.print("");
+  for (const m of manifests) {
+    tee.print(`  ${m.name.padEnd(16)} ${m.title}`);
+    tee.print(`  ${" ".repeat(16)} ${m.description}`);
+    tee.print("");
+  }
+  tee.print("Install with:  npx agentickit add-agent <name> --type <type>");
+  tee.print("Defaults to --type chat if omitted.");
+  return { exitCode: 0, stdout: out.join(""), stderr: err.join("") };
+}
+
+/**
+ * Parse `add-agent <name> [--type <type>]` argv. Returns the parsed
+ * shape plus a CliResult-shaped error if the args don't form a valid
+ * invocation.
+ */
+function parseAddAgentArgs(args: readonly string[]): {
+  name?: string;
+  type?: string;
+  error?: string;
+} {
+  const positional: string[] = [];
+  let type: string | undefined;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--type") {
+      type = args[i + 1];
+      if (!type) return { error: "--type requires a value (e.g. --type chat)" };
+      i += 1;
+    } else if (arg !== undefined && arg.startsWith("--type=")) {
+      type = arg.slice("--type=".length);
+    } else if (arg !== undefined) {
+      positional.push(arg);
+    }
+  }
+  if (positional.length !== 1) {
+    return { error: "Usage: agentickit add-agent <name> [--type <type>]" };
+  }
+  return { name: positional[0], type: type ?? "chat" };
+}
+
+async function cmdAddAgent(
+  cwd: string,
+  args: readonly string[],
+  print: (s: string) => void,
+  warn: (s: string) => void,
+): Promise<CliResult> {
+  const out: string[] = [];
+  const err: string[] = [];
+  const tee = {
+    print: (s: string) => {
+      print(s);
+      out.push(s.endsWith("\n") ? s : `${s}\n`);
+    },
+    warn: (s: string) => {
+      warn(s);
+      err.push(s.endsWith("\n") ? s : `${s}\n`);
+    },
+  };
+
+  const parsed = parseAddAgentArgs(args);
+  if (parsed.error || !parsed.name || !parsed.type) {
+    tee.warn(parsed.error ?? "Usage: agentickit add-agent <name> [--type <type>]");
+    tee.warn("  Run `npx agentickit list-agents` to see available types.");
+    return { exitCode: 1, stdout: out.join(""), stderr: err.join("") };
+  }
+  if (!isValidSkillName(parsed.name)) {
+    tee.warn(`Invalid agent name: "${parsed.name}"`);
+    tee.warn("  Use kebab-case (e.g. support-bot, billing, onboarding).");
+    return { exitCode: 1, stdout: out.join(""), stderr: err.join("") };
+  }
+  if (!isValidSkillName(parsed.type)) {
+    tee.warn(`Invalid agent type: "${parsed.type}"`);
+    return { exitCode: 1, stdout: out.join(""), stderr: err.join("") };
+  }
+
+  const templatesRoot = findTemplatesDir();
+  const typeDir = join(templatesRoot, "agents", parsed.type);
+  const manifestPath = join(typeDir, "MANIFEST.json");
+  if (!existsSync(manifestPath)) {
+    tee.warn(`Unknown agent type: "${parsed.type}"`);
+    tee.warn("  Run `npx agentickit list-agents` to see available types.");
+    return { exitCode: 2, stdout: out.join(""), stderr: err.join("") };
+  }
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as AgentManifest;
+
+  // Resolve every destination path with placeholders applied so we can
+  // detect conflicts before touching the filesystem.
+  const resolvedFiles = manifest.files.map((file) => ({
+    from: file.from,
+    to: applyPlaceholders(file.to, parsed.name as string),
+  }));
+
+  const conflicts: string[] = [];
+  for (const file of resolvedFiles) {
+    const dest = resolve(cwd, file.to);
+    if (await pathExists(dest)) conflicts.push(file.to);
+  }
+  if (conflicts.length > 0) {
+    tee.warn(`Refusing to overwrite existing files:`);
+    for (const c of conflicts) tee.warn(`  ${c}`);
+    tee.warn("Remove or rename them first, then re-run.");
+    return { exitCode: 2, stdout: out.join(""), stderr: err.join("") };
+  }
+
+  // Copy + substitute every file.
+  for (const file of resolvedFiles) {
+    const src = join(typeDir, file.from);
+    const dest = resolve(cwd, file.to);
+    const raw = await readFile(src, "utf8");
+    const body = applyPlaceholders(raw, parsed.name);
+    await writeTextFile(dest, body);
+  }
+
+  if (manifest.envVars && manifest.envVars.length > 0) {
+    await ensureEnvVarsDocumented(cwd, manifest);
+  }
+
+  tee.print(`✓ Agent "${parsed.name}" scaffolded (type: ${parsed.type})`);
+  for (const file of resolvedFiles) {
+    tee.print(`  ${file.to}`);
+  }
+  if (manifest.envVars && manifest.envVars.length > 0) {
+    tee.print(`  .env.example (env-var stubs appended)`);
+  }
+  if (manifest.nextSteps && manifest.nextSteps.length > 0) {
+    tee.print("");
+    tee.print("Next steps:");
+    for (const line of manifest.nextSteps) {
+      tee.print(`  ${applyPlaceholders(line, parsed.name)}`);
+    }
+  }
+  return { exitCode: 0, stdout: out.join(""), stderr: err.join("") };
+}
+
+// ---------------------------------------------------------------------------
 // Templates
 // ---------------------------------------------------------------------------
 
@@ -519,6 +759,10 @@ Commands:
   list-tools        List stock tools you can install (web-search, etc.).
   add-tool <name>   Scaffold a stock tool: copies its files into your repo
                     and appends required env vars to .env.example.
+  list-agents       List stock agent templates (chat, observational, ...).
+  add-agent <name>  Scaffold an agent into your repo. Pass --type to pick
+                    a template (defaults to chat).
+                    Example: agentickit add-agent support --type chat
 
 Options:
   -h, --help        Show this help.

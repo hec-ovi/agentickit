@@ -15,7 +15,11 @@ import { MemoryRouter } from "react-router-dom";
 import { render, type RenderResult } from "@testing-library/react";
 import { vi } from "vitest";
 import { Pilot } from "@hec-ovi/agentickit";
-import type { PilotRuntime, PilotRuntimeConfig } from "@hec-ovi/agentickit";
+import type {
+  PilotIncomingToolCall,
+  PilotRuntime,
+  PilotRuntimeConfig,
+} from "@hec-ovi/agentickit";
 import { TripsContextProvider } from "../shell-context";
 import { ToastProvider } from "../lib/toast";
 
@@ -30,16 +34,32 @@ export interface RenderedApp {
   rtl: RenderResult;
   /** Returns the args of every `sendMessage` call made via the stub runtime. */
   getSendCalls: () => Array<unknown>;
+  /**
+   * Dispatch a tool call through the framework registry, the same way
+   * the runtime would. Returns `{ output }` on success or `{ error }`
+   * if the dispatcher hit an error (e.g., tool not registered, handler
+   * threw, Zod parse failed). Use this in integration tests to drive a
+   * plugin without needing a real LLM.
+   */
+  fireToolCall: (call: {
+    toolName: string;
+    toolCallId?: string;
+    input?: unknown;
+  }) => Promise<{ output?: unknown; error?: string }>;
 }
 
 export function renderApp(ui: ReactNode, options: RenderAppOptions = {}): RenderedApp {
   const sendSpy = vi.fn(async (..._args: unknown[]) => {});
 
-  // Stub runtime: same shape the real `localRuntime` uses (it's a
-  // PilotRuntime impl), no network involved. Tests that need to assert on
-  // the user's chat actions can read `getSendCalls()`.
+  // Captured by the stub runtime's useRuntime closure so tests can
+  // synthesize a tool call through the same code path the real runtime
+  // uses. Set once on the first useRuntime call; subsequent renders
+  // re-use the same `onToolCall` reference via the provider.
+  let capturedOnToolCall: ((c: PilotIncomingToolCall) => Promise<void>) | null = null;
+
   const runtime: PilotRuntime = {
-    useRuntime(_config: PilotRuntimeConfig) {
+    useRuntime(config: PilotRuntimeConfig) {
+      capturedOnToolCall = config.onToolCall;
       return {
         messages: (options.seedMessages ?? []) as ReadonlyArray<never>,
         status: "ready" as const,
@@ -61,8 +81,31 @@ export function renderApp(ui: ReactNode, options: RenderAppOptions = {}): Render
     </MemoryRouter>,
   );
 
+  const fireToolCall: RenderedApp["fireToolCall"] = async (call) => {
+    if (!capturedOnToolCall) {
+      throw new Error(
+        "fireToolCall: stub runtime hasn't been mounted yet. Did the render run?",
+      );
+    }
+    let output: unknown;
+    let error: string | undefined;
+    await capturedOnToolCall({
+      toolName: call.toolName,
+      toolCallId: call.toolCallId ?? `tc-${Math.random().toString(36).slice(2, 8)}`,
+      input: call.input ?? {},
+      output: (val) => {
+        output = val;
+      },
+      outputError: (err) => {
+        error = err;
+      },
+    });
+    return error !== undefined ? { error } : { output };
+  };
+
   return {
     rtl,
     getSendCalls: () => sendSpy.mock.calls.map((call) => call[0]),
+    fireToolCall,
   };
 }

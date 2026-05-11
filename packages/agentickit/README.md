@@ -204,8 +204,12 @@ Full spec + interop notes (Claude Code, Cursor, MCP): [`.pilot/` docs on GitHub]
 Ships as the `agentickit` bin (no extra install; it's a transitive bin once you install the package).
 
 ```bash
-npx agentickit init                 # create .pilot/ with one example skill
-npx agentickit add-skill <name>     # add skills/<name>/SKILL.md + register it in RESOLVER.md
+npx agentickit init                       # create .pilot/ with one example skill
+npx agentickit add-skill <name>           # add skills/<name>/SKILL.md + register it in RESOLVER.md
+npx agentickit list-tools                 # list stock tool plugins shipped with the package
+npx agentickit add-tool <name>            # scaffold a stock tool (e.g. web-search) into your repo
+npx agentickit list-agents                # list stock agent templates (chat, observational)
+npx agentickit add-agent <name> --type T  # scaffold an agent into your repo (defaults to chat)
 npx agentickit --help               # usage + exit codes
 npx agentickit --version            # current package version
 ```

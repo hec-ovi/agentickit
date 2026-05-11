@@ -1,0 +1,20 @@
+{
+  "name": "observational",
+  "title": "Observational agent (no input)",
+  "description": "An agent the user does NOT chat with. The server runs a long task and streams structured progress (steps, logs, done) via SSE; the React component renders a status panel + progress bar. Use for indexing jobs, deployments, model warm-up, anything where the human watches.",
+  "envVars": [],
+  "files": [
+    { "from": "server/agent.ts", "to": "server/{{NAME}}-agent.ts" },
+    { "from": "src/agent.tsx", "to": "src/agents/{{NAME}}-agent.tsx" }
+  ],
+  "nextSteps": [
+    "Mount the server route in your existing Hono app:",
+    "    import { {{NAME_CAMEL}}RunRoute } from './server/{{NAME}}-agent';",
+    "    app.get('/api/{{NAME}}/run', (c) => {{NAME_CAMEL}}RunRoute(c));",
+    "Render the React component somewhere in your route tree:",
+    "    import { {{NAME_PASCAL}}Agent } from './src/agents/{{NAME}}-agent';",
+    "    <{{NAME_PASCAL}}Agent />",
+    "Replace the STEPS array in server/{{NAME}}-agent.ts with the real steps your task performs.",
+    "The component auto-runs on mount; remove the useEffect to require a manual click."
+  ]
+}
