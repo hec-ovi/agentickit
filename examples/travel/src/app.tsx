@@ -20,6 +20,13 @@ import { weatherPlugin } from "./plugins/weather";
 import { currencyPlugin } from "./plugins/currency";
 import { destinationsPlugin } from "./plugins/destinations";
 import { datePlugin } from "./plugins/date";
+import {
+  duckDuckGoPlugin,
+  bravePlugin,
+  tavilyPlugin,
+  firecrawlPlugin,
+  googleSearchPlugin,
+} from "./plugins/web-search";
 import { DashboardRoute } from "./routes/dashboard";
 import { TripDetailRoute } from "./routes/trip-detail";
 import { ItineraryRoute } from "./routes/itinerary";
@@ -141,7 +148,21 @@ function Shell() {
       renderConfirm={appConfirmRender}
     >
       <PilotPlugins
-        plugins={[datePlugin, weatherPlugin, currencyPlugin, destinationsPlugin]}
+        plugins={[
+          datePlugin,
+          weatherPlugin,
+          currencyPlugin,
+          destinationsPlugin,
+          // Web-search plugins. Mount only the ones whose env vars are set
+          // (the proxy still returns a structured 503 with a clear reason
+          // for unset keys, so leaving all mounted is also safe — the
+          // model just sees a `{ ok: false, reason: ... }` and reports it).
+          duckDuckGoPlugin,
+          bravePlugin,
+          tavilyPlugin,
+          firecrawlPlugin,
+          googleSearchPlugin,
+        ]}
       />
       <FirstVisitHint />
       <div className="app-shell">

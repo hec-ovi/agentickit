@@ -21,6 +21,7 @@ import { streamSSE } from "hono/streaming";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createPilotHandler } from "@hec-ovi/agentickit/server";
 import { runSpecialistTurn, type SpecialistConfig } from "./agui-bridge";
+import { webSearchRoute } from "./web-search";
 
 const PORT = Number.parseInt(process.env.PORT ?? "8788", 10);
 const RAW_MODEL = process.env.PILOT_MODEL ?? "openai/Qwen3.6-27B-AWQ4";
@@ -420,6 +421,11 @@ app.get("/api/weather", async (c) => {
   }
   return c.json({ city, source: "mock", days: mockForecast(city, startDate, days) });
 });
+
+// Web-search proxy: dispatches to one of duckduckgo / brave / tavily /
+// firecrawl / google based on `?backend=`. See server/web-search/index.ts
+// for the env-var requirements per backend.
+app.get("/api/search", (c) => webSearchRoute(c));
 
 app.get("/api/health", (c) =>
   c.json({
