@@ -336,6 +336,17 @@ function PilotToolPart(props: { part: ToolPart; stagger: number }): ReactNode {
   const hasError = part.state === "output-error" && !!part.errorText;
   const hasBody = hasArgs || hasOutput || hasError;
 
+  // The summary is laid out as a CSS grid:
+  //   row 1: [ chevron ] [ humanized name (wraps freely) ] [ status pill ]
+  //   row 2: [        ] [ raw mono name                          ]
+  // Row 2 is omitted when the raw name is character-identical to the
+  // humanized title (rare, e.g. a tool literally named `Ping`) so we don't
+  // repeat the same phrase. camelCase and snake_case tools always show the
+  // raw chip because it carries information the humanized form drops
+  // (separators, exact identifier the model emits).
+  const humanName = humanizeToolName(name);
+  const showRawName = humanName !== name;
+
   return (
     <details
       className="pilot-tool pilot-part-enter"
@@ -344,13 +355,17 @@ function PilotToolPart(props: { part: ToolPart; stagger: number }): ReactNode {
       data-has-body={hasBody ? "yes" : "no"}
       style={style}
     >
-      <summary>
+      <summary className="pilot-tool-summary">
         <span className="pilot-tool-chevron" aria-hidden="true" />
-        <span className="pilot-tool-name">{humanizeToolName(name)}</span>
-        <code className="pilot-tool-raw-name" aria-hidden="true">{name}</code>
+        <span className="pilot-tool-name">{humanName}</span>
         <span className="pilot-tool-status" data-state={label.category}>
           {label.text}
         </span>
+        {showRawName ? (
+          <code className="pilot-tool-raw-name" aria-hidden="true">
+            {name}
+          </code>
+        ) : null}
       </summary>
       {hasBody ? (
         <div className="pilot-tool-body">

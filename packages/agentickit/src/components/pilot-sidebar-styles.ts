@@ -27,6 +27,88 @@ const STYLE_ELEMENT_ID = "pilot-sidebar-styles";
  * alongside the OS-level @media query that auto-tracks system preference.
  */
 export const PILOT_SIDEBAR_CSS = `
+/* ---- Theming surface ----------------------------------------------------
+ * Every visual value the consumer might plausibly want to override is exposed
+ * as a CSS custom property. Defaults are declared on :where(:root) so they
+ * have specificity 0,0,0,0 and any rule the consumer writes on :root (or any
+ * higher) wins without specificity gymnastics. Group-by-group rundown:
+ *
+ *   Core palette
+ *     --pilot-bg                 surface background for the chat shell
+ *     --pilot-bg-elevated        nested surfaces (code blocks, pretty value cards)
+ *     --pilot-fg                 primary foreground text color
+ *     --pilot-fg-muted           secondary text (timestamps, labels, status)
+ *     --pilot-fg-subtle          tertiary text (placeholders, muted dashes)
+ *     --pilot-border             default 1px hairline color
+ *     --pilot-border-strong      stronger hairline (scrollbars, dividers)
+ *     --pilot-accent             brand accent (send button, primary actions)
+ *     --pilot-accent-fg          foreground that sits on top of accent
+ *
+ *   Bubble + assistant body
+ *     --pilot-user-bubble-bg     user message bubble background
+ *     --pilot-user-bubble-fg     user message bubble text color
+ *     --pilot-assistant-fg       assistant text color
+ *
+ *   Error states
+ *     --pilot-error-bg           error chip background
+ *     --pilot-error-fg           error chip foreground
+ *     --pilot-error-border       error chip border
+ *
+ *   Radius + shadow + typography
+ *     --pilot-radius             default outer card radius
+ *     --pilot-radius-sm          smaller chip radius
+ *     --pilot-shadow             elevation shadow (toggle button, sidebar)
+ *     --pilot-font               base font stack
+ *
+ *   Tool card chrome (header + body), all derived from the core palette so
+ *   overriding --pilot-accent alone cascades through the running pill color.
+ *     --pilot-tool-bg            tool card background
+ *     --pilot-tool-border        tool card border color
+ *     --pilot-tool-padding       outer card padding (default 8px 12px)
+ *     --pilot-tool-gap           gap between summary row 1 and row 2
+ *     --pilot-tool-radius        tool card border radius (inherits radius-sm)
+ *     --pilot-tool-name-size     humanized title font-size
+ *     --pilot-tool-name-color    humanized title color (defaults to --pilot-fg)
+ *     --pilot-tool-name-weight   humanized title font-weight
+ *     --pilot-tool-line-height   line height for the title row
+ *
+ *   Disclosure chevron
+ *     --pilot-tool-chevron-size  chevron bounding box size (default 12px)
+ *     --pilot-tool-chevron-stroke chevron stroke width (default 1.5px)
+ *     --pilot-tool-chevron-color chevron color (defaults to --pilot-fg-muted)
+ *
+ *   Raw-name chip (small mono pill that shows the underlying tool id)
+ *     --pilot-tool-raw-bg        raw-name pill background
+ *     --pilot-tool-raw-fg        raw-name pill foreground
+ *     --pilot-tool-raw-size      raw-name pill font-size
+ *     --pilot-tool-raw-radius    raw-name pill border radius
+ *     --pilot-tool-raw-padding   raw-name pill padding
+ *
+ *   Status pill (done / running / error)
+ *     --pilot-tool-status-size      status pill font-size
+ *     --pilot-tool-status-padding   status pill padding
+ *     --pilot-tool-status-radius    status pill border radius
+ *     --pilot-tool-status-bg        idle background (defaults to --pilot-tool-border)
+ *     --pilot-tool-status-fg        idle foreground (defaults to --pilot-fg-muted)
+ *     --pilot-tool-status-running-fg  running foreground (defaults to --pilot-accent)
+ *     --pilot-tool-status-error-bg    error background (defaults to --pilot-error-bg)
+ *     --pilot-tool-status-error-fg    error foreground (defaults to --pilot-error-fg)
+ *
+ *   Pretty value renderer
+ *     --pilot-pretty-row-gap        gap between kv rows
+ *     --pilot-pretty-label-color    kv label color
+ *     --pilot-pretty-label-size     kv label font-size
+ *     --pilot-pretty-label-transform   kv label text-transform (default uppercase)
+ *     --pilot-pretty-label-tracking    kv label letter-spacing
+ *     --pilot-pretty-table-border      table cell border color
+ *
+ *   Raw/Pretty toggle button
+ *     --pilot-toggle-bg              default background
+ *     --pilot-toggle-fg              default foreground
+ *     --pilot-toggle-border          default border color
+ *     --pilot-toggle-active-bg       active (pressed) background
+ *     --pilot-toggle-active-fg       active (pressed) foreground
+ * ------------------------------------------------------------------------- */
 :where(:root) {
   --pilot-bg: #ffffff;
   --pilot-bg-elevated: #ffffff;
@@ -50,6 +132,49 @@ export const PILOT_SIDEBAR_CSS = `
   --pilot-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.04);
   --pilot-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
     Arial, system-ui, sans-serif;
+
+  /* Tool card chrome. Every value here is meant to be overridable by host
+   * apps; defaults match the visual that was already shipping minus the
+   * cramped header layout. */
+  --pilot-tool-padding: 8px 12px;
+  --pilot-tool-gap: 4px;
+  --pilot-tool-radius: var(--pilot-radius-sm);
+  --pilot-tool-name-size: 13px;
+  --pilot-tool-name-color: var(--pilot-fg);
+  --pilot-tool-name-weight: 500;
+  --pilot-tool-line-height: 1.35;
+
+  --pilot-tool-chevron-size: 12px;
+  --pilot-tool-chevron-stroke: 1.5px;
+  --pilot-tool-chevron-color: var(--pilot-fg-muted);
+
+  --pilot-tool-raw-bg: transparent;
+  --pilot-tool-raw-fg: var(--pilot-fg-subtle);
+  --pilot-tool-raw-size: 11px;
+  --pilot-tool-raw-radius: 4px;
+  --pilot-tool-raw-padding: 0;
+
+  --pilot-tool-status-size: 11px;
+  --pilot-tool-status-padding: 1px 8px;
+  --pilot-tool-status-radius: 999px;
+  --pilot-tool-status-bg: var(--pilot-tool-border);
+  --pilot-tool-status-fg: var(--pilot-fg-muted);
+  --pilot-tool-status-running-fg: var(--pilot-accent);
+  --pilot-tool-status-error-bg: var(--pilot-error-bg);
+  --pilot-tool-status-error-fg: var(--pilot-error-fg);
+
+  --pilot-pretty-row-gap: 4px;
+  --pilot-pretty-label-color: var(--pilot-fg-subtle);
+  --pilot-pretty-label-size: 11px;
+  --pilot-pretty-label-transform: uppercase;
+  --pilot-pretty-label-tracking: 0.04em;
+  --pilot-pretty-table-border: var(--pilot-tool-border);
+
+  --pilot-toggle-bg: transparent;
+  --pilot-toggle-fg: var(--pilot-fg-subtle);
+  --pilot-toggle-border: var(--pilot-tool-border);
+  --pilot-toggle-active-bg: var(--pilot-accent);
+  --pilot-toggle-active-fg: var(--pilot-accent-fg);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -389,45 +514,69 @@ html[data-pilot-sidebar-mode="push"][data-pilot-sidebar-state="open"][data-pilot
 
 .pilot-tool {
   margin: 0;
-  padding: 6px 10px;
+  padding: var(--pilot-tool-padding);
   background: var(--pilot-tool-bg);
   border: 1px solid var(--pilot-tool-border);
-  border-radius: var(--pilot-radius-sm);
+  border-radius: var(--pilot-tool-radius);
   font-size: 12.5px;
+  line-height: var(--pilot-tool-line-height);
   color: var(--pilot-fg-muted);
+  container-type: inline-size;
 }
-.pilot-tool summary {
-  display: inline-flex;
+
+/*
+ * Summary layout. CSS grid with a fixed first column for the chevron and a
+ * flexible second column for everything else. Row 1 spans:
+ *   [chevron] [humanized name . . . . . . . . .] [status pill]
+ * Row 2 (the raw mono name) sits under the humanized name only — column 1
+ * stays empty so the raw name visually hangs under the title, not under the
+ * chevron. The humanized title wraps freely at word boundaries because it
+ * lives in its own grid cell instead of competing with everything else on a
+ * single flex row. On very narrow widths (< 280px) the status pill drops to
+ * its own line so the title doesn't get squeezed.
+ */
+.pilot-tool-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  row-gap: var(--pilot-tool-gap);
   align-items: center;
-  gap: 8px;
   cursor: pointer;
   list-style: none;
   user-select: none;
 }
-.pilot-tool summary::-webkit-details-marker { display: none; }
-.pilot-tool[open] summary { margin-bottom: 6px; }
+.pilot-tool-summary::-webkit-details-marker { display: none; }
+.pilot-tool[open] .pilot-tool-summary { margin-bottom: 6px; }
 
-/* Disclosure chevron: small CSS-only triangle on the summary. Rotates 90°
- * when the <details> is open. Hidden when the tool call has no body to
- * expand (data-has-body="no") so we don't promise an interaction that
- * won't happen. */
+@container (max-width: 280px) {
+  .pilot-tool-summary { grid-template-columns: auto minmax(0, 1fr); }
+  .pilot-tool-summary .pilot-tool-status { grid-column: 2 / -1; justify-self: start; }
+}
+
+/* Disclosure chevron: small CSS-only triangle. Rotates 90° when the
+ * <details> is open. Hidden when the tool call has no body to expand
+ * (data-has-body="no") so we don't promise an interaction that won't
+ * happen. Size + color are themeable. */
 .pilot-tool-chevron {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 8px;
+  width: var(--pilot-tool-chevron-size);
+  height: var(--pilot-tool-chevron-size);
+  flex: 0 0 var(--pilot-tool-chevron-size);
   position: relative;
   display: inline-block;
+  grid-row: 1;
+  grid-column: 1;
   transition: transform 160ms ease;
 }
 .pilot-tool-chevron::before {
   content: "";
   position: absolute;
-  top: 1px;
-  left: 1px;
-  width: 5px;
-  height: 5px;
-  border-right: 1.5px solid var(--pilot-fg-muted);
-  border-bottom: 1.5px solid var(--pilot-fg-muted);
+  top: calc(var(--pilot-tool-chevron-size) * 0.18);
+  left: calc(var(--pilot-tool-chevron-size) * 0.22);
+  width: calc(var(--pilot-tool-chevron-size) * 0.55);
+  height: calc(var(--pilot-tool-chevron-size) * 0.55);
+  border-right: var(--pilot-tool-chevron-stroke) solid var(--pilot-tool-chevron-color);
+  border-bottom: var(--pilot-tool-chevron-stroke) solid var(--pilot-tool-chevron-color);
   transform: rotate(-45deg);
 }
 .pilot-tool[open] .pilot-tool-chevron {
@@ -436,7 +585,7 @@ html[data-pilot-sidebar-mode="push"][data-pilot-sidebar-state="open"][data-pilot
 .pilot-tool[data-has-body="no"] .pilot-tool-chevron {
   visibility: hidden;
 }
-.pilot-tool[data-has-body="no"] summary { cursor: default; }
+.pilot-tool[data-has-body="no"] .pilot-tool-summary { cursor: default; }
 
 /* Smooth fade-in for the body when expanded. Pure CSS keyframe; reduced
  * motion settings collapse to no animation. */
@@ -451,26 +600,62 @@ html[data-pilot-sidebar-mode="push"][data-pilot-sidebar-state="open"][data-pilot
   .pilot-tool[open] .pilot-tool-body { animation: none; }
   .pilot-tool-chevron { transition: none; }
 }
+
+/* Humanized title. Visual primary — sans-serif, larger font, prominent
+ * weight. Wraps naturally at word boundaries because it owns a full
+ * grid cell instead of competing with the pill on a flex row. */
 .pilot-tool-name {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-  color: var(--pilot-fg);
-  font-weight: 500;
+  grid-row: 1;
+  grid-column: 2;
+  font-family: var(--pilot-font);
+  font-size: var(--pilot-tool-name-size);
+  color: var(--pilot-tool-name-color);
+  font-weight: var(--pilot-tool-name-weight);
+  line-height: var(--pilot-tool-line-height);
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
+
+/* Status pill. Right-aligned on row 1. Never pushes the title to wrap
+ * because the title cell owns the flexible track. */
 .pilot-tool-status {
+  grid-row: 1;
+  grid-column: 3;
   display: inline-block;
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--pilot-tool-border);
-  color: var(--pilot-fg-muted);
+  font-size: var(--pilot-tool-status-size);
+  padding: var(--pilot-tool-status-padding);
+  border-radius: var(--pilot-tool-status-radius);
+  background: var(--pilot-tool-status-bg);
+  color: var(--pilot-tool-status-fg);
   line-height: 1.5;
+  justify-self: end;
+  align-self: start;
+  white-space: nowrap;
 }
-.pilot-tool-status[data-state="running"] { color: var(--pilot-accent); }
+.pilot-tool-status[data-state="running"] { color: var(--pilot-tool-status-running-fg); }
 .pilot-tool-status[data-state="error"] {
-  color: var(--pilot-error-fg);
-  background: var(--pilot-error-bg);
+  color: var(--pilot-tool-status-error-fg);
+  background: var(--pilot-tool-status-error-bg);
 }
+
+/* Raw-name chip. Lives on row 2, under the humanized title. De-emphasized
+ * (muted color, transparent background) so it informs without dominating. */
+.pilot-tool-raw-name {
+  grid-row: 2;
+  grid-column: 2 / -1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--pilot-tool-raw-size);
+  padding: var(--pilot-tool-raw-padding);
+  border-radius: var(--pilot-tool-raw-radius);
+  background: var(--pilot-tool-raw-bg);
+  color: var(--pilot-tool-raw-fg);
+  letter-spacing: 0.02em;
+  justify-self: start;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+
 .pilot-tool-body {
   display: grid;
   gap: 6px;
@@ -479,10 +664,10 @@ html[data-pilot-sidebar-mode="push"][data-pilot-sidebar-state="open"][data-pilot
 }
 .pilot-tool-section-label {
   font-family: var(--pilot-font);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--pilot-fg-subtle);
+  font-size: var(--pilot-pretty-label-size);
+  text-transform: var(--pilot-pretty-label-transform);
+  letter-spacing: var(--pilot-pretty-label-tracking);
+  color: var(--pilot-pretty-label-color);
 }
 .pilot-tool-code {
   margin: 0;
@@ -495,17 +680,6 @@ html[data-pilot-sidebar-mode="push"][data-pilot-sidebar-state="open"][data-pilot
   word-wrap: break-word;
   overflow-x: auto;
   max-height: 200px;
-}
-
-/* ---- Tool header: humanized name + small mono raw name --------------- */
-.pilot-tool-raw-name {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 10.5px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--pilot-tool-border);
-  color: var(--pilot-fg-subtle);
-  letter-spacing: 0.02em;
 }
 
 /* ---- Section block + Pretty/Raw toggle ------------------------------- */
@@ -521,9 +695,9 @@ html[data-pilot-sidebar-mode="push"][data-pilot-sidebar-state="open"][data-pilot
 }
 .pilot-tool-raw-toggle {
   appearance: none;
-  border: 1px solid var(--pilot-tool-border);
-  background: transparent;
-  color: var(--pilot-fg-subtle);
+  border: 1px solid var(--pilot-toggle-border);
+  background: var(--pilot-toggle-bg);
+  color: var(--pilot-toggle-fg);
   font: inherit;
   font-size: 10px;
   letter-spacing: 0.06em;
@@ -539,9 +713,9 @@ html[data-pilot-sidebar-mode="push"][data-pilot-sidebar-state="open"][data-pilot
   border-color: var(--pilot-fg-muted);
 }
 .pilot-tool-raw-toggle[aria-pressed="true"] {
-  background: var(--pilot-accent);
-  color: var(--pilot-accent-fg);
-  border-color: var(--pilot-accent);
+  background: var(--pilot-toggle-active-bg);
+  color: var(--pilot-toggle-active-fg);
+  border-color: var(--pilot-toggle-active-bg);
 }
 
 .pilot-tool-error {
@@ -574,15 +748,15 @@ html[data-pilot-sidebar-mode="push"][data-pilot-sidebar-state="open"][data-pilot
   display: grid;
   grid-template-columns: max-content 1fr;
   column-gap: 14px;
-  row-gap: 4px;
+  row-gap: var(--pilot-pretty-row-gap);
   margin: 0;
 }
 .pv-kv dt {
   margin: 0;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--pilot-fg-subtle);
+  font-size: var(--pilot-pretty-label-size);
+  text-transform: var(--pilot-pretty-label-transform);
+  letter-spacing: var(--pilot-pretty-label-tracking);
+  color: var(--pilot-pretty-label-color);
   text-align: right;
   align-self: baseline;
   white-space: nowrap;
@@ -597,7 +771,7 @@ html[data-pilot-sidebar-mode="push"][data-pilot-sidebar-state="open"][data-pilot
 .pv-kv .pv-kv {
   grid-column: 1 / -1;
   padding-left: 12px;
-  border-left: 2px solid var(--pilot-tool-border);
+  border-left: 2px solid var(--pilot-pretty-table-border);
   margin-top: 2px;
 }
 
@@ -658,17 +832,17 @@ html[data-pilot-sidebar-mode="push"][data-pilot-sidebar-state="open"][data-pilot
 }
 .pv-table thead th {
   text-align: left;
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--pilot-fg-subtle);
+  font-size: var(--pilot-pretty-label-size);
+  text-transform: var(--pilot-pretty-label-transform);
+  letter-spacing: var(--pilot-pretty-label-tracking);
+  color: var(--pilot-pretty-label-color);
   font-weight: 500;
   padding: 4px 8px 4px 0;
-  border-bottom: 1px solid var(--pilot-tool-border);
+  border-bottom: 1px solid var(--pilot-pretty-table-border);
 }
 .pv-table tbody td {
   padding: 4px 8px 4px 0;
-  border-bottom: 1px solid var(--pilot-tool-border);
+  border-bottom: 1px solid var(--pilot-pretty-table-border);
   color: var(--pilot-fg);
   vertical-align: top;
 }
