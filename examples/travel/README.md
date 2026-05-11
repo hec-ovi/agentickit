@@ -29,6 +29,13 @@ Open the chat (bottom-right) and try things. If something looks broken, try Pref
 | Threads     | send a message in α, switch to β, switch back     | One chat panel, three independent conversations. Switching tabs keeps each one's history.                                                    |
 | Lab         | open a popup, open a modal, push the sidebar      | A sandbox of every chat-surface variation: floating bubble, centered modal, side panel, chips-only mode, read-only mode.                     |
 
+## What else can the assistant do
+
+Beyond the page-specific tools above, the assistant has a few extras you can ask anytime:
+
+- **Web search**: "search the web for the best travel adapter in 2026". Four search engines are wired in; the assistant defaults to Serper (Google index, fast), uses Tavily for research-heavy questions, Firecrawl when it'll likely want to follow up by reading a specific page, and DuckDuckGo as a no-key fallback. Free-tier API keys for the three keyed ones go in `.env.local`; DuckDuckGo just works.
+- **Product catalog**: "show me the highest-rated luggage under $200" or "what's in stock right now". Backed by a small read-only product database (luggage, electronics, comfort, toiletries, apparel). The assistant can join, aggregate, filter — just SQL, but with a strict read-only validator so it can never write.
+
 ## What if I don't have a vLLM server?
 
 The main chat works against any provider you set in `.env.local`.
