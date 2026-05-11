@@ -22,6 +22,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createPilotHandler } from "@hec-ovi/agentickit/server";
 import { runSpecialistTurn, type SpecialistConfig } from "./agui-bridge";
 import { webSearchRoute } from "./web-search";
+import { sqlQueryRoute, sqlSchemaRoute } from "./sql";
 
 const PORT = Number.parseInt(process.env.PORT ?? "8788", 10);
 const RAW_MODEL = process.env.PILOT_MODEL ?? "openai/Qwen3.6-27B-AWQ4";
@@ -121,6 +122,14 @@ const pilotHandler = createPilotHandler({
     "",
     "When proposing options, use the renderAndWait pickers; when the action is destructive,",
     "expect the confirm modal to fire and adjust your follow-up text after the user decides.",
+    "",
+    "PRODUCT CATALOG",
+    "A read-only SQL database is mounted (tools: describe_schema, query_products). It holds",
+    "travel-themed gear: luggage, electronics, comfort, toiletries, apparel. Three tables —",
+    "products, categories, reviews. Call describe_schema first on any product question, then",
+    "compose a precise SELECT. Use this for any user question about gear (prices, ratings,",
+    "stock, recommendations). Do not invent product names or specs that aren't in the query",
+    "result. The validator rejects anything other than SELECT.",
     "",
     "WEB SEARCH",
     "Several search_* tools are mounted (search_duckduckgo, search_tavily, search_firecrawl,",
@@ -434,10 +443,16 @@ app.get("/api/weather", async (c) => {
   return c.json({ city, source: "mock", days: mockForecast(city, startDate, days) });
 });
 
-// Web-search proxy: dispatches to one of duckduckgo / brave / tavily /
-// firecrawl / google based on `?backend=`. See server/web-search/index.ts
+// Web-search proxy: dispatches to one of duckduckgo / tavily /
+// firecrawl / serper based on `?backend=`. See server/web-search/index.ts
 // for the env-var requirements per backend.
 app.get("/api/search", (c) => webSearchRoute(c));
+
+// Read-only SQL over a local SQLite product catalog. See server/sql/db.ts
+// for the read-only enforcement layers (connection mode + static
+// validator + row cap).
+app.get("/api/sql/schema", (c) => sqlSchemaRoute(c));
+app.post("/api/sql/query", (c) => sqlQueryRoute(c));
 
 app.get("/api/health", (c) =>
   c.json({

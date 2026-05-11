@@ -39,9 +39,17 @@ export default defineConfig({
     globals: false,
     include: ["src/**/*.test.{ts,tsx}", "server/**/*.test.ts"],
     // Server tests don't need a DOM — they're plain Node modules talking
-    // to external HTTP. Forcing them onto happy-dom can confuse `fetch`
-    // (intercepted by the DOM shim) and slow them down, so we run them
-    // under the real Node environment.
+    // to external HTTP or `node:sqlite`. Forcing them onto happy-dom can
+    // confuse `fetch` (intercepted by the DOM shim) and breaks `node:`
+    // builtin imports, so we run them under the real Node environment.
     environmentMatchGlobs: [["server/**/*.test.ts", "node"]],
+    server: {
+      deps: {
+        // Keep Node builtins external so vite doesn't try to bundle
+        // `node:sqlite`, `node:fs`, etc. (it strips the protocol and
+        // then can't find `sqlite` as a module).
+        external: [/^node:/],
+      },
+    },
   },
 });

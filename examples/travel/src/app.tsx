@@ -26,6 +26,7 @@ import {
   firecrawlPlugin,
   serperPlugin,
 } from "./plugins/web-search";
+import { sqlPlugin } from "./plugins/sql";
 import { DashboardRoute } from "./routes/dashboard";
 import { TripDetailRoute } from "./routes/trip-detail";
 import { ItineraryRoute } from "./routes/itinerary";
@@ -88,8 +89,8 @@ function Shell() {
       return [
         "Plan a 5-day trip to Lisbon for two travelers in June",
         "What is the weather like in Tokyo next week?",
-        "Convert my $2000 budget to JPY",
-        "List the destinations you know about",
+        "Show me the highest-rated luggage under $200",
+        "Search the web for the best travel adapter in 2026",
       ];
     }
     if (/^\/trips\/[^/]+\/itinerary/.test(path)) {
@@ -160,6 +161,9 @@ function Shell() {
           tavilyPlugin,
           firecrawlPlugin,
           serperPlugin,
+          // Read-only SQL over the local product catalog. Two tools:
+          // describe_schema + query_products.
+          sqlPlugin,
         ]}
       />
       <FirstVisitHint />
