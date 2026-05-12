@@ -11,6 +11,14 @@ Three hooks, four chat surfaces (sidebar, popup, modal, headless), swappable run
 
 > Sits in the gap between Vercel AI SDK's primitives and CopilotKit's enterprise framework: small, typed, opinionated on the integration layer. Optional AG-UI runtime lets you mount the same chat surfaces on top of LangGraph CoAgents, CrewAI, Mastra, or any `AbstractAgent`.
 
+> ### The `.pilot/` skills folder is the heart of this project
+>
+> The hooks, the chat surfaces, the runtime, the CLI: all of it is wiring. The actual differentiator is `.pilot/skills/`, a folder of markdown files that ship with YOUR app and teach its copilot about itself: domain rules, terminology, brand voice, escalation policies, when to defer to a specialist, anything app-specific the model can't infer from tool signatures.
+>
+> Skills are NOT general-purpose agent capabilities. They're NOT executable code. They're NOT shared across apps. They're your app's instruction manual for its own copilot, version-controlled alongside the app, hot-reloadable at server restart, no TypeScript touched. This repo's own dev copilot uses ten of them under [`/.pilot/skills/`](https://github.com/hec-ovi/agentickit/tree/main/.pilot/skills) (the framework eats its own dogfood).
+>
+> If you remember nothing else from this README, remember: a real agentickit app ships a `.pilot/` folder. The `agentickit init` CLI creates one in a single command. Full explanation in the [`.pilot/` skills folder](#pilot-skills-folder) section below.
+
 - 📦 [Full documentation + roadmap + FAQ on GitHub](https://github.com/hec-ovi/agentickit)
 - 🧪 [Testing notes (300+ automated tests + vLLM e2e)](https://github.com/hec-ovi/agentickit#testing)
 - 📜 [CHANGELOG](./CHANGELOG.md)
