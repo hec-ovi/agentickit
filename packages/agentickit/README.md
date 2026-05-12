@@ -13,11 +13,16 @@ Three hooks, four chat surfaces (sidebar, popup, modal, headless), swappable run
 
 > ### The `.pilot/` skills folder is the heart of this project
 >
-> The hooks, the chat surfaces, the runtime, the CLI: all of it is wiring. The actual differentiator is `.pilot/skills/`, a folder of markdown files that ship with YOUR app and teach its copilot about itself: domain rules, terminology, brand voice, escalation policies, when to defer to a specialist, anything app-specific the model can't infer from tool signatures.
+> The hooks, the chat surfaces, the runtime, the CLI: all of it is wiring. The actual differentiator is the `.pilot/` folder you ship inside YOUR app. It's where you teach your app's copilot about your app's own UI capabilities and rules.
 >
-> Skills are NOT general-purpose agent capabilities. They're NOT executable code. They're NOT shared across apps. They're your app's instruction manual for its own copilot, version-controlled alongside the app, hot-reloadable at server restart, no TypeScript touched. This repo's own dev copilot uses ten of them under [`/.pilot/skills/`](https://github.com/hec-ovi/agentickit/tree/main/.pilot/skills) (the framework eats its own dogfood).
+> Concrete example. Your app has a chart panel that's hidden by default. You want the user to be able to say "show me a breakdown of my trips" and have the agent open the panel. You write two things:
 >
-> If you remember nothing else from this README, remember: a real agentickit app ships a `.pilot/` folder. The `agentickit init` CLI creates one in a single command. Full explanation in the [`.pilot/` skills folder](#pilot-skills-folder) section below.
+> 1. A `usePilotAction({ name: "show_chart", ... })` registration in React that opens the panel.
+> 2. A `.pilot/skills/chart/SKILL.md` that tells the agent what the panel is for, the trigger phrases ("show me stats", "visualize", "I'm done with it"), and which tool to call. Markdown teaches; code executes. The pair ships together.
+>
+> Skills are NOT general-purpose agent capabilities. They're NOT executable code. They're NOT shared across apps. They're your app's instruction manual for its own copilot, version-controlled alongside the app, hot-reloadable on server restart, no TypeScript touched. The `agentickit init` CLI scaffolds the folder; `agentickit add-skill <name>` adds each capability. Full explanation in the [`.pilot/` skills folder](#pilot-skills-folder) section.
+>
+> Note. This repo also has a `/.pilot/` at the root, but that one is a separate audience: it teaches AI coding assistants (Claude, Cursor) how to develop the framework itself. The consumer-app `.pilot/` (yours, inside your app) is the one that matters for the value prop.
 
 - 📦 [Full documentation + roadmap + FAQ on GitHub](https://github.com/hec-ovi/agentickit)
 - 🧪 [Testing notes (300+ automated tests + vLLM e2e)](https://github.com/hec-ovi/agentickit#testing)

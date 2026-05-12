@@ -34,7 +34,7 @@ Open the chat (bottom-right) and try things. If something looks broken, try Pref
 Beyond the page-specific tools above, the assistant has a few extras you can ask anytime:
 
 - **Web search**: "search the web for the best travel adapter in 2026". Four search engines are wired in; the assistant defaults to Serper (Google index, fast), uses Tavily for research-heavy questions, Firecrawl when it'll likely want to follow up by reading a specific page, and DuckDuckGo as a no-key fallback. Free-tier API keys for the three keyed ones go in `.env.local`; DuckDuckGo just works.
-- **Product catalog**: "show me the highest-rated luggage under $200" or "what's in stock right now". Backed by a small read-only product database (luggage, electronics, comfort, toiletries, apparel). The assistant can join, aggregate, filter — just SQL, but with a strict read-only validator so it can never write.
+- **Product catalog**: "show me the highest-rated luggage under $200" or "what's in stock right now". Backed by a small read-only product database (luggage, electronics, comfort, toiletries, apparel). The assistant can join, aggregate, filter: just SQL, but with a strict read-only validator so it can never write.
 
 ## What if I don't have a vLLM server?
 
@@ -78,6 +78,24 @@ npx agentickit add-agent <name> --type T   # scaffold a chat or observational ag
 
 The travel example does NOT call these (it hand-codes everything so you can read the source), but the templates produce the same shape its `plugins/` and `server/` use.
 
-## Why no `.pilot/` folder here
+## Known gap: no `.pilot/` folder yet
 
-Skills are how an app teaches its agent about *itself* (domain rules, terminology, brand voice; see the package README for the full explanation). Travel deliberately ships without a `.pilot/` folder so its system prompt stays inline in `server/index.ts` where you can read every word the agent receives. Real apps should ship with one. `npx agentickit init` is one command.
+Travel is currently missing the `.pilot/` skills folder. This is a regression, not a deliberate choice. The previous showcase at `examples/todo` (deleted on 2026-05-11 in commit d9e92e5 when travel replaced it) shipped a `.pilot/` with six consumer-app skills. The clearest one was `skills/chart/SKILL.md`: a panel hidden by default, paired with `show_chart` / `hide_chart` tools, with trigger phrases like "show me stats" / "visualize" / "I'm done with it". The agent learned the WHEN from markdown; the React component owned the HOW.
+
+When travel was built we ported the wiring (hooks, surfaces, plugins) but not the spirit (skills). The system prompt currently lives inline in `server/index.ts` instead of as editable markdown under `.pilot/skills/`. The framework's headline differentiator is therefore invisible from the showcase a new user looks at first.
+
+What this should look like (planned for the next release):
+
+```
+examples/travel/.pilot/
+├── RESOLVER.md
+└── skills/
+    ├── propose-flight/SKILL.md     # paired with the propose_flight renderAndWait action
+    ├── propose-hotel/SKILL.md      # paired with propose_hotel
+    ├── add-day-item/SKILL.md       # paired with add_day_item
+    ├── pack-checklist/SKILL.md     # paired with the packing route's actions
+    ├── trip-style-guide/SKILL.md   # tone, currency rules, seasonality assumptions
+    └── escalate-to-specialist/SKILL.md   # when the concierge should hand off
+```
+
+If you're building a real app on agentickit today, do NOT copy travel's pattern of inline `system: "..."` strings. Run `npx agentickit init` and ship a `.pilot/` folder. See the package README for the full pattern.
