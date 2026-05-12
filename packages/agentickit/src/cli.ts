@@ -13,7 +13,7 @@
  *   - `run()` is a pure function (argv + cwd → exit + output) so tests drive
  *     it without spawning child processes.
  */
-import { existsSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -745,7 +745,25 @@ async function cmdAddAgent(
 // Templates
 // ---------------------------------------------------------------------------
 
-const VERSION = "0.0.0";
+// Read version from package.json at runtime so it stays in lockstep with the
+// published package. Works in dev (src/cli.ts) and in the bundled bin
+// (dist/cli.js): both sit one directory below package.json. Single source of
+// truth — bumping `version` in package.json propagates here automatically.
+function readPackageVersion(): string {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const pkgRaw = readFileSync(join(here, "..", "package.json"), "utf8");
+    const parsed = JSON.parse(pkgRaw) as { version?: unknown };
+    if (typeof parsed.version === "string" && parsed.version.length > 0) {
+      return parsed.version;
+    }
+  } catch {
+    // fall through
+  }
+  return "0.0.0";
+}
+
+const VERSION = readPackageVersion();
 
 const HELP_TEXT = `agentickit — scaffold and grow your .pilot/ folder and plug in stock tools.
 

@@ -45,14 +45,39 @@ The Agents page's specialists are tuned for vLLM specifically; without it they s
 
 ```
 examples/travel/
-├── server/index.ts          back-end: the chat endpoint + four specialist endpoints + a weather proxy
+├── server/
+│   ├── index.ts             chat endpoint, four specialist endpoints, weather proxy, search proxy, SQL routes, health
+│   ├── web-search/          DuckDuckGo, Tavily, Firecrawl, Serper backends behind /api/search?backend=
+│   ├── sql/                 schema + seeds + read-only validator powering /api/sql/schema and /api/sql/query
+│   └── agui-bridge.ts       AG-UI to AI SDK bridge for the specialist endpoints
 ├── src/
-│   ├── app.tsx              wires up theme, toast, agent registry, the chat provider, and the routes
+│   ├── app.tsx              wires theme, toast, agent registry, chat provider, routes
 │   ├── routes/              one file per page in the table above
 │   ├── widgets/             the new-trip wizard (a form the assistant can fill in)
 │   ├── components/          buttons, cards, badges, the chat-confirm modal, etc.
-│   ├── plugins/             tools the assistant can call (weather, currency, destinations, today's date)
+│   ├── plugins/             tools the assistant can call. Ten plugins across seven files:
+│   │                          weather, currency, destinations, today's date,
+│   │                          four web-search backends, SQL describe + query
 │   ├── data/                local catalogs and the localStorage-backed trip store
-│   └── lib/                 small helpers: formatters, toast bar, the booking and packing helpers
+│   └── lib/                 small helpers: formatters, toast bar, booking, packing
 └── README.md                this file
 ```
+
+## Extending the example with the `agentickit` CLI
+
+The travel app already wires every framework primitive by hand. If you're starting your own app and want the same shape, the CLI generates the boilerplate for you:
+
+```bash
+npx agentickit init                        # create .pilot/RESOLVER.md + one example skill
+npx agentickit add-skill <name>            # add a skill that teaches YOUR app's rules to its own agent
+npx agentickit list-tools                  # see stock tool plugins (web-search ships today)
+npx agentickit add-tool web-search         # scaffold the four-backend search plugin straight into your repo
+npx agentickit list-agents                 # see stock agent templates (chat, observational)
+npx agentickit add-agent <name> --type T   # scaffold a chat or observational agent
+```
+
+The travel example does NOT call these (it hand-codes everything so you can read the source), but the templates produce the same shape its `plugins/` and `server/` use.
+
+## Why no `.pilot/` folder here
+
+Skills are how an app teaches its agent about *itself* (domain rules, terminology, brand voice; see the package README for the full explanation). Travel deliberately ships without a `.pilot/` folder so its system prompt stays inline in `server/index.ts` where you can read every word the agent receives. Real apps should ship with one. `npx agentickit init` is one command.

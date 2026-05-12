@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   applyPlaceholders,
@@ -135,10 +136,18 @@ describe("agentickit CLI", () => {
       expect(result.stdout).toContain("Usage:");
     });
 
-    it("prints version with --version", async () => {
+    it("prints version with --version (and matches package.json exactly)", async () => {
+      // Read package.json directly so this test fails the moment cli.ts and
+      // package.json drift. Catches the regression where VERSION was hardcoded
+      // to "0.0.0" and the published bin reported the wrong version forever.
+      const here = dirname(fileURLToPath(import.meta.url));
+      const pkgPath = join(here, "..", "package.json");
+      const pkgVersion = (
+        JSON.parse(readFileSync(pkgPath, "utf8")) as { version: string }
+      ).version;
       const result = await run(fakeArgv("--version"), tmpRoot);
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toMatch(/agentickit \d/);
+      expect(result.stdout.trim()).toBe(`agentickit ${pkgVersion}`);
     });
 
     it("errors on unknown command", async () => {

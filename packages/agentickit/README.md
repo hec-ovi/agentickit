@@ -12,7 +12,7 @@ Three hooks, four chat surfaces (sidebar, popup, modal, headless), swappable run
 > Sits in the gap between Vercel AI SDK's primitives and CopilotKit's enterprise framework: small, typed, opinionated on the integration layer. Optional AG-UI runtime lets you mount the same chat surfaces on top of LangGraph CoAgents, CrewAI, Mastra, or any `AbstractAgent`.
 
 - 📦 [Full documentation + roadmap + FAQ on GitHub](https://github.com/hec-ovi/agentickit)
-- 🧪 [Testing notes (333 automated tests + vLLM e2e)](https://github.com/hec-ovi/agentickit#testing)
+- 🧪 [Testing notes (300+ automated tests + vLLM e2e)](https://github.com/hec-ovi/agentickit#testing)
 - 📜 [CHANGELOG](./CHANGELOG.md)
 - 🎮 [Runnable demo: `examples/travel`](https://github.com/hec-ovi/agentickit/tree/master/examples/travel)
 - 🐛 [Report an issue](https://github.com/hec-ovi/agentickit/issues)
@@ -138,7 +138,10 @@ See the "At a glance" snippet above, or the [runnable demo](https://github.com/h
 | --- | --- | --- |
 | `usePilotState({ name, description, value, schema, setValue? })` | Expose React state to the AI | `update_<name>` tool when `setValue` is supplied |
 | `usePilotAction({ name, description, parameters, handler, mutating?, renderAndWait? })` | Register a typed, AI-callable tool. Handler runs in the browser. `renderAndWait` mounts a custom UI and pauses until the user resolves it | (none) |
-| `usePilotForm(form, { name?, confirm? })` | Attach a `react-hook-form` instance | `set_<name>_field`, `submit_<name>`, `reset_<name>` |
+| `usePilotForm(form, { name?, confirm? })` | Attach a `react-hook-form` instance. `confirm: { submit?, reset? }` per-form opt-out for the confirm-modal gate (defaults to `true`) | `set_<name>_field`, `submit_<name>`, `reset_<name>` |
+| `usePilotInstructions({ name, value })` | Add page-scoped instructions to the system prompt. Auto-cleans up on unmount so route-specific guidance doesn't leak across pages | (none) |
+| `usePilotAgentState<T>(agent)` | Subscribe to an AG-UI agent's state via STATE_SNAPSHOT / STATE_DELTA | (none) |
+| `usePilotAgentActivity(agent)` | Subscribe to an AG-UI agent's ACTIVITY_* and REASONING_* streams | (none) |
 
 `mutating: true` on any action (or via `usePilotState`'s auto-registered update tool) triggers a themed confirm modal before the handler fires. Override the modal via `<Pilot renderConfirm={…} />`.
 
@@ -146,22 +149,21 @@ See the "At a glance" snippet above, or the [runnable demo](https://github.com/h
 
 | Component | Purpose |
 | --- | --- |
-| `<Pilot apiUrl? model? headers? runtime? renderConfirm?>` | Top-level provider. Owns the tool / state / form registry and drives the runtime (`localRuntime` by default, swappable) |
-| `<PilotSidebar />` | Slide-in chat panel. Dark mode, CSS-variable theming, suggestion chips, keyboard-accessible |
-| `<PilotPopup />` | Floating chat bubble anchored to a corner. Toggle hides while open (Intercom convention) |
-| `<PilotModal />` | Centered backdrop dialog. Controlled-only, focus trap, Escape and backdrop-click close, focus restoration |
-| `<PilotChatView />` | Headless chat body the others wrap. Mount inside any custom chrome |
+| `<Pilot apiUrl? model? headers? runtime? renderConfirm?>` | Top-level provider. Owns the tool / state / form registry and drives the runtime (`localRuntime` by default, swappable). Auto-registers an `inspect_context` tool the agent can call to introspect everything you've registered |
+| `<PilotSidebar mode? composer? suggestions?>` | Slide-in chat panel. `mode="overlay"` (default, floats over content) or `mode="push"` (squeezes the page). `composer="full" \| "suggestions" \| "off"` controls visibility. Dark mode, CSS-variable theming, keyboard-accessible |
+| `<PilotPopup composer?>` | Floating chat bubble anchored to a corner. Toggle hides while open (Intercom convention) |
+| `<PilotModal composer?>` | Centered backdrop dialog. Controlled-only, focus trap, Escape and backdrop-click close, focus restoration |
+| `<PilotChatView composer?>` | Headless chat body the others wrap. Mount inside any custom chrome |
 | `<PilotAgentStateView />` | Generative-UI helper. Renders a child node from streamed agent state via `usePilotAgentState` |
-| `<PilotConfirmModal />` | Themed confirm modal for mutating actions. Re-exported for custom layouts |
+| `<PilotAgentRegistry>` | Top-level provider holding a `Map<agentId, AbstractAgent>`. Optional; only needed for multi-agent setups |
+| `<PilotConfirmModal />` | Themed confirm modal for mutating actions. Re-exported for custom `renderConfirm` layouts |
 
 ### Runtimes
 
 | Function | Purpose |
 | --- | --- |
-| `localRuntime({ apiUrl?, model? })` | Default. Drives `useChat` from `@ai-sdk/react` against the HTTP route created by `createPilotHandler` |
+| `localRuntime({ apiUrl?, model?, initialMessages?, onMessagesChange? })` | Default. Drives `useChat` from `@ai-sdk/react` against the HTTP route created by `createPilotHandler`. `initialMessages` seeds the conversation; `onMessagesChange` fires on every message-array change for per-thread persistence |
 | `agUiRuntime({ agent })` | Drives an AG-UI `AbstractAgent` from `@ag-ui/client`. Optional peer dep; install `@ag-ui/client` + `@ag-ui/core` to use |
-| `usePilotAgentState<T>(agent)` | Subscribe to the agent's state via STATE_SNAPSHOT / STATE_DELTA |
-| `usePilotAgentActivity(agent)` | Subscribe to ACTIVITY_* and REASONING_* streams |
 
 ### Multi-agent registry (Agent Lock Mode)
 
@@ -178,13 +180,14 @@ See the "At a glance" snippet above, or the [runnable demo](https://github.com/h
 import { createPilotHandler } from "@hec-ovi/agentickit/server";
 ```
 
-`createPilotHandler({ model?, system?, pilotDir?, maxSteps?, getProviderOptions?, debug?, log?, onLogEvent? })` returns a `(Request) => Promise<Response>` for any Web Fetch runtime.
+`createPilotHandler({ model?, system?, pilotDir?, allowTools?, maxSteps?, getProviderOptions?, debug?, log?, onLogEvent? })` returns a `(Request) => Promise<Response>` for any Web Fetch runtime.
 
 | Option | Default | Notes |
 | --- | --- | --- |
 | `model` | auto | `"<provider>/<model>"` string, `LanguageModel` instance, or a thunk. Omitted → walks env for a provider key |
 | `system` | auto | Server-owned system prompt. When omitted, auto-loads `./.pilot/`. Pass a string to override, or `false` to disable |
 | `pilotDir` | `".pilot"` | Directory the auto-load reads from (relative to `process.cwd()`) |
+| `allowTools` | all | Per-agent tool whitelist. When set, only the listed client-registered tool names reach this handler. Lets you mount specialist endpoints (flights agent, hotels agent, etc.) that share a registry but see different subsets |
 | `maxSteps` | `5` | Upper bound on tool-call → result → follow-up iterations per request |
 | `getProviderOptions` | none | Per-request provider tuning (caching hints, thinking budgets) |
 | `debug` | `false` | Stream a compact per-request transcript to the server console |
@@ -195,7 +198,11 @@ Full options reference, security notes, and runtime matrix: [server-handler docs
 
 ### `.pilot/` skills folder
 
-Ship capabilities as markdown. The server reads `RESOLVER.md` plus every `skills/<name>/SKILL.md` at startup and composes the system prompt from them. Edit markdown, restart the dev server, behavior changes (no TypeScript touched). Frontmatter is a strict superset of Anthropic's Agent Skills spec and Garry Tan's gbrain SKILL.md convention.
+**This is how YOUR app teaches the agent about itself.** A skill is a markdown file (`.pilot/skills/<name>/SKILL.md`) that ships with your app and gets injected into the agent's system prompt at server startup. Use it to encode app-specific knowledge the model can't infer from tool signatures: domain rules ("always quote prices in USD"), terminology ("a 'trip' has a primary destination and 0+ stops"), UI guidance ("prefer the itinerary editor over chat for date changes"), brand voice, escalation rules, anything that should hold for every conversation in your app.
+
+Skills are NOT general-purpose agent capabilities, NOT executable code, and NOT shared across apps. They're your app's instruction manual for its own copilot, version-controlled alongside the app. `RESOLVER.md` is the index that lists every skill so the loader knows what to compose.
+
+Workflow: edit a markdown file, restart the dev server, behavior changes (no TypeScript touched, no rebuild). Frontmatter is a strict superset of Anthropic's Agent Skills spec and Garry Tan's gbrain `SKILL.md` convention so skills can be shared with Claude Code, Cursor, and MCP-compatible tools where it makes sense.
 
 Full spec + interop notes (Claude Code, Cursor, MCP): [`.pilot/` docs on GitHub](https://github.com/hec-ovi/agentickit#the-pilot-skills-folder).
 
@@ -215,6 +222,8 @@ npx agentickit --version            # current package version
 ```
 
 Skill names must be kebab-case. `init` refuses to overwrite an existing folder; `add-skill` refuses duplicates and requires `.pilot/` to exist first. Both commands emit the canonical markdown shape the parser accepts (hand-edit the prose, leave the frontmatter keys alone). Full reference: [CLI docs on GitHub](https://github.com/hec-ovi/agentickit#the-agentickit-cli).
+
+The bundled `web-search` and `observational` agent templates assume a [Hono](https://hono.dev) server (`app.get('/api/...', handler)` style), the same shape `examples/travel/server/index.ts` uses. If you're on Express, Next.js Route Handlers, or Cloudflare Workers, the route bodies translate one-to-one; the import lines are what change.
 
 ### Protocol parsers (advanced)
 
@@ -254,7 +263,7 @@ Full comparison table: [alternatives on GitHub](https://github.com/hec-ovi/agent
 
 ## Testing
 
-Ships with **333 automated tests** across 34 files (`pnpm test`). The suite includes 23 component-level integration scenarios that mount a real `<Pilot>` tree in `happy-dom`, replay scripted SSE frames, simulate user clicks, and assert on exact HTTP fetch counts so the dangerous class of bugs (infinite resubmit loops that drain API credits) fails CI before it ships. Plus 52 chat-surface tests with real `fireEvent` user simulation, 8 renderAndWait HITL tests, 24 runtime-swap + AG-UI tests against a fake AG-UI agent that exercises the real `defaultApplyEvents` apply pipeline, 6 generative-UI tests for `<PilotAgentStateView>`, 21 multi-agent registry tests covering registration lifecycle and per-agent state isolation under Pilot, and unit coverage for every public hook + the server handler + the `.pilot/` parsers + the CLI.
+Ships with **300+ automated tests** across 30+ files (`pnpm test`). The suite includes component-level integration scenarios that mount a real `<Pilot>` tree in `happy-dom`, replay scripted SSE frames, simulate user clicks, and assert on exact HTTP fetch counts so the dangerous class of bugs (infinite resubmit loops that drain API credits) fails CI before it ships. Plus chat-surface tests with real `fireEvent` user simulation, renderAndWait HITL tests, runtime-swap + AG-UI tests against a fake AG-UI agent that exercises the real `defaultApplyEvents` apply pipeline, generative-UI tests for `<PilotAgentStateView>`, multi-agent registry tests covering registration lifecycle and per-agent state isolation under Pilot, and unit coverage for every public hook + the server handler + the `.pilot/` parsers + the CLI.
 
 Beyond the mocked suite, the package is verified end-to-end against a local **vLLM** server (Qwen3 family) via the bundled `examples/travel` app: multi-tool conversation turns across the trip-detail / itinerary / booking / packing routes, confirm-modal approve and decline branches on every mutating tool, progressive form fill plus submit through `usePilotForm`, auto-generated `update_<name>` state setters, real LLM specialists reached over an AG-UI `HttpAgent` bridge with curated tool subsets, and the full structured observability path through `debug` / `log` / `onLogEvent`.
 
@@ -277,6 +286,7 @@ import {
   usePilotState,
   usePilotAction,
   usePilotForm,
+  usePilotInstructions,
   localRuntime,
   agUiRuntime,
   usePilotAgentState,
@@ -295,11 +305,10 @@ import {
   type PilotAgentStateViewProps,
   type PilotAgentRegistryProps,
   type PilotConfig,
+  type PilotConfirmModalProps,
   type PilotActionRegistration,
   type PilotStateRegistration,
   type PilotFormRegistration,
-  type PilotMessage,
-  type PilotMessagePart,
   type PilotConfirmRender,
   type PilotConfirmRenderArgs,
   type PilotRenderAndWait,
