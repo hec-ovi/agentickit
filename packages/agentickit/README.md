@@ -221,22 +221,27 @@ Full spec + interop notes (Claude Code, Cursor, MCP): [`.pilot/` docs on GitHub]
 
 ### CLI
 
-Ships as the `agentickit` bin (no extra install; it's a transitive bin once you install the package).
+Ships as the `agentickit` bin (no extra install; it's a transitive bin once you install the package). Skills-first: every CLI-scaffolded capability is a skill (markdown instructions plus optional hook code), never a "tool" without instructions. There is no `add-tool` command.
 
 ```bash
-npx agentickit init                       # create .pilot/ with one example skill
-npx agentickit add-skill <name>           # add skills/<name>/SKILL.md + register it in RESOLVER.md
-npx agentickit list-tools                 # list stock tool plugins shipped with the package
-npx agentickit add-tool <name>            # scaffold a stock tool (e.g. web-search) into your repo
-npx agentickit list-agents                # list stock agent templates (chat, observational)
-npx agentickit add-agent <name> --type T  # scaffold an agent into your repo (defaults to chat)
-npx agentickit --help               # usage + exit codes
-npx agentickit --version            # current package version
+npx agentickit init                              # create .pilot/ with one example skill
+npx agentickit add-skill <name>                  # if <name> matches a stock template, install it;
+                                                 # else scaffold a custom skill (see --type)
+npx agentickit add-skill <name> --type text          # SKILL.md only (pure instruction skill)
+npx agentickit add-skill <name> --type server-tool   # SKILL.md + src/plugins/<name>.tsx + server/<name>/index.ts
+npx agentickit add-skill <name> --type ui-component  # SKILL.md + src/plugins/<name>.tsx (show/hide actions + panel)
+npx agentickit list-skills                       # list stock skill templates you can install by name
+npx agentickit list-agents                       # list stock agent templates (chat, observational)
+npx agentickit add-agent <name> --type T         # scaffold an agent (defaults to --type chat)
+npx agentickit --help                            # usage + exit codes
+npx agentickit --version                         # current package version
 ```
 
-Skill names must be kebab-case. `init` refuses to overwrite an existing folder; `add-skill` refuses duplicates and requires `.pilot/` to exist first. Both commands emit the canonical markdown shape the parser accepts (hand-edit the prose, leave the frontmatter keys alone). Full reference: [CLI docs on GitHub](https://github.com/hec-ovi/agentickit#the-agentickit-cli).
+Stock skills shipped today: `web-search` (4 backends: DuckDuckGo, Tavily, Firecrawl, Serper) and `chart` (inline panel with show/hide actions). `add-skill <name>` auto-detects whether `<name>` matches a stock template; if it does, the manifest's `type` wins and a conflicting `--type` is rejected.
 
-The bundled `web-search` and `observational` agent templates assume a [Hono](https://hono.dev) server (`app.get('/api/...', handler)` style), the same shape `examples/travel/server/index.ts` uses. If you're on Express, Next.js Route Handlers, or Cloudflare Workers, the route bodies translate one-to-one; the import lines are what change.
+Skill names must be kebab-case. `init` refuses to overwrite an existing folder; `add-skill` refuses to overwrite any existing file (skill folder, plugin file, or server endpoint). Stock installs append env-var stubs to `.env.example` idempotently. Full reference: [CLI docs on GitHub](https://github.com/hec-ovi/agentickit#the-agentickit-cli).
+
+The bundled `web-search` skill template and the `observational` agent template assume a [Hono](https://hono.dev) server (`app.get('/api/...', handler)` style), the same shape `examples/travel/server/index.ts` uses. If you're on Express, Next.js Route Handlers, or Cloudflare Workers, the route bodies translate one-to-one; the import lines are what change.
 
 ### Protocol parsers (advanced)
 

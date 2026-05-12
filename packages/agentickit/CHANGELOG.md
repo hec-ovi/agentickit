@@ -4,6 +4,46 @@ All notable changes to `@hec-ovi/agentickit` will be documented here. Format loo
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-12
+
+Skills-first refactor. The `tool` primitive is gone from the CLI; every capability is a SKILL.md (the model-facing instructions) optionally paired with hook code (server endpoint and/or React plugin). The `loadPilotProtocol` server loader is now RESOLVER-driven: only skills referenced in `RESOLVER.md` load, in the order RESOLVER lists them, with always-on warnings for orphan skill folders and missing files. Travel example now ships its own `.pilot/` with eleven fat skills (the headline differentiator the showcase had been missing). Verified end-to-end against a real vLLM model. Test count climbed from 429 to 469 (package) plus 90 (travel). Zero regressions in unrelated suites.
+
+### Added, framework
+
+- **Skills-first CLI surface.** `agentickit add-skill <name> [--type <text|server-tool|ui-component>]` is the only scaffolding entry point now. If `<name>` matches a stock template under `templates/skills/<name>/`, the stock skill installs (SKILL.md + hook code + RESOLVER row + env-var stubs in one step). Otherwise the CLI scaffolds a custom skill with `--type` controlling boilerplate: `text` is SKILL.md only, `server-tool` adds `src/plugins/<name>.tsx` + `server/<name>/index.ts` stubs, `ui-component` adds a `src/plugins/<name>.tsx` with show/hide actions and a panel placeholder. Every type variant is pinned by tests including the overwrite-refusal and the resolver-row-shape contract.
+- **`agentickit list-skills`** prints stock skills with their type and one-line title, plus a hint for the custom-scaffold path. Replaces `list-tools`.
+- **RESOLVER-driven `loadPilotProtocol`.** Reads `RESOLVER.md` first, parses the trigger -> skill-path table via `parseResolver`, and loads ONLY skills referenced there in resolver order (NOT alphabetical). Orphan skill folders (on disk but not in RESOLVER) and missing files (in RESOLVER but file gone) emit always-on `console.warn` diagnostics so a misconfigured `.pilot/` is loud, not silent. New `onWarn` option on `LoadPilotProtocolOptions` lets tests and structured-logging integrations capture diagnostics programmatically. Strict mode: a `skills/` folder without a sibling `RESOLVER.md` warns and loads nothing (the doctrine is "RESOLVER is management"; an unmanaged skills folder is not a valid configuration).
+- **Stock skill template: `chart`** (type: `ui-component`). Spawn or dismiss an inline chart panel via `show_chart` / `hide_chart` tools. Ships a fat SKILL.md teaching when to visualize vs. answer in prose, plus a placeholder React component the consumer swaps with any chart library.
+- **Stock skill template: `web-search`** (type: `server-tool`) ported to the new shape. Same four backends (DuckDuckGo, Tavily, Firecrawl, Serper); now ships with a fat SKILL.md teaching when to use which backend, query craft, and result narration rules. The rich content that previously lived inline in `usePilotAction({ description })` strings now lives in markdown where it belongs.
+- **`isValidSkillType`** + `SKILL_TYPES` exported from the CLI module so consumers can discover the canonical type list.
+- **Tighter `isValidSkillName`.** Rejects names with leading or trailing hyphens and consecutive hyphens; previous regex permissively accepted both.
+
+### Removed
+
+- **`add-tool` command and the entire tool-primitive surface.** `cmdAddTool`, `cmdListTools`, `ToolManifest`, `listToolManifests`, and all references in `HELP_TEXT` are deleted. The decision: every CLI-scaffolded capability is a skill (instructions + paired hook code), never a "tool" without instructions. Trivial inline `usePilotAction({...})` registrations remain valid for one-off helpers; the CLI exists for fat capabilities. Migration: `add-tool web-search` becomes `add-skill web-search` (same outcome, plus a paired SKILL.md lands in `.pilot/`).
+
+### Changed, framework
+
+- `loadPilotProtocol` no longer loads skills alphabetically; load order is now RESOLVER order. Existing consumers using `init`-scaffolded RESOLVER.md files get the new ordering for free; consumers with hand-written `.pilot/` folders missing a RESOLVER will see no skills load and a startup warning explaining how to fix it.
+- `SkillManifest` (replaces the old `ToolManifest`) gains `type: "text" | "server-tool" | "ui-component"`, `skill: { from, to }` for the SKILL.md mapping, and `resolverRow: { trigger, section }` for the row appended to RESOLVER.md.
+
+### Added, examples: travel
+
+- **`examples/travel/.pilot/` ships eleven fat skills**: `trip-style-guide`, `propose-flight`, `propose-hotel`, `add-day-item`, `weather-forecast`, `currency-conversion`, `destination-catalog`, `product-catalog`, `web-search`, `packing-list`, `preferences-management`. Each pairs by name with the React `usePilotAction` registrations already in place. Inline `system: "..."` in `server/index.ts` shrunk from 30+ lines of behavioral guidance to a single comment pointing at the markdown.
+- **Server-side `pilot-load.test.ts`** verifies travel's `.pilot/` loads cleanly: every SKILL.md body lands in the composed prompt, no orphan or missing warnings fire.
+- **`skills-parity.test.ts`** asserts every tool name listed in any SKILL.md frontmatter is registered (or auto-registered via `usePilotState`/`usePilotForm`/`inspect_context`) somewhere in `src/`. Catches SKILL.md drift before it reaches production.
+- **`booking.test.tsx`** drives the mutating-action flow end-to-end with `@testing-library/user-event`: fire `book_flight` via the framework's `onToolCall` path, assert the confirm modal mounts, click Approve / Cancel, assert the call resolves with the right framework envelope (`{ ok: false, reason: "User declined." }` on cancel).
+
+### Live integration smoke
+
+- New gated test `handler.live-vllm-pilot.test.ts` (skipped without `VLLM_BASE_URL`). Plants a unique secret token inside a SKILL.md body, points `createPilotHandler` at the temp `.pilot/`, asks the model "what is the secret token?", and asserts the model returns the token. Cryptographic proof that the loader auto-load path is wired into the real handler. Includes a tool-call regression sentinel verifying the tool-* frame stream still works when the prompt comes from `.pilot/` instead of an inline `system: "..."` string. Both pass against `Qwen3.6-27B-AWQ4`.
+
+### Tests
+
+- Package: 469 passing across 37 files (was 429); all 11 skipped tests are env-gated live integrations (vLLM + AG-UI).
+- Travel: 90 passing across 17 files (was 78). New tests cover the `.pilot/` load, the SKILL/tool parity, the booking confirm-modal flow.
+- New CLI test suite is 82 cases; covers every `--type` variant for both shape and RESOLVER row, every overwrite-refusal path, every dispatch path, the deleted-command sentinels (defensive: `add-tool` and `list-tools` must reject as Unknown command), and exhaustive unit tests for every exported helper (`isValidSkillName`, `isValidSkillType`, `parseAddSkillArgs`, `insertSkillRow`, `toPascalCase`, `toCamelCase`, `applyPlaceholders`, `findTemplatesDir`, `listSkillManifests`, `listAgentManifests`).
+
 ## [0.3.0] - 2026-05-12
 
 This release lands the CLI stock-tools system (`add-tool` / `add-agent` with `web-search`, `chat`, and `observational` templates), the `usePilotForm` per-form confirm opt-out, the pretty value renderer for tool cards with disclosure chevron and smooth open animation, an open theming surface (33 new `--pilot-*` CSS variables on `:where(:root)`), web-search plugins (DuckDuckGo / Tavily / Firecrawl / Serper) and a read-only SQL plugin in the travel example, and a fix for the long-standing CLI version-reporting bug. Test count climbed from 325 to 429. Zero regressions.

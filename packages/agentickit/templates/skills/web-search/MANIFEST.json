@@ -1,0 +1,51 @@
+{
+  "name": "web-search",
+  "type": "server-tool",
+  "title": "Web search (4 backends)",
+  "description": "Search the web across DuckDuckGo, Tavily, Firecrawl, and Serper. Each backend becomes its own tool the agent can call. Ships a fat SKILL.md teaching the model when to use which backend, query craft, and result narration rules.",
+  "envVars": [
+    {
+      "name": "TAVILY_API_KEY",
+      "required": false,
+      "help": "Tavily Search API key. Free tier ~1000 q/month. Sign up: https://tavily.com"
+    },
+    {
+      "name": "FIRECRAWL_API_KEY",
+      "required": false,
+      "help": "Firecrawl API key. Free tier available. Sign up: https://firecrawl.dev"
+    },
+    {
+      "name": "SERPER_API_KEY",
+      "required": false,
+      "help": "Serper API key (Google index, no Cloud Console setup). 2500 free queries on signup at https://serper.dev"
+    }
+  ],
+  "skill": {
+    "from": "SKILL.md",
+    "to": ".pilot/skills/web-search/SKILL.md"
+  },
+  "resolverRow": {
+    "trigger": "search the web, look up, what is the latest",
+    "section": "Skills"
+  },
+  "files": [
+    { "from": "server/types.ts", "to": "server/web-search/types.ts" },
+    { "from": "server/duckduckgo.ts", "to": "server/web-search/duckduckgo.ts" },
+    { "from": "server/tavily.ts", "to": "server/web-search/tavily.ts" },
+    { "from": "server/firecrawl.ts", "to": "server/web-search/firecrawl.ts" },
+    { "from": "server/serper.ts", "to": "server/web-search/serper.ts" },
+    { "from": "server/index.ts", "to": "server/web-search/index.ts" },
+    { "from": "src/web-search.tsx", "to": "src/plugins/web-search.tsx" }
+  ],
+  "nextSteps": [
+    "1. The SKILL.md was written to .pilot/skills/web-search/SKILL.md and a row was appended to .pilot/RESOLVER.md.",
+    "2. Wire the server route into your Hono / Express / Next.js handler:",
+    "       import { webSearchRoute } from './server/web-search';",
+    "       app.get('/api/search', (c) => webSearchRoute(c));",
+    "3. Mount the plugins you want under <PilotPlugins>:",
+    "       import { duckDuckGoPlugin, serperPlugin } from './src/plugins/web-search';",
+    "       <PilotPlugins plugins={[duckDuckGoPlugin, serperPlugin]} />",
+    "4. DuckDuckGo works without an API key. For the others, see .env.example.",
+    "5. Edit .pilot/skills/web-search/SKILL.md to tune the agent's instructions for YOUR app's tone and use cases."
+  ]
+}

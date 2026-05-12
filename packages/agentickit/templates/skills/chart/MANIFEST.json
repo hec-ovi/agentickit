@@ -1,0 +1,27 @@
+{
+  "name": "chart",
+  "type": "ui-component",
+  "title": "Inline chart panel",
+  "description": "Spawn or dismiss an inline chart panel via show_chart / hide_chart tools. Ships a fat SKILL.md teaching when to visualize vs. answer in prose, plus a placeholder React component the agent can swap with any chart library.",
+  "envVars": [],
+  "skill": {
+    "from": "SKILL.md",
+    "to": ".pilot/skills/chart/SKILL.md"
+  },
+  "resolverRow": {
+    "trigger": "show me stats, visualize, give me a graph",
+    "section": "Skills"
+  },
+  "files": [
+    { "from": "src/chart.tsx", "to": "src/plugins/chart.tsx" }
+  ],
+  "nextSteps": [
+    "1. The SKILL.md was written to .pilot/skills/chart/SKILL.md and a row was appended to .pilot/RESOLVER.md.",
+    "2. Mount the plugin under <PilotPlugins> so the actions register:",
+    "       import { ChartPlugin, ChartPanel } from './src/plugins/chart';",
+    "       <PilotPlugins plugins={[ChartPlugin]} />",
+    "3. Render <ChartPanel> wherever an inline panel makes sense in your layout.",
+    "4. The placeholder body is intentionally bare. Swap in your charting library (Recharts, visx, ECharts, ...) — keep the prop interface stable so the agent's mental model survives the swap.",
+    "5. Edit .pilot/skills/chart/SKILL.md to tune the trigger phrases and anti-patterns for YOUR app's data."
+  ]
+}

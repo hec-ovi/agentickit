@@ -78,24 +78,27 @@ npx agentickit add-agent <name> --type T   # scaffold a chat or observational ag
 
 The travel example does NOT call these (it hand-codes everything so you can read the source), but the templates produce the same shape its `plugins/` and `server/` use.
 
-## Known gap: no `.pilot/` folder yet
+## Where the agent's behavior actually lives
 
-Travel is currently missing the `.pilot/` skills folder. This is a regression, not a deliberate choice. The previous showcase at `examples/todo` (deleted on 2026-05-11 in commit d9e92e5 when travel replaced it) shipped a `.pilot/` with six consumer-app skills. The clearest one was `skills/chart/SKILL.md`: a panel hidden by default, paired with `show_chart` / `hide_chart` tools, with trigger phrases like "show me stats" / "visualize" / "I'm done with it". The agent learned the WHEN from markdown; the React component owned the HOW.
-
-When travel was built we ported the wiring (hooks, surfaces, plugins) but not the spirit (skills). The system prompt currently lives inline in `server/index.ts` instead of as editable markdown under `.pilot/skills/`. The framework's headline differentiator is therefore invisible from the showcase a new user looks at first.
-
-What this should look like (planned for the next release):
+Travel ships its `.pilot/` folder at `examples/travel/.pilot/`. That folder IS the system prompt. `server/index.ts` no longer carries 30 lines of inline behavioral guidance: `createPilotHandler` auto-loads `.pilot/RESOLVER.md` plus every `.pilot/skills/<name>/SKILL.md` it references and composes the prompt at startup. Edit any markdown file, restart the dev server, behavior changes (no TypeScript touched, no rebuild).
 
 ```
 examples/travel/.pilot/
-├── RESOLVER.md
+├── RESOLVER.md                                  # trigger -> skill routing table
 └── skills/
-    ├── propose-flight/SKILL.md     # paired with the propose_flight renderAndWait action
-    ├── propose-hotel/SKILL.md      # paired with propose_hotel
-    ├── add-day-item/SKILL.md       # paired with add_day_item
-    ├── pack-checklist/SKILL.md     # paired with the packing route's actions
-    ├── trip-style-guide/SKILL.md   # tone, currency rules, seasonality assumptions
-    └── escalate-to-specialist/SKILL.md   # when the concierge should hand off
+    ├── trip-style-guide/SKILL.md                # always-on tone, date format, multi-step rule
+    ├── propose-flight/SKILL.md                  # paired with the propose_flight renderAndWait action
+    ├── propose-hotel/SKILL.md                   # paired with propose_hotel
+    ├── add-day-item/SKILL.md                    # paired with add_day_item
+    ├── weather-forecast/SKILL.md                # paired with get_weather
+    ├── currency-conversion/SKILL.md             # paired with convert_currency
+    ├── destination-catalog/SKILL.md             # paired with list_destinations + describe_destination
+    ├── product-catalog/SKILL.md                 # paired with the SQL describe_schema + query_products
+    ├── web-search/SKILL.md                      # paired with the four search_* backends
+    ├── packing-list/SKILL.md                    # paired with add/toggle/remove_packing_item
+    └── preferences-management/SKILL.md          # paired with update_preferences
 ```
 
-If you're building a real app on agentickit today, do NOT copy travel's pattern of inline `system: "..."` strings. Run `npx agentickit init` and ship a `.pilot/` folder. See the package README for the full pattern.
+The hook code each skill names lives where build tools expect it: client React in `src/plugins/`, server endpoints in `server/`. The skill is the dispatch unit; the code is the substrate the skill invokes. If you want to change WHEN the agent uses a tool, edit the SKILL.md. If you want to change HOW the tool runs, edit the React or server code. Two layers, edited independently, locked together by tool name.
+
+Want to scaffold this shape in your own app? `npx agentickit init` creates the folder, then `npx agentickit add-skill <name> --type [text|server-tool|ui-component]` adds each capability with the right hook stubs in the right places.
