@@ -15,6 +15,7 @@ import { streamSSE } from "hono/streaming";
 import {
   dynamicTool,
   generateId,
+  jsonSchema,
   streamText,
   type LanguageModel,
   type ToolSet,
@@ -142,7 +143,17 @@ function buildToolSet(
     if (!allowSet.has(tool.name)) continue;
     out[tool.name] = dynamicTool({
       description: tool.description ?? "",
-      inputSchema: (tool.parameters ?? { type: "object" }) as never,
+      // The client ships a raw JSON-Schema OBJECT (extracted from a Zod
+      // schema via `zodSchema(...).jsonSchema` so it can cross the wire
+      // as plain JSON). The AI SDK's `asSchema` helper does NOT accept
+      // bare JSON-Schema objects — it tries to invoke them as a thunk
+      // and throws "schema is not a function" on the first tool-use.
+      // `jsonSchema()` wraps the bare object in the SDK's `Schema` shape
+      // that `asSchema` recognises. Without this wrapper every specialist
+      // crashes the moment the model tries to call any tool. The same
+      // fix lives in packages/agentickit/src/server/handler.ts:772 for
+      // the Concierge path; this file is the AG-UI specialist's mirror.
+      inputSchema: jsonSchema((tool.parameters ?? { type: "object" }) as never),
       // Tool execution happens client-side via the agentickit registry;
       // we only ever surface the call from streamText. The execute fn
       // here is therefore unreachable in normal flow, but the AI SDK
