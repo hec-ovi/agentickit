@@ -19,10 +19,20 @@ tools:
 mutating: true
 ---
 
+# Page scope
+
+`add_day_item` is registered ONLY on the **Itinerary page** (URL pattern
+`/trips/<tripId>/itinerary`). On every other page the tool is not in the
+registry and a call will silently fail.
+
+If the user asks to add an itinerary item from a different page, reply:
+"Open the trip's Itinerary page; I can add items there." Do not retry
+under another name; do not invent a confirmation.
+
 # When to use
 
 Call `add_day_item` when the user wants to add something to a specific day
-of the trip's itinerary. Typical phrasings:
+of the trip's itinerary AND you are on the Itinerary page. Typical phrasings:
 
 - "add Eiffel Tower to day 2"
 - "schedule lunch at Cantina at 1pm on Friday"

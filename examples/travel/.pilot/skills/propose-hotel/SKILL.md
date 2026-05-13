@@ -20,9 +20,15 @@ tools:
 mutating: false
 ---
 
+# Page scope
+
+`propose_hotel` is registered ONLY on the **Itinerary page** (URL pattern `/trips/<tripId>/itinerary`). On every other page the tool is not in the registry and a call will silently fail.
+
+Before calling, confirm you are on the Itinerary page. If you are NOT, do NOT call this tool. Reply: "Open the trip's Itinerary page first; I can propose hotels from there." Never invent fake results, never apologize for a tool error, never retry on a different tool name.
+
 # When to use
 
-Call `propose_hotel` when the user wants accommodation options. Typical phrasings:
+Call `propose_hotel` when the user wants accommodation options AND you are on the Itinerary page. Typical phrasings:
 
 - "find a hotel in Lisbon for the 12th to the 15th"
 - "where should I stay near the city center"

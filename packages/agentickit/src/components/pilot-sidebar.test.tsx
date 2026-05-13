@@ -223,3 +223,149 @@ describe("<PilotSidebar>", () => {
     expect(queryByText(/network down/i)).toBeNull();
   });
 });
+
+/**
+ * Controlled `open` API tests. These exist as a regression sentinel for the
+ * "sidebar collapses when the parent rebuilds <Pilot runtime={...}>" bug
+ * (the sidebar's internal open state would reset on remount). Lifting state
+ * to the parent via the controlled `open` prop is the workaround the
+ * example uses; these tests pin the contract.
+ */
+describe("<PilotSidebar> controlled `open` API", () => {
+  it("uncontrolled mode (no open prop): toggle button flips internal state", () => {
+    const value = makeChatValue();
+    const onOpenChange = vi.fn();
+    const { getByRole, queryByRole } = render(
+      <ChatProvider value={value}>
+        <PilotSidebar onOpenChange={onOpenChange} />
+      </ChatProvider>,
+    );
+    expect(queryByRole("complementary")).toBeNull();
+    fireEvent.click(getByRole("button", { name: /open copilot/i }));
+    expect(getByRole("complementary")).toBeDefined();
+    expect(onOpenChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it("controlled mode (open=true): renders open regardless of internal state", () => {
+    const value = makeChatValue();
+    const { getByRole } = render(
+      <ChatProvider value={value}>
+        <PilotSidebar open onOpenChange={vi.fn()} />
+      </ChatProvider>,
+    );
+    expect(getByRole("complementary")).toBeDefined();
+  });
+
+  it("controlled mode (open=false): renders closed regardless of internal state", () => {
+    const value = makeChatValue();
+    const { queryByRole } = render(
+      <ChatProvider value={value}>
+        <PilotSidebar open={false} onOpenChange={vi.fn()} />
+      </ChatProvider>,
+    );
+    expect(queryByRole("complementary")).toBeNull();
+  });
+
+  it("controlled mode: clicking toggle does NOT flip internal state, only fires onOpenChange", () => {
+    const value = makeChatValue();
+    const onOpenChange = vi.fn();
+    const { getByRole, queryByRole } = render(
+      <ChatProvider value={value}>
+        <PilotSidebar open={false} onOpenChange={onOpenChange} />
+      </ChatProvider>,
+    );
+    // Sidebar is closed because controlled prop says so.
+    expect(queryByRole("complementary")).toBeNull();
+    // Click the toggle. In controlled mode, this MUST NOT flip internal
+    // state; the consumer's onOpenChange handler gets the new value and
+    // is responsible for re-rendering with `open={true}`.
+    fireEvent.click(getByRole("button", { name: /open copilot/i }));
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+    // The sidebar remains closed because the controlled prop is still false
+    // (the parent did not re-render us with a new value).
+    expect(queryByRole("complementary")).toBeNull();
+  });
+
+  it("controlled mode: parent flipping `open` from outside makes the sidebar follow", () => {
+    const value = makeChatValue();
+    function Wrapper(): ReactNode {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" data-testid="external" onClick={() => setOpen((p) => !p)}>
+            external toggle
+          </button>
+          <ChatProvider value={value}>
+            <PilotSidebar open={open} onOpenChange={setOpen} />
+          </ChatProvider>
+        </>
+      );
+    }
+    const { getByTestId, queryByRole, getByRole } = render(<Wrapper />);
+    expect(queryByRole("complementary")).toBeNull();
+    fireEvent.click(getByTestId("external"));
+    expect(getByRole("complementary")).toBeDefined();
+    fireEvent.click(getByTestId("external"));
+    expect(queryByRole("complementary")).toBeNull();
+  });
+
+  it("controlled mode: Escape fires onOpenChange(false) but does NOT close the sidebar without a re-render", () => {
+    const value = makeChatValue();
+    const onOpenChange = vi.fn();
+    const { getByRole } = render(
+      <ChatProvider value={value}>
+        <PilotSidebar open onOpenChange={onOpenChange} />
+      </ChatProvider>,
+    );
+    expect(getByRole("complementary")).toBeDefined();
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    // Notification fired so the consumer can choose to close.
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    // But the sidebar stays open because the controlled prop is still true
+    // (the consumer did not re-render us with a new value). This is the
+    // intentional contract of controlled mode.
+    expect(getByRole("complementary")).toBeDefined();
+  });
+
+  it("controlled mode: onOpenChange does NOT fire when the prop value did not actually change", () => {
+    const value = makeChatValue();
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <ChatProvider value={value}>
+        <PilotSidebar open onOpenChange={onOpenChange} />
+      </ChatProvider>,
+    );
+    // Re-render with the SAME open value. No notification should fire,
+    // because nothing changed; firing here would be a feedback-loop bait.
+    onOpenChange.mockClear();
+    rerender(
+      <ChatProvider value={value}>
+        <PilotSidebar open onOpenChange={onOpenChange} />
+      </ChatProvider>,
+    );
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("uncontrolled mode: defaultOpen=true seeds internal state to open", () => {
+    const value = makeChatValue();
+    const { getByRole } = render(
+      <ChatProvider value={value}>
+        <PilotSidebar defaultOpen />
+      </ChatProvider>,
+    );
+    expect(getByRole("complementary")).toBeDefined();
+  });
+
+  it("controlled mode: `open` overrides `defaultOpen` (controlled wins)", () => {
+    const value = makeChatValue();
+    const { queryByRole } = render(
+      <ChatProvider value={value}>
+        <PilotSidebar defaultOpen open={false} onOpenChange={vi.fn()} />
+      </ChatProvider>,
+    );
+    // defaultOpen would say "open", but controlled `open={false}` wins.
+    expect(queryByRole("complementary")).toBeNull();
+  });
+});

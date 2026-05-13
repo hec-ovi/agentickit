@@ -131,8 +131,14 @@ function tryParse(value: unknown): unknown {
 /**
  * Build an AI SDK ToolSet from the client-declared tools, filtered to
  * the subset this specialist is allowed to call.
+ *
+ * Exported so the regression test in `agui-bridge.test.ts` can pin the
+ * `inputSchema` shape directly. The AI SDK's `asSchema` helper rejects
+ * bare JSON-Schema objects ("schema is not a function") so the wrapping
+ * with `jsonSchema()` below is load-bearing; the test asserts the
+ * wrapper is in place every time this function returns.
  */
-function buildToolSet(
+export function buildToolSet(
   declared: ReadonlyArray<AgUiToolDecl> | undefined,
   allow: ReadonlyArray<string>,
 ): ToolSet | undefined {

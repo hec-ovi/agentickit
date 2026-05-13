@@ -18,10 +18,22 @@ tools:
 mutating: true
 ---
 
+# Page scope
+
+`update_preferences` is auto-registered on the **Preferences page** (URL
+`/preferences`) by `usePilotState({ name: "preferences", setValue })`.
+On every other page it is not in the registry and a call will silently
+fail.
+
+If the user asks to change a preference from elsewhere, reply: "Open
+the Preferences page; I can change settings there." Do not try to mutate
+preferences from a trip-detail or itinerary context.
+
 # When to use
 
 Call into this skill when the user wants to change a long-term setting
-that affects future trips. Typical phrasings:
+that affects future trips AND you are on the Preferences page. Typical
+phrasings:
 
 - "set my home airport to LAX"
 - "always plan in EUR"

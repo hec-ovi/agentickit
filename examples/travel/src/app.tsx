@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import {
   Pilot,
   PilotAgentRegistry,
   PilotSidebar,
   agUiRuntime,
+  localRuntime,
   useAgent,
   useRegisterAgent,
 } from "@hec-ovi/agentickit";
@@ -75,10 +76,43 @@ function Shell() {
   const [activeAgent, setActiveAgent] = useState<AgentId>("concierge");
   const aguiAgent = useAgent(activeAgent === "concierge" ? "" : activeAgent);
 
-  const runtime = useMemo(
-    () => (aguiAgent ? agUiRuntime({ agent: aguiAgent }) : undefined),
-    [aguiAgent],
-  );
+  // Sidebar open state lifted to Shell so it survives runtime swaps.
+  // PilotSidebar's controlled `open` API (added in 0.4.x) lets us pin the
+  // open/closed value here; without this, switching agents recreated the
+  // runtime which dropped the sidebar's internal uncontrolled state back
+  // to defaultOpen=false (the "sidebar collapses on agent switch" bug).
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Per-agent message store. Concierge uses localRuntime which needs
+  // explicit initialMessages + onMessagesChange to round-trip messages
+  // across runtime swaps; specialists persist via the HttpAgent's own
+  // `messages` array (see ag-ui-runtime.ts seeding from agent.messages).
+  // The store key is the agent id; only "concierge" is wired here, but
+  // the shape generalizes if a future Concierge-style local runtime ships
+  // for additional slots.
+  const messagesByAgent = useRef<Map<AgentId, ReadonlyArray<unknown>>>(new Map());
+
+  const runtime = useMemo(() => {
+    if (aguiAgent) {
+      // Specialist path. agUiRuntime is keyed by the agent reference; the
+      // HttpAgent itself holds the message history, so re-mounting the
+      // runtime when the consumer switches back to this specialist still
+      // recovers the prior conversation.
+      return agUiRuntime({ agent: aguiAgent });
+    }
+    // Concierge path. Build localRuntime with explicit initialMessages
+    // pulled from the per-agent store, and an onMessagesChange callback
+    // that writes back. When the user switches away to a specialist and
+    // then returns to Concierge, this useMemo re-fires and reads the
+    // last-saved messages, restoring the conversation cleanly.
+    return localRuntime({
+      apiUrl: "/api/pilot",
+      initialMessages: messagesByAgent.current.get("concierge") ?? [],
+      onMessagesChange: (next) => {
+        messagesByAgent.current.set("concierge", next);
+      },
+    });
+  }, [aguiAgent]);
 
   // Suggestion chips swap per route so each page nudges toward its
   // primary primitive demo. Sidebar refreshes when route changes.
@@ -191,7 +225,13 @@ function Shell() {
         </main>
       </div>
       <PilotSidebar
-        defaultOpen={false}
+        // Controlled open state lifted to Shell so it survives runtime
+        // swaps when the user clicks between Concierge and a specialist
+        // on the Agents page. Without this, switching agents recreated
+        // the runtime which dropped the sidebar's internal uncontrolled
+        // state back to defaultOpen=false.
+        open={sidebarOpen}
+        onOpenChange={setSidebarOpen}
         labels={{
           title: "agentickit travel",
           emptyState:

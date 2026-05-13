@@ -21,10 +21,23 @@ tools:
 mutating: true
 ---
 
+# Page scope
+
+The packing tools (`add_packing_item`, `toggle_packing_item`,
+`remove_packing_item`) are registered ONLY on the **Packing page** (URL
+pattern `/trips/<tripId>/packing`). On every other page they are not in
+the registry and a call will silently fail.
+
+`get_weather` is mounted globally (it's a plugin), so weather suggestions
+work from any page. But ADDING items to the packing list requires the
+Packing page. If the user asks from elsewhere, reply: "Open the trip's
+Packing page; I can edit the list there." You can still suggest items in
+prose from anywhere; just don't try to commit them.
+
 # When to use
 
 Call into this skill when the user wants to plan or edit what they're
-bringing. Typical phrasings:
+bringing AND you are on the Packing page. Typical phrasings:
 
 - "pack for a rainy spring week in Lisbon"
 - "add a raincoat and umbrella"

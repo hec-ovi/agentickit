@@ -48,8 +48,21 @@ import { type PilotChromeLabels, PilotChromeHeader, resolveChromeLabels } from "
 import { injectSidebarStyles } from "./pilot-sidebar-styles.js";
 
 export interface PilotSidebarProps {
-  /** Open by default. Defaults to `false` (toggle button only). */
+  /**
+   * Initial open state when the sidebar is uncontrolled. Defaults to
+   * `false` (toggle button only). Ignored when `open` is provided.
+   */
   defaultOpen?: boolean;
+  /**
+   * Controlled open state. When provided (boolean), the sidebar is FULLY
+   * controlled: it reflects this value exactly and never updates its own
+   * internal state. Pair with `onOpenChange` to drive a state lifted to
+   * the parent (useful when you need open state to survive runtime swaps,
+   * route changes, or any reconciliation that would otherwise reset
+   * uncontrolled state). When omitted (undefined), the sidebar is
+   * uncontrolled and uses `defaultOpen` as the initial value.
+   */
+  open?: boolean;
   /**
    * Rendered inside the empty state when there are no messages yet. Falls
    * back to `labels.emptyState` when omitted.
@@ -68,10 +81,12 @@ export interface PilotSidebarProps {
    */
   suggestions?: ReadonlyArray<string>;
   /**
-   * Optional transition callback. Fired exactly when the open state flips ,
-   * not on initial mount. The component manages its own state; this is a
-   * notification, not a controlled API. Use it to drive analytics, hide a
-   * fab, or toggle related UI.
+   * Fires every time the sidebar attempts to flip open state, in BOTH
+   * uncontrolled and controlled modes. In uncontrolled mode this is a
+   * notification (the component already updated its own state). In
+   * controlled mode this is the consumer's hook to update the state it
+   * owns; without an `onOpenChange` handler in controlled mode, the
+   * sidebar will never appear to change.
    */
   onOpenChange?: (open: boolean) => void;
   /** Text overrides for built-in copy. Every key is optional. */
@@ -104,6 +119,7 @@ export interface PilotSidebarProps {
 export function PilotSidebar(props: PilotSidebarProps = {}): ReactNode {
   const {
     defaultOpen = false,
+    open: controlledOpen,
     greeting,
     className,
     width = "380px",
@@ -123,18 +139,26 @@ export function PilotSidebar(props: PilotSidebarProps = {}): ReactNode {
     injectSidebarStyles();
   }, []);
 
-  const [open, setOpen] = useState(defaultOpen);
+  // Controlled vs uncontrolled. When `controlledOpen` is provided, the
+  // consumer owns the state; we never write to internal state and the
+  // rendered open value reflects the prop exactly. This is what lets a
+  // parent lift open state above any reconciliation boundary that would
+  // otherwise reset the uncontrolled internal state (e.g., runtime swaps
+  // when the consumer rebuilds <Pilot runtime={...}>).
+  const isControlled = controlledOpen !== undefined;
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+  const open = isControlled ? controlledOpen : internalOpen;
   const chatViewRef = useRef<PilotChatViewHandle>(null);
   const toggleButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Notify the consumer on transitions only, not on initial mount.
-  const lastReportedOpen = useRef(open);
-  useEffect(() => {
-    if (lastReportedOpen.current !== open) {
-      lastReportedOpen.current = open;
-      onOpenChange?.(open);
-    }
-  }, [open, onOpenChange]);
+  const setOpen = useCallback(
+    (value: boolean) => {
+      if (value === open) return;
+      if (!isControlled) setInternalOpen(value);
+      onOpenChange?.(value);
+    },
+    [isControlled, open, onOpenChange],
+  );
 
   // Push mode: while the sidebar is open, mark <html> with data attributes
   // and a CSS variable so the package's own CSS (and consumer overrides)
@@ -190,9 +214,14 @@ export function PilotSidebar(props: PilotSidebarProps = {}): ReactNode {
     return () => {
       window.removeEventListener("keydown", handler);
     };
-  }, [open]);
+  }, [open, setOpen]);
 
-  const handleClose = useCallback(() => setOpen(false), []);
+  // `setOpen` is now a useCallback whose identity changes when `open` or
+  // `isControlled` flips. handleClose's deps must include it — the
+  // earlier `[]` form silently captured a stale closure on first render
+  // (with `open === false`), so subsequent close clicks short-circuited
+  // because the captured `setOpen` saw `value === open` and returned.
+  const handleClose = useCallback(() => setOpen(false), [setOpen]);
 
   const widthCss = typeof width === "number" ? `${width}px` : width;
 

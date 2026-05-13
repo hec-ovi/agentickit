@@ -21,9 +21,15 @@ tools:
 mutating: false
 ---
 
+# Page scope
+
+`propose_flight` is registered ONLY on the **Itinerary page** (URL pattern `/trips/<tripId>/itinerary`). The tool is mounted by the React component on that page; on every other page (Trips, Trip Detail, Packing, Booking, Preferences, Agents, Threads, Lab) it is NOT in the registry and a call will silently fail.
+
+Before calling, read the registered context. If `active_trip` state is present and you can see the user is on the Itinerary page, proceed. If not, do NOT call. Instead reply: "Open the trip's Itinerary page first; I can propose flights from there." This redirection is the correct behavior; never invent fake results, never apologize for a tool error, never retry on a different name.
+
 # When to use
 
-Call `propose_flight` when the user wants flight options. Typical phrasings:
+Call `propose_flight` when the user wants flight options AND you are on the Itinerary page. Typical phrasings:
 
 - "find me a flight from JFK to Lisbon on the 12th"
 - "what flights are there from LAX next Friday"
