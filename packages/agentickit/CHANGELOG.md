@@ -4,6 +4,32 @@ All notable changes to `@hec-ovi/agentickit` will be documented here. Format loo
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-05-13
+
+Bug-fix release. Three product-readiness bugs surfaced by the user's first end-to-end demo recording, plus the test gaps that should have caught the headline regression.
+
+### Fixed
+
+- **`<PilotSidebar>` collapsed when the parent rebuilt the runtime.** Switching agents in `examples/travel` (which constructs a fresh `agUiRuntime` per active specialist) caused the sidebar's internal uncontrolled `open` state to reset to `defaultOpen=false`. New optional **controlled `open` prop** lets a parent lift open state above any reconciliation boundary that would otherwise reset it. When `open` is provided the sidebar reflects it exactly and never updates internal state; `onOpenChange` fires in both modes so the parent can relay or just observe. Also fixed a stale-closure bug in `handleClose` (the new `setOpen` is a `useCallback` with deps; consumers must depend on `setOpen` itself, not on `[]`) that silently short-circuited close clicks in controlled mode.
+- **AG-UI specialist endpoints crashed with `TypeError: schema is not a function` on the first tool-use.** `examples/travel/server/agui-bridge.ts` passed a raw JSON-Schema object to `dynamicTool({ inputSchema })` instead of wrapping it with `jsonSchema()` from `"ai"`. The AI SDK's `asSchema` helper does not accept bare JSON-Schema objects (it falls through to the thunk branch and tries to invoke them as a function). Same root cause and same fix as `packages/agentickit/src/server/handler.ts:772` for the Concierge path; this commit ports the fix to the AG-UI mirror.
+- **Concierge messages lost when switching back from a specialist.** Travel's `Shell` was relying on `<Pilot>`'s built-in fallback `localRuntime` (created with no `initialMessages`/`onMessagesChange`), so each return to Concierge produced a fresh empty `useChat`. Shell now keeps a `Map<AgentId, messages[]>` and constructs an explicit `localRuntime({ initialMessages, onMessagesChange })` for the Concierge slot. Switching to a specialist and back restores the prior conversation. Specialists already persisted via `HttpAgent.messages`.
+
+### Added, examples: travel
+
+- **Page scope sections in five SKILL.md files.** `propose-flight`, `propose-hotel`, `add-day-item`, `packing-list`, and `preferences-management` now lead with an explicit "Page scope" block that names the route the tools are mounted on and tells the agent to redirect the user ("Open the trip's Itinerary page; I can propose hotels from there.") instead of silently calling a tool that is not registered on the current page. The local model in the user's demo was hallucinating `propose_hotel` from the Trip Detail page where it is not registered; this guidance reduces (does not eliminate) that class of model error.
+
+### Added, tests
+
+- **`<PilotSidebar>` controlled `open` API regression suite** (8 new tests in `pilot-sidebar.test.tsx`): controlled value wins, internal state never updates in controlled mode, `onOpenChange` fires in both modes, parent flips drive the sidebar, Escape notifies but does not force-close in controlled mode, no spurious notify on same-value re-render, `defaultOpen` is honored only in uncontrolled mode, controlled `open` overrides `defaultOpen`.
+- **AG-UI bridge schema-wrapping regression** (6 new tests in `examples/travel/server/agui-bridge.test.ts`): every `inputSchema` returned by `buildToolSet` carries the AI SDK's `Symbol(vercel.ai.schema)` brand and a non-null `jsonSchema` field. This is the sentinel that would have caught the "schema is not a function" bug before it shipped to the demo.
+- **End-to-end agent-switch UI flow** (5 new tests in `examples/travel/src/app.shell.test.tsx`): mounts the actual `App` + `MemoryRouter`, drives the agent-switch flow with `fireEvent` + `waitFor`. Asserts the sidebar stays open across switches (the controlled-open lift), the close button still works in controlled mode, the empty-state copy reflects the active agent, and the agent-card aria-pressed flips on click.
+
+### Tests
+
+- Package: 478 passing across 37 files (was 469).
+- Travel: 101 passing across 19 files (was 90).
+- Combined: 579 across 56 files. Typecheck clean both sides.
+
 ## [0.4.0] - 2026-05-12
 
 Skills-first refactor. The `tool` primitive is gone from the CLI; every capability is a SKILL.md (the model-facing instructions) optionally paired with hook code (server endpoint and/or React plugin). The `loadPilotProtocol` server loader is now RESOLVER-driven: only skills referenced in `RESOLVER.md` load, in the order RESOLVER lists them, with always-on warnings for orphan skill folders and missing files. Travel example now ships its own `.pilot/` with eleven fat skills (the headline differentiator the showcase had been missing). Verified end-to-end against a real vLLM model. Test count climbed from 429 to 469 (package) plus 90 (travel). Zero regressions in unrelated suites.
