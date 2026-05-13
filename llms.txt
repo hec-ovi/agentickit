@@ -1,43 +1,57 @@
 # agentickit
 
-> Wire an AI copilot into your React app's state, actions, and forms. Three hooks, one sidebar, optional `.pilot/` skills folder.
+> Wire an AI copilot into your React app's state, actions, and forms. Four hooks, four chat surfaces, swappable runtime (default AI SDK 6, optional AG-UI), and a `.pilot/` skills folder that IS the system prompt.
 
-`agentickit` is a small React library (~5 kLoC, counting implementation + CSS-in-JS + the CLI) that sits between the Vercel AI SDK 6 and a consumer app. It ships three hooks (`usePilotState`, `usePilotAction`, `usePilotForm`), a `<Pilot>` provider, a `<PilotSidebar>` component, a server-side `createPilotHandler`, and an `agentickit` CLI for scaffolding `.pilot/` folders.
+`agentickit` is a small React library that sits between the Vercel AI SDK 6 and a consumer app. It ships four hooks (`usePilotState`, `usePilotAction`, `usePilotForm`, `usePilotInstructions`), a `<Pilot>` provider with built-in confirm-modal gating for mutating actions, four chat surfaces (`<PilotSidebar>`, `<PilotPopup>`, `<PilotModal>`, headless `<PilotChatView>`), an optional AG-UI runtime + multi-agent registry, a server-side `createPilotHandler` with provider auto-detection and `.pilot/` auto-load, and an `agentickit` CLI that scaffolds skills.
 
-This repo ships a `.pilot/` folder at the root as both dogfood and the canonical onboarding pack for LLM agents. Cold-start path for an agent with no prior memory: read `.pilot/AGENTS.md`, then `.pilot/RESOLVER.md` to match the user's task to a skill, then the matching `SKILL.md`. Every code snippet in `.pilot/` compiles against the current tree. The source under `packages/agentickit/src/` is the ground truth.
+The framework is **skills-first**. Every CLI-scaffolded capability is a SKILL.md (the model-facing instructions) optionally paired with hook code (server endpoint and/or React plugin). There is no separate "tool" primitive. The `.pilot/` folder you ship inside YOUR app is the headline differentiator: it teaches your app's copilot about your app's own UI capabilities, domain rules, and brand voice. Markdown teaches; code executes.
+
+This repo ships TWO `.pilot/` folders with distinct audiences. The root `/.pilot/` is for AI coding assistants (Claude, Cursor) helping someone develop the framework itself. `examples/travel/.pilot/` is the consumer-app reference: an actual app that ships eleven fat skills paired with React handlers, demonstrating the pattern an end user follows. Cold-start path for a dev-time agent: read `.pilot/AGENTS.md`, then `.pilot/RESOLVER.md`, then the matched `SKILL.md`. Every code snippet under `.pilot/` compiles against the current tree. The source under `packages/agentickit/src/` is the ground truth.
 
 ## Start here
 
 - [.pilot/AGENTS.md](.pilot/AGENTS.md): entry point covering what this repo is, house rules, and read order.
-- [.pilot/RESOLVER.md](.pilot/RESOLVER.md): trigger-to-skill routing table. Read this to pick which `SKILL.md` applies.
-- [README.md](README.md): the public README covering install, 60-second demo, API tables, FAQ, and security notes.
+- [.pilot/RESOLVER.md](.pilot/RESOLVER.md): trigger-to-skill routing table for the dev-time copilot. Read this to pick which `SKILL.md` applies to a coding task.
+- [README.md](README.md): top-level repo README with the install path, quick demo, and pointers into the package and example READMEs.
+- [packages/agentickit/README.md](packages/agentickit/README.md): the published-package README with the full public API, exports, peer-dep matrix, and provider table.
+- [examples/travel/README.md](examples/travel/README.md): the runnable demo's README with a capability map showing every public package surface mapped to a specific file.
 
-## Skills (procedural guides)
+## Skills (dev-time procedural guides for working in this repo)
 
 - [.pilot/skills/install-and-setup/SKILL.md](.pilot/skills/install-and-setup/SKILL.md): install `agentickit` into an existing React app (Next.js App Router happy path; Bun / Workers / Hono also work). Wire the server route, provider, and sidebar.
 - [.pilot/skills/choose-provider/SKILL.md](.pilot/skills/choose-provider/SKILL.md): pick a model provider. Covers auto-detection, the seven supported prefixes, Vercel AI Gateway fallback, and the escape hatch for Ollama / Azure / Bedrock.
 - [.pilot/skills/register-state/SKILL.md](.pilot/skills/register-state/SKILL.md): expose React state via `usePilotState`. Covers the auto-registered `update_<name>` tool when a setter is supplied.
-- [.pilot/skills/register-action/SKILL.md](.pilot/skills/register-action/SKILL.md): register a typed, AI-callable tool via `usePilotAction`. Zod-inferred args, `mutating:` flag guidance.
-- [.pilot/skills/register-form/SKILL.md](.pilot/skills/register-form/SKILL.md): attach a `react-hook-form` instance via `usePilotForm`. Auto-registers `set_<name>_field`, `submit_<name>`, `reset_<name>`.
-- [.pilot/skills/customize-sidebar/SKILL.md](.pilot/skills/customize-sidebar/SKILL.md): theme, relabel, reposition `<PilotSidebar>` via CSS variables. Also when to drop it and build custom UI from `PilotChatContext`.
-- [.pilot/skills/write-custom-backend/SKILL.md](.pilot/skills/write-custom-backend/SKILL.md): configure `createPilotHandler`. Covers the full options surface (`model`, `system`, `maxSteps`, `getProviderOptions`), per-request overrides, and the error envelope.
-- [.pilot/skills/write-a-consumer-skill/SKILL.md](.pilot/skills/write-a-consumer-skill/SKILL.md): author a `SKILL.md` inside a consumer app's own `.pilot/` folder. Frontmatter shape, resolver table, binding contract.
-- [.pilot/skills/debug-and-test/SKILL.md](.pilot/skills/debug-and-test/SKILL.md): run the workspace, tests, and todo example. pnpm layout, tsup build, Vitest config, common failure modes.
-- [.pilot/skills/contribute/SKILL.md](.pilot/skills/contribute/SKILL.md): extend `agentickit` as a contributor. Add a hook, component, provider prefix, protocol field, or example. Size budget and patch shape.
+- [.pilot/skills/register-action/SKILL.md](.pilot/skills/register-action/SKILL.md): register a typed, AI-callable tool via `usePilotAction`. Zod-inferred args, `mutating:` flag guidance, `renderAndWait` for human-in-the-loop pickers.
+- [.pilot/skills/register-form/SKILL.md](.pilot/skills/register-form/SKILL.md): attach a `react-hook-form` instance via `usePilotForm`. Auto-registers `set_<name>_field`, `submit_<name>`, `reset_<name>`. `confirm: { submit?, reset? }` per-form opt-out.
+- [.pilot/skills/customize-sidebar/SKILL.md](.pilot/skills/customize-sidebar/SKILL.md): theme, relabel, reposition `<PilotSidebar>` via CSS variables. Mode (`overlay` vs `push`), composer visibility, suggestion chips. Also when to drop it and build custom UI from `<PilotChatView>`.
+- [.pilot/skills/write-custom-backend/SKILL.md](.pilot/skills/write-custom-backend/SKILL.md): configure `createPilotHandler`. Covers the full options surface (`model`, `system`, `pilotDir`, `allowTools`, `maxSteps`, `getProviderOptions`, `debug`, `log`, `onLogEvent`), per-request overrides, and the error envelope.
+- [.pilot/skills/write-a-consumer-skill/SKILL.md](.pilot/skills/write-a-consumer-skill/SKILL.md): author a `SKILL.md` inside a consumer app's own `.pilot/` folder. Frontmatter shape (Anthropic + gbrain superset), RESOLVER table, binding contract that ties each SKILL.md to a registered `usePilotAction`.
+- [.pilot/skills/debug-and-test/SKILL.md](.pilot/skills/debug-and-test/SKILL.md): run the workspace, tests, and travel example. pnpm layout, tsup build, Vitest config, common failure modes.
+- [.pilot/skills/contribute/SKILL.md](.pilot/skills/contribute/SKILL.md): extend `agentickit` as a contributor. Add a hook, component, provider prefix, protocol field, or stock skill template. Size budget and patch shape.
 
 ## Conventions
 
 - [.pilot/conventions/quality.md](.pilot/conventions/quality.md): cross-cutting rules that apply to every code change. Read before writing code.
+- [.pilot/conventions/ui-aesthetic.md](.pilot/conventions/ui-aesthetic.md): visual conventions for chat-surface and theming work. Read before touching UI or CSS.
 - [.pilot/conventions/commit-style.md](.pilot/conventions/commit-style.md): conventional-commit format used across the repo. Read before committing.
 
 ## Architecture
 
-- [packages/agentickit/README.md](packages/agentickit/README.md): the package-level README covering the public API surface, exports, and peer-dep matrix.
-- [packages/agentickit/src/index.ts](packages/agentickit/src/index.ts): client entry point with the three hooks, `<Pilot>`, `<PilotSidebar>`, and context.
-- [packages/agentickit/src/server/index.ts](packages/agentickit/src/server/index.ts): server entry point for `createPilotHandler` and types. Never import from client code.
-- [packages/agentickit/src/protocol/index.ts](packages/agentickit/src/protocol/index.ts): parsers for the `.pilot/` markdown format (`RESOLVER.md` + `skills/<name>/SKILL.md`). The server handler auto-loads the folder at startup via `loadPilotProtocol` in `src/server/pilot-protocol-loader.ts`.
+- [packages/agentickit/src/index.ts](packages/agentickit/src/index.ts): client entry point. Exports the four hooks, the `<Pilot>` provider, four chat surfaces, the multi-agent registry, both runtimes, and `<PilotConfirmModal>` for `renderConfirm` overrides.
+- [packages/agentickit/src/server/index.ts](packages/agentickit/src/server/index.ts): server entry point. Exports `createPilotHandler`, `loadPilotProtocol` (RESOLVER-driven, with always-on warnings for orphan + missing skill files), and the structured log-event types. Never import from client code.
+- [packages/agentickit/src/protocol/index.ts](packages/agentickit/src/protocol/index.ts): exports the `parseResolver` and `parseSkill` parsers for the `.pilot/` markdown format. Frontmatter is a strict superset of Anthropic's Agent Skills spec and Garry Tan's gbrain `SKILL.md` convention.
+- [packages/agentickit/src/cli.ts](packages/agentickit/src/cli.ts): the `agentickit` bin. Skills-first surface (`init`, `add-skill <name> [--type text|server-tool|ui-component]`, `list-skills`, `list-agents`, `add-agent <name> --type <type>`). No `add-tool` command; every CLI-scaffolded capability is a skill.
+- [packages/agentickit/templates/](packages/agentickit/templates/): bundled stock templates copied into the consumer repo by the CLI. `templates/skills/web-search/` (4 backends) and `templates/skills/chart/` (inline panel with show/hide actions) are the stock skills today; `templates/agents/chat/` and `templates/agents/observational/` are the stock agent shapes.
 
-## Example
+## Example (the runnable consumer-app reference)
 
-- [examples/todo/README.md](examples/todo/README.md): minimal end-to-end todo app. Read this to see every hook used in ~100 LoC of page code.
-- [examples/todo/app/page.tsx](examples/todo/app/page.tsx): the single page that wires `<Pilot>`, `usePilotState`, and `usePilotAction` against a todo list.
+- [examples/travel/README.md](examples/travel/README.md): trip-planner that wires every public surface in the package with a capability map showing which file demonstrates which feature.
+- [examples/travel/.pilot/RESOLVER.md](examples/travel/.pilot/RESOLVER.md): the consumer-app dispatch table. Routes user intents (find a flight, propose a hotel, search the web, show me luggage, pack for) to the right SKILL.md.
+- [examples/travel/.pilot/skills/](examples/travel/.pilot/skills/): eleven fat consumer-app skills paired with the React handlers under `examples/travel/src/plugins/` and `examples/travel/src/routes/`. This is what a real `.pilot/` folder looks like in practice.
+- [examples/travel/server/index.ts](examples/travel/server/index.ts): Hono server with the Concierge route (`createPilotHandler` auto-loads `.pilot/`) plus four AG-UI specialist endpoints with `allowTools` filters.
+- [examples/travel/src/app.tsx](examples/travel/src/app.tsx): wires the multi-agent registry, the chat provider, the custom `renderConfirm` modal, and every plugin under `<PilotPlugins>`.
+
+## Optional
+
+- [CHANGELOG](packages/agentickit/CHANGELOG.md): release notes per published version.
+- [.research/INDEX.md](.research/INDEX.md): persistent research store on positioning vs CopilotKit / assistant-ui, the gbrain doctrine the `.pilot/` design is derived from, and live phase-tracking. Project-scoped, gitignored.
