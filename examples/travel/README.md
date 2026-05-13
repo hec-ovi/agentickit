@@ -65,18 +65,20 @@ examples/travel/
 
 ## Extending the example with the `agentickit` CLI
 
-The travel app already wires every framework primitive by hand. If you're starting your own app and want the same shape, the CLI generates the boilerplate for you:
+The travel app wires every framework primitive by hand so you can read the source. If you're starting your own app and want the same shape scaffolded for you, the CLI is skill-first: every CLI-scaffolded capability is a SKILL.md (the model-facing instructions) plus optional hook code, never a "tool" without instructions.
 
 ```bash
-npx agentickit init                        # create .pilot/RESOLVER.md + one example skill
-npx agentickit add-skill <name>            # add a skill that teaches YOUR app's rules to its own agent
-npx agentickit list-tools                  # see stock tool plugins (web-search ships today)
-npx agentickit add-tool web-search         # scaffold the four-backend search plugin straight into your repo
-npx agentickit list-agents                 # see stock agent templates (chat, observational)
-npx agentickit add-agent <name> --type T   # scaffold a chat or observational agent
+npx agentickit init                                  # create .pilot/RESOLVER.md + one example skill
+npx agentickit list-skills                           # see stock skill templates you can install by name
+npx agentickit add-skill web-search                  # install a stock skill (auto-detects + uses its declared --type)
+npx agentickit add-skill <name>                      # scaffold a custom skill (defaults to --type text)
+npx agentickit add-skill <name> --type server-tool   # SKILL.md + src/plugins/<name>.tsx + server/<name>/index.ts
+npx agentickit add-skill <name> --type ui-component  # SKILL.md + src/plugins/<name>.tsx (show/hide actions + panel)
+npx agentickit list-agents                           # stock agent templates (chat, observational)
+npx agentickit add-agent <name> --type chat          # scaffold an agent (defaults to --type chat)
 ```
 
-The travel example does NOT call these (it hand-codes everything so you can read the source), but the templates produce the same shape its `plugins/` and `server/` use.
+Stock skills shipped today: `web-search` (4 backends) and `chart` (inline panel with show/hide). Travel itself does NOT call these (it hand-codes everything for readability), but the same web-search code lives both in travel under `server/web-search/` and in the bundled template under `packages/agentickit/templates/skills/web-search/`.
 
 ## Where the agent's behavior actually lives
 
@@ -102,3 +104,38 @@ examples/travel/.pilot/
 The hook code each skill names lives where build tools expect it: client React in `src/plugins/`, server endpoints in `server/`. The skill is the dispatch unit; the code is the substrate the skill invokes. If you want to change WHEN the agent uses a tool, edit the SKILL.md. If you want to change HOW the tool runs, edit the React or server code. Two layers, edited independently, locked together by tool name.
 
 Want to scaffold this shape in your own app? `npx agentickit init` creates the folder, then `npx agentickit add-skill <name> --type [text|server-tool|ui-component]` adds each capability with the right hook stubs in the right places.
+
+## Package capability map (where to look for what)
+
+Every public surface in `@hec-ovi/agentickit` is exercised somewhere in this example. If you're trying to learn a specific feature, this is your jump table.
+
+| Package surface | Where it's used in travel |
+| --- | --- |
+| `usePilotState({ value, schema })` (read-only context) | every route's `active_trip` / `booking_review` / `packing_list` registration (`src/routes/*.tsx`) |
+| `usePilotState({ value, schema, setValue })` (auto-registers `update_<name>` mutating tool) | `src/routes/preferences.tsx` (the agent can change preferences via the auto-generated `update_preferences`) |
+| `usePilotAction` non-mutating | every plugin under `src/plugins/` (weather, currency, destinations, date, sql, web-search) |
+| `usePilotAction({ mutating: true })` (confirm-modal gate) | `src/routes/booking.tsx` (`book_flight`, `book_hotel`, `book_all_pending`); `src/routes/packing.tsx` |
+| `usePilotAction({ renderAndWait })` (HITL picker) | `src/routes/itinerary.tsx` (`propose_flight`, `propose_hotel`) |
+| `usePilotForm(form, { confirm: { submit: false } })` (per-form opt-out) | `src/widgets/new-trip-wizard.tsx` |
+| `usePilotInstructions({ name, value })` (page-scoped prompt) | `src/routes/packing.tsx` |
+| `<Pilot apiUrl renderConfirm runtime>` (custom confirm modal override) | `src/app.tsx` + `src/components/app-confirm.tsx` |
+| `<PilotSidebar mode composer suggestions>` (overlay vs push, composer modes) | `src/app.tsx` (default), `src/routes/lab.tsx` (variants) |
+| `<PilotPopup>` (floating bubble) | `src/routes/lab.tsx` |
+| `<PilotModal>` (centered dialog) | `src/routes/lab.tsx` |
+| `<PilotChatView>` (headless chat body for custom chrome) | `src/routes/packing.tsx`, `src/routes/threads.tsx`, `src/routes/lab.tsx` |
+| `<PilotChatView composer="suggestions" \| "off">` | `src/routes/lab.tsx` |
+| `<PilotAgentRegistry>` + `useRegisterAgent` + `useAgent` + `useAgents` (multi-agent) | `src/app.tsx` (registry) + `src/routes/agents.tsx` (specialist switcher) |
+| `<PilotAgentStateView>` + `usePilotAgentState` + `usePilotAgentActivity` (live state HUD) | `src/routes/agents.tsx` |
+| `localRuntime({ initialMessages, onMessagesChange })` (per-thread persistence) | `src/routes/threads.tsx` |
+| `agUiRuntime({ agent })` + `HttpAgent` (AG-UI specialists) | `src/app.tsx` + `server/agui-bridge.ts` |
+| `inspect_context` auto-tool (try: "look around and tell me what state you can see") | auto-registered by `<Pilot>`; works on every page |
+| `createPilotHandler({ system })` AUTO-load from `.pilot/` | `server/index.ts` (no `system:` passed; loader composes from `.pilot/`) |
+| `createPilotHandler({ log: true })` (per-day log file under `./debug/`) | `server/index.ts` (check `./debug/agentickit-YYYY-MM-DD.log` after a chat turn) |
+| `loadPilotProtocol` (RESOLVER-driven) + orphan/missing warnings | exercised on every server start; pinned by `server/pilot-load.test.ts` |
+| `parseResolver` / `parseSkill` (advanced protocol parsers) | not directly used here; only consumers building tooling on `.pilot/` need them |
+
+## What the example deliberately does NOT demonstrate
+
+- **`createPilotHandler({ debug: true })` and `onLogEvent` (structured per-event subscriber).** Travel uses `log: true` (file on disk) for simplicity. Wiring `onLogEvent` to an SSE endpoint for a live observability dashboard is a separate showcase worth doing once and would land as its own demo route.
+- **CLI scaffolding (`init`, `add-skill`, `add-agent`).** These are one-shot commands run by a NEW user; impossible to demo from inside an already-built example. The README block above shows what to type; the bundled `web-search` skill template is a real reference of what the scaffold produces.
+- **`<PilotConfirmModal>` re-export.** Travel writes its own confirm modal in `src/components/app-confirm.tsx` to demonstrate the `renderConfirm` override path; the package's default modal is what users get when they DON'T pass `renderConfirm`. Both shapes are tested at the package level.
