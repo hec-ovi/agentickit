@@ -25,7 +25,7 @@ Three hooks, four chat surfaces (sidebar, popup, modal, headless), swappable run
 > Note. This repo also has a `/.pilot/` at the root, but that one is a separate audience: it teaches AI coding assistants (Claude, Cursor) how to develop the framework itself. The consumer-app `.pilot/` (yours, inside your app) is the one that matters for the value prop.
 
 - 📦 [Full documentation + roadmap + FAQ on GitHub](https://github.com/hec-ovi/agentickit)
-- 🧪 [Testing notes (300+ automated tests + vLLM e2e)](https://github.com/hec-ovi/agentickit#testing)
+- 🧪 [Testing notes (450+ automated tests + vLLM e2e)](https://github.com/hec-ovi/agentickit#testing)
 - 📜 [CHANGELOG](./CHANGELOG.md)
 - 🎮 [Runnable demo: `examples/travel`](https://github.com/hec-ovi/agentickit/tree/master/examples/travel)
 - 🐛 [Report an issue](https://github.com/hec-ovi/agentickit/issues)
@@ -139,7 +139,7 @@ export default function Root({ children }: { children: React.ReactNode }) {
 
 ### 3. Expose state + register actions
 
-See the "At a glance" snippet above, or the [runnable demo](https://github.com/hec-ovi/agentickit/tree/master/examples/travel) for a multi-route trip-planning app that wires every primitive (state, action, form, renderAndWait, instructions, all four chat surfaces, multi-agent registry) plus three theme modes and a real-LLM AG-UI bridge.
+See the "At a glance" snippet above, or the [runnable demo](https://github.com/hec-ovi/agentickit/tree/master/examples/travel) for a multi-route trip-planning app that wires every primitive (state, action, form, renderAndWait, instructions, all four chat surfaces, multi-agent registry, custom `renderConfirm` modal, headless `<PilotChatView>`, live agent-state HUD) plus three theme modes, a real-LLM AG-UI bridge, and **eleven fat skills under `.pilot/`** that compose the system prompt at startup. The travel README has a capability map showing which file demonstrates which package surface.
 
 ---
 
@@ -168,7 +168,6 @@ See the "At a glance" snippet above, or the [runnable demo](https://github.com/h
 | `<PilotModal composer?>` | Centered backdrop dialog. Controlled-only, focus trap, Escape and backdrop-click close, focus restoration |
 | `<PilotChatView composer?>` | Headless chat body the others wrap. Mount inside any custom chrome |
 | `<PilotAgentStateView />` | Generative-UI helper. Renders a child node from streamed agent state via `usePilotAgentState` |
-| `<PilotAgentRegistry>` | Top-level provider holding a `Map<agentId, AbstractAgent>`. Optional; only needed for multi-agent setups |
 | `<PilotConfirmModal />` | Themed confirm modal for mutating actions. Re-exported for custom `renderConfirm` layouts |
 
 ### Runtimes
@@ -213,9 +212,11 @@ Full options reference, security notes, and runtime matrix: [server-handler docs
 
 **This is how YOUR app teaches the agent about itself.** A skill is a markdown file (`.pilot/skills/<name>/SKILL.md`) that ships with your app and gets injected into the agent's system prompt at server startup. Use it to encode app-specific knowledge the model can't infer from tool signatures: domain rules ("always quote prices in USD"), terminology ("a 'trip' has a primary destination and 0+ stops"), UI guidance ("prefer the itinerary editor over chat for date changes"), brand voice, escalation rules, anything that should hold for every conversation in your app.
 
-Skills are NOT general-purpose agent capabilities, NOT executable code, and NOT shared across apps. They're your app's instruction manual for its own copilot, version-controlled alongside the app. `RESOLVER.md` is the index that lists every skill so the loader knows what to compose.
+Skills are NOT general-purpose agent capabilities, NOT executable code, and NOT shared across apps. They're your app's instruction manual for its own copilot, version-controlled alongside the app. `RESOLVER.md` is the index that lists every skill; the loader is **RESOLVER-driven** (only skills referenced by RESOLVER load, in RESOLVER order, NOT alphabetical). Always-on warnings fire on startup for orphan skill folders (file exists but RESOLVER does not list it) and missing files (RESOLVER lists them but the file is gone), so a misconfigured `.pilot/` is loud, not silent.
 
 Workflow: edit a markdown file, restart the dev server, behavior changes (no TypeScript touched, no rebuild). Frontmatter is a strict superset of Anthropic's Agent Skills spec and Garry Tan's gbrain `SKILL.md` convention so skills can be shared with Claude Code, Cursor, and MCP-compatible tools where it makes sense.
+
+Stock skills shipped today (install with `npx agentickit add-skill <name>`): `web-search` (4 backends with rich SKILL.md guidance) and `chart` (inline panel with show/hide actions). Run `npx agentickit list-skills` to browse.
 
 Full spec + interop notes (Claude Code, Cursor, MCP): [`.pilot/` docs on GitHub](https://github.com/hec-ovi/agentickit#the-pilot-skills-folder).
 
@@ -281,9 +282,9 @@ Full comparison table: [alternatives on GitHub](https://github.com/hec-ovi/agent
 
 ## Testing
 
-Ships with **300+ automated tests** across 30+ files (`pnpm test`). The suite includes component-level integration scenarios that mount a real `<Pilot>` tree in `happy-dom`, replay scripted SSE frames, simulate user clicks, and assert on exact HTTP fetch counts so the dangerous class of bugs (infinite resubmit loops that drain API credits) fails CI before it ships. Plus chat-surface tests with real `fireEvent` user simulation, renderAndWait HITL tests, runtime-swap + AG-UI tests against a fake AG-UI agent that exercises the real `defaultApplyEvents` apply pipeline, generative-UI tests for `<PilotAgentStateView>`, multi-agent registry tests covering registration lifecycle and per-agent state isolation under Pilot, and unit coverage for every public hook + the server handler + the `.pilot/` parsers + the CLI.
+Ships with **450+ automated tests** across 35+ files (`pnpm test`). The suite includes component-level integration scenarios that mount a real `<Pilot>` tree in `happy-dom`, replay scripted SSE frames, simulate user clicks, and assert on exact HTTP fetch counts so the dangerous class of bugs (infinite resubmit loops that drain API credits) fails CI before it ships. Plus chat-surface tests with real `fireEvent` user simulation, renderAndWait HITL tests, runtime-swap + AG-UI tests against a fake AG-UI agent that exercises the real `defaultApplyEvents` apply pipeline, generative-UI tests for `<PilotAgentStateView>`, multi-agent registry tests covering registration lifecycle and per-agent state isolation under Pilot, exhaustive CLI tests pinning every `--type` variant for `add-skill`, and unit coverage for every public hook + the server handler + the `.pilot/` parsers + the loader's orphan/missing warnings.
 
-Beyond the mocked suite, the package is verified end-to-end against a local **vLLM** server (Qwen3 family) via the bundled `examples/travel` app: multi-tool conversation turns across the trip-detail / itinerary / booking / packing routes, confirm-modal approve and decline branches on every mutating tool, progressive form fill plus submit through `usePilotForm`, auto-generated `update_<name>` state setters, real LLM specialists reached over an AG-UI `HttpAgent` bridge with curated tool subsets, and the full structured observability path through `debug` / `log` / `onLogEvent`.
+Beyond the mocked suite, the package is verified end-to-end against a local **vLLM** server (Qwen3 family) via two paths. (1) The bundled `examples/travel` app exercises multi-tool conversation turns across the trip-detail / itinerary / booking / packing routes, confirm-modal approve and decline branches on every mutating tool, progressive form fill plus submit through `usePilotForm`, auto-generated `update_<name>` state setters, real LLM specialists reached over an AG-UI `HttpAgent` bridge with curated tool subsets, and disk-logging via `log: true`. (2) A gated live test (`handler.live-vllm-pilot.test.ts`, runs when `VLLM_BASE_URL` is set) plants a unique secret token inside a SKILL.md body and asks the model to recall it. Cryptographic proof the `.pilot/` loader is wired through `createPilotHandler` to the real model.
 
 Full testing notes + verified flows + known gaps: [Testing section on GitHub](https://github.com/hec-ovi/agentickit#testing).
 
