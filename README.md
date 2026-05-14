@@ -1,6 +1,6 @@
 # agentickit
 
-**Wire an AI copilot into your React app's state, actions, and forms.** Three hooks, four chat surfaces, swappable runtime, optional `.pilot/` skills folder.
+**An npm package for adding your own AI copilot to a React app.** Reads your app's state, fills forms, confirms destructive actions, and calls any tool you define (database queries, web search, custom functions in your stack).
 
 [![npm](https://img.shields.io/npm/v/%40hec-ovi%2Fagentickit.svg?color=black)](https://www.npmjs.com/package/@hec-ovi/agentickit)
 [![license: MIT](https://img.shields.io/badge/license-MIT-black.svg)](./LICENSE)
@@ -9,6 +9,26 @@
 ![agentickit demo: the agent opens a popup, fills the form, calls multiple tools, and submits the trip](docs/demo.gif)
 
 > The agent controls the website end to end: opens the new-trip popup, fills every field, calls multiple tools (weather, flights, hotels), and submits the completed form back into the app. Recorded against a local vLLM server in the `examples/travel` app, then trimmed and sped up.
+
+## What it does
+
+- Reads your app state so the assistant has real context, not guesses.
+- Fills forms automatically. Optional confirmation step before submit.
+- Confirms destructive actions before they run. Built-in human-in-the-loop gate.
+- Calls tools you define: database operations, file uploads, anything in your stack.
+- Ships ready-to-use skills for web search (Serper, Tavily, Firecrawl, DuckDuckGo) and chart rendering. Add your own with `agentickit add-skill <name>`.
+- **Multi-agent.** Different assistants for different pages, modes, or permission levels (customer-facing, admin, read-only). Each has its own tools, prompt, and rules. Switch on the fly.
+
+## Install and try it
+
+```bash
+npm install @hec-ovi/agentickit
+npx agentickit init
+```
+
+You get the React hooks, a sidebar chat surface, a one-line server route, and a `.pilot/` folder where you teach the copilot about your app in plain markdown (no TypeScript for the skill files).
+
+## Smallest working setup
 
 ```tsx
 import { useState } from "react";
@@ -46,7 +66,12 @@ export default function App() {
 }
 ```
 
-That's the smallest working setup. Three hooks. One chat surface. One server route. The AI now sees `cart_total` and can call `apply_discount`.
+Three hooks. One chat surface. One server route. The AI now sees `cart_total` and can call `apply_discount`.
+
+## Tested
+
+- 579 automated tests across 56 files (478 on the package, 101 on the travel example).
+- Verified live against a local vLLM model on the `examples/travel` template. The GIF above is that recording.
 
 ---
 

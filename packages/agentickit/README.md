@@ -1,17 +1,47 @@
 # @hec-ovi/agentickit
 
-**Wire an AI copilot into your React app's state, actions, and forms.**
-
-Three hooks, four chat surfaces (sidebar, popup, modal, headless), swappable runtime (default AI SDK 6, optional AG-UI), an optional `.pilot/` skills folder, and a one-line server handler. Built on the [Vercel AI SDK 6](https://ai-sdk.dev). MIT.
+**An npm package for adding your own AI copilot to a React app.** Reads your app's state, fills forms, confirms destructive actions, and calls any tool you define (database queries, web search, custom functions in your stack). Built on the [Vercel AI SDK 6](https://ai-sdk.dev). MIT.
 
 [![npm version](https://img.shields.io/npm/v/%40hec-ovi%2Fagentickit.svg?color=black&label=npm)](https://www.npmjs.com/package/@hec-ovi/agentickit)
-[![license: MIT](https://img.shields.io/badge/license-MIT-black.svg)](https://github.com/hec-ovi/agentickit/blob/master/LICENSE)
+[![license: MIT](https://img.shields.io/badge/license-MIT-black.svg)](https://github.com/hec-ovi/agentickit/blob/main/LICENSE)
 [![built on AI SDK 6](https://img.shields.io/badge/built%20on-AI%20SDK%206-black.svg)](https://ai-sdk.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-ready-black.svg)](https://www.typescriptlang.org/)
 
 ![agentickit demo: the agent opens a popup, fills the form, calls multiple tools, and submits the trip](https://raw.githubusercontent.com/hec-ovi/agentickit/main/docs/demo.gif)
 
 > The agent controls the website end to end: opens the new-trip popup, fills every field, calls multiple tools (weather, flights, hotels), and submits the completed form back into the app. Recorded against a local vLLM server in the `examples/travel` app, then trimmed and sped up.
+
+## What it does
+
+- Reads your app state so the assistant has real context, not guesses.
+- Fills forms automatically. Optional confirmation step before submit.
+- Confirms destructive actions before they run. Built-in human-in-the-loop gate.
+- Calls tools you define: database operations, file uploads, anything in your stack.
+- Ships ready-to-use skills for web search (Serper, Tavily, Firecrawl, DuckDuckGo) and chart rendering. Add your own with `agentickit add-skill <name>`.
+- **Multi-agent.** Different assistants for different pages, modes, or permission levels (customer-facing, admin, read-only). Each has its own tools, prompt, and rules. Switch on the fly.
+
+## Install and try it
+
+```bash
+npm install @hec-ovi/agentickit
+npx agentickit init
+```
+
+You get the React hooks, a sidebar chat surface, a one-line server route, and a `.pilot/` folder where you teach the copilot about your app in plain markdown (no TypeScript for the skill files).
+
+## Tested
+
+- 579 automated tests across 56 files (478 on the package, 101 on the travel example).
+- Verified live against a local vLLM model on the `examples/travel` template. The GIF above is that recording.
+
+## Links
+
+- [Full documentation, roadmap, FAQ on GitHub](https://github.com/hec-ovi/agentickit)
+- [CHANGELOG](./CHANGELOG.md)
+- [Runnable demo: `examples/travel`](https://github.com/hec-ovi/agentickit/tree/main/examples/travel)
+- [Report an issue](https://github.com/hec-ovi/agentickit/issues)
+
+---
 
 > Sits in the gap between Vercel AI SDK's primitives and CopilotKit's enterprise framework: small, typed, opinionated on the integration layer. Optional AG-UI runtime lets you mount the same chat surfaces on top of LangGraph CoAgents, CrewAI, Mastra, or any `AbstractAgent`.
 
@@ -27,12 +57,6 @@ Three hooks, four chat surfaces (sidebar, popup, modal, headless), swappable run
 > Skills are NOT general-purpose agent capabilities. They're NOT executable code. They're NOT shared across apps. They're your app's instruction manual for its own copilot, version-controlled alongside the app, hot-reloadable on server restart, no TypeScript touched. The `agentickit init` CLI scaffolds the folder; `agentickit add-skill <name>` adds each capability. Full explanation in the [`.pilot/` skills folder](#pilot-skills-folder) section.
 >
 > Note. This repo also has a `/.pilot/` at the root, but that one is a separate audience: it teaches AI coding assistants (Claude, Cursor) how to develop the framework itself. The consumer-app `.pilot/` (yours, inside your app) is the one that matters for the value prop.
-
-- 📦 [Full documentation + roadmap + FAQ on GitHub](https://github.com/hec-ovi/agentickit)
-- 🧪 [Testing notes (450+ automated tests + vLLM e2e)](https://github.com/hec-ovi/agentickit#testing)
-- 📜 [CHANGELOG](./CHANGELOG.md)
-- 🎮 [Runnable demo: `examples/travel`](https://github.com/hec-ovi/agentickit/tree/master/examples/travel)
-- 🐛 [Report an issue](https://github.com/hec-ovi/agentickit/issues)
 
 ---
 
