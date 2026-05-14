@@ -9,6 +9,10 @@ Three hooks, four chat surfaces (sidebar, popup, modal, headless), swappable run
 [![built on AI SDK 6](https://img.shields.io/badge/built%20on-AI%20SDK%206-black.svg)](https://ai-sdk.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-ready-black.svg)](https://www.typescriptlang.org/)
 
+![agentickit demo: the agent opens a popup, fills the form, calls multiple tools, and submits the trip](https://raw.githubusercontent.com/hec-ovi/agentickit/main/docs/demo.gif)
+
+> The agent controls the website end to end: opens the new-trip popup, fills every field, calls multiple tools (weather, flights, hotels), and submits the completed form back into the app. Recorded against a local vLLM server in the `examples/travel` app, then trimmed and sped up.
+
 > Sits in the gap between Vercel AI SDK's primitives and CopilotKit's enterprise framework: small, typed, opinionated on the integration layer. Optional AG-UI runtime lets you mount the same chat surfaces on top of LangGraph CoAgents, CrewAI, Mastra, or any `AbstractAgent`.
 
 > ### The `.pilot/` skills folder is the heart of this project

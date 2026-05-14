@@ -4,6 +4,14 @@ All notable changes to `@hec-ovi/agentickit` will be documented here. Format loo
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-05-14
+
+Docs-only release. README now leads with a demo GIF showing the agent driving the `examples/travel` app end to end.
+
+### Docs
+
+- **Demo GIF in both READMEs.** New 800x450, 86s GIF (`docs/demo.gif`, ~3.1 MB) shows the agent opening the new-trip popup, filling every field, calling multiple tools (weather, flights, hotels), and submitting the completed form back into the app. Recorded against a local vLLM server in `examples/travel`. Repo README uses a relative path; npm README uses an absolute GitHub raw URL so the image renders on npmjs.com.
+
 ## [0.4.1] - 2026-05-13
 
 Bug-fix release. Three product-readiness bugs surfaced by the user's first end-to-end demo recording, plus the test gaps that should have caught the headline regression.

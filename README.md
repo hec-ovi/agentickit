@@ -6,7 +6,9 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-black.svg)](./LICENSE)
 [![built on AI SDK 6](https://img.shields.io/badge/built%20on-AI%20SDK%206-black.svg)](https://ai-sdk.dev)
 
-<!-- DEMO_GIF_HERE -->
+![agentickit demo: the agent opens a popup, fills the form, calls multiple tools, and submits the trip](docs/demo.gif)
+
+> The agent controls the website end to end: opens the new-trip popup, fills every field, calls multiple tools (weather, flights, hotels), and submits the completed form back into the app. Recorded against a local vLLM server in the `examples/travel` app, then trimmed and sped up.
 
 ```tsx
 import { useState } from "react";
